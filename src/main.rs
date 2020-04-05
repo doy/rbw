@@ -1,8 +1,8 @@
 mod api;
+mod cipherstring;
 mod error;
 mod identity;
 mod prelude;
-mod secret;
 
 fn main() {
     let client = api::Client::new_self_hosted("https://bitwarden.tozt.net");
@@ -18,7 +18,8 @@ fn main() {
         .login(&identity.email, &identity.master_password_hash)
         .unwrap();
 
-    let protected_key = secret::Secret::new(&protected_key).unwrap();
+    let protected_key =
+        cipherstring::CipherString::new(&protected_key).unwrap();
     let master_key = protected_key
         .decrypt(&identity.enc_key, &identity.mac_key)
         .unwrap();
@@ -28,13 +29,14 @@ fn main() {
 
     let ciphers = client.sync(&access_token).unwrap();
     for cipher in ciphers {
-        let secret_name = secret::Secret::new(&cipher.name).unwrap();
+        let secret_name =
+            cipherstring::CipherString::new(&cipher.name).unwrap();
         let name = secret_name.decrypt(enc_key, mac_key).unwrap();
         let secret_username =
-            secret::Secret::new(&cipher.login.username).unwrap();
+            cipherstring::CipherString::new(&cipher.login.username).unwrap();
         let username = secret_username.decrypt(enc_key, mac_key).unwrap();
         let secret_password =
-            secret::Secret::new(&cipher.login.password).unwrap();
+            cipherstring::CipherString::new(&cipher.login.password).unwrap();
         let password = secret_password.decrypt(enc_key, mac_key).unwrap();
         println!("{}:", String::from_utf8(name).unwrap());
         println!("  Username: {}", String::from_utf8(username).unwrap());

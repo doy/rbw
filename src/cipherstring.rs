@@ -3,14 +3,14 @@ use crate::prelude::*;
 use block_modes::BlockMode as _;
 use hmac::Mac as _;
 
-pub struct Secret {
+pub struct CipherString {
     ty: u8,
     iv: Vec<u8>,
     ciphertext: Vec<u8>,
     mac: Option<Vec<u8>>,
 }
 
-impl Secret {
+impl CipherString {
     pub fn new(s: &str) -> Result<Self> {
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 2 {
