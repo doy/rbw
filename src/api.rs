@@ -54,7 +54,7 @@ struct Profile {
     key: String,
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Cipher {
     #[serde(rename = "Name")]
     pub name: String,
@@ -62,7 +62,7 @@ pub struct Cipher {
     pub login: Login,
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Login {
     #[serde(rename = "Username")]
     pub username: String,
@@ -92,22 +92,23 @@ impl Client {
         }
     }
 
-    pub fn prelogin(&self, email: &str) -> Result<u32> {
+    pub async fn prelogin(&self, email: &str) -> Result<u32> {
         let prelogin = PreloginReq {
             email: email.to_string(),
         };
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::Client::new();
         let res = client
             .post(&self.api_url("/accounts/prelogin"))
             .json(&prelogin)
             .send()
+            .await
             .context(crate::error::Reqwest)?;
         let prelogin_res: PreloginRes =
-            res.json().context(crate::error::Reqwest)?;
+            res.json().await.context(crate::error::Reqwest)?;
         Ok(prelogin_res.kdf_iterations)
     }
 
-    pub fn login(
+    pub async fn login(
         &self,
         email: &str,
         master_password_hash: &[u8],
@@ -125,14 +126,15 @@ impl Client {
             device_name: "test cli".to_string(),
             device_push_token: "".to_string(),
         };
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::Client::new();
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
             .send()
+            .await
             .context(crate::error::Reqwest)?;
         let connect_res: ConnectRes =
-            res.json().context(crate::error::Reqwest)?;
+            res.json().await.context(crate::error::Reqwest)?;
         Ok((
             connect_res.access_token,
             connect_res.refresh_token,
@@ -140,15 +142,20 @@ impl Client {
         ))
     }
 
-    pub fn sync(&self, access_token: &str) -> Result<Vec<Cipher>> {
-        let client = reqwest::blocking::Client::new();
+    pub async fn sync(
+        &self,
+        access_token: &str,
+    ) -> Result<(String, Vec<Cipher>)> {
+        let client = reqwest::Client::new();
         let res = client
             .get(&self.api_url("/sync"))
             .header("Authorization", format!("Bearer {}", access_token))
             .send()
+            .await
             .context(crate::error::Reqwest)?;
-        let sync_res: SyncRes = res.json().context(crate::error::Reqwest)?;
-        Ok(sync_res.ciphers)
+        let sync_res: SyncRes =
+            res.json().await.context(crate::error::Reqwest)?;
+        Ok((sync_res.profile.key, sync_res.ciphers))
     }
 
     fn api_url(&self, path: &str) -> String {

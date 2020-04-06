@@ -8,6 +8,8 @@ edition = "2018"
 aes = "*"
 base64 = "*"
 block-modes = "*"
+directories = "*"
+fs2 = "*"
 hkdf = "*"
 hmac = "*"
 pbkdf2 = "*"
@@ -15,6 +17,8 @@ reqwest = { version = "*", features = ["blocking", "json"] }
 rpassword = "*"
 rprompt = "*"
 serde = { version = "*", features = ["derive"] }
+serde_json = "*"
 sha2 = "*"
 snafu = "*"
+tokio = { version = "*", features = ["full"] }
 uuid = { version = "*", features = ["v4"] }
