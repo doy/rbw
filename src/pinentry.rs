@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 use tokio::io::AsyncWriteExt as _;
 
-pub async fn pinentry(
+pub async fn getpin(
     prompt: &str,
     desc: &str,
     tty: Option<&str>,

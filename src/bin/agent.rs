@@ -62,9 +62,8 @@ async fn login(
 ) {
     let mut state = state.write().await;
     let email = "bitwarden@tozt.net"; // XXX read from config
-    let password = rbw::pinentry::pinentry("prompt", "desc", tty)
-        .await
-        .unwrap();
+    let password =
+        rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
     let (access_token, iterations, protected_key) =
         rbw::actions::login(email, &password).await.unwrap();
     state.access_token = Some(access_token);
@@ -89,9 +88,8 @@ async fn unlock(
 ) {
     let mut state = state.write().await;
     let email = "bitwarden@tozt.net"; // XXX read from config
-    let password = rbw::pinentry::pinentry("prompt", "desc", tty)
-        .await
-        .unwrap();
+    let password =
+        rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
     let (enc_key, mac_key) = rbw::actions::unlock(
         email,
         &password,
