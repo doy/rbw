@@ -18,6 +18,9 @@ enum Action {
     Unlock,
     Sync,
     Decrypt { cipherstring: String },
+    // add
+    // update
+    // remove
 }
 
 fn make_pidfile() -> std::fs::File {
@@ -165,7 +168,7 @@ impl Agent {
     fn new() -> Self {
         Self {
             timeout: tokio::time::delay_for(
-                tokio::time::Duration::from_secs(600),
+                tokio::time::Duration::from_secs(600), // read from config
             ),
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
                 access_token: None,
