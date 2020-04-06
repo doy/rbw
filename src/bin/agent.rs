@@ -62,14 +62,17 @@ async fn login(
 ) {
     let mut state = state.write().await;
     let email = "bitwarden@tozt.net"; // XXX read from config
-    let password = rbw::pinentry::pinentry("prompt", "desc", tty).await;
+    let password = rbw::pinentry::pinentry("prompt", "desc", tty)
+        .await
+        .unwrap();
     let (access_token, iterations, protected_key) =
-        rbw::actions::login(email, &password).await;
+        rbw::actions::login(email, &password).await.unwrap();
     state.access_token = Some(access_token);
     state.iterations = Some(iterations);
     let (enc_key, mac_key) =
         rbw::actions::unlock(email, &password, iterations, protected_key)
-            .await;
+            .await
+            .unwrap();
     state.priv_key = Some((enc_key, mac_key));
 }
 
@@ -86,14 +89,17 @@ async fn unlock(
 ) {
     let mut state = state.write().await;
     let email = "bitwarden@tozt.net"; // XXX read from config
-    let password = rbw::pinentry::pinentry("prompt", "desc", tty).await;
+    let password = rbw::pinentry::pinentry("prompt", "desc", tty)
+        .await
+        .unwrap();
     let (enc_key, mac_key) = rbw::actions::unlock(
         email,
         &password,
         state.iterations.unwrap(),
         state.protected_key.as_ref().unwrap().to_string(),
     )
-    .await;
+    .await
+    .unwrap();
     state.priv_key = Some((enc_key, mac_key));
 }
 
@@ -101,7 +107,9 @@ async fn sync(state: std::sync::Arc<tokio::sync::RwLock<State>>) {
     ensure_login(state.clone()).await;
     let mut state = state.write().await;
     let (protected_key, ciphers) =
-        rbw::actions::sync(state.access_token.as_ref().unwrap()).await;
+        rbw::actions::sync(state.access_token.as_ref().unwrap())
+            .await
+            .unwrap();
     state.protected_key = Some(protected_key);
     println!("{}", serde_json::to_string(&ciphers).unwrap());
     state.ciphers = ciphers;

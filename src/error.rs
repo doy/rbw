@@ -9,6 +9,19 @@ pub enum Error {
     #[snafu(display("failed to decrypt: {}", source))]
     Decrypt { source: block_modes::BlockModeError },
 
+    #[snafu(display("failed to parse pinentry output ({:?})", out,))]
+    FailedToParsePinentry { out: Vec<u8> },
+
+    #[snafu(display(
+        "failed to parse pinentry output ({:?}): {}",
+        out,
+        source
+    ))]
+    FailedToParsePinentryUtf8 {
+        out: Vec<u8>,
+        source: std::string::FromUtf8Error,
+    },
+
     // no Error impl
     // #[snafu(display("failed to expand with hkdf: {}", source))]
     // HkdfExpand { source: hkdf::InvalidLength },
@@ -36,8 +49,17 @@ pub enum Error {
     #[snafu(display("invalid mac key"))]
     InvalidMacKey,
 
+    #[snafu(display("error waiting for pinentry to exit: {}", source))]
+    ProcessWaitOutput { source: tokio::io::Error },
+
     #[snafu(display("error making api request: {}", source))]
     Reqwest { source: reqwest::Error },
+
+    #[snafu(display("error spawning pinentry: {}", source))]
+    Spawn { source: tokio::io::Error },
+
+    #[snafu(display("error writing to pinentry stdin: {}", source))]
+    WriteStdin { source: tokio::io::Error },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
