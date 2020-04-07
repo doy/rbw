@@ -14,6 +14,7 @@ pub enum Action {
     // add
     // update
     // remove
+    Quit,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

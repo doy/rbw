@@ -128,6 +128,17 @@ fn purge() {
     todo!()
 }
 
+fn stop_agent() {
+    let mut sock = connect();
+    send(
+        &mut sock,
+        &rbw::agent::Request {
+            tty: std::env::var("TTY").ok(),
+            action: rbw::agent::Action::Quit,
+        },
+    );
+}
+
 fn main() {
     let matches = clap::App::new("rbw")
         .about("unofficial bitwarden cli")
@@ -144,6 +155,7 @@ fn main() {
         .subcommand(clap::SubCommand::with_name("remove"))
         .subcommand(clap::SubCommand::with_name("lock"))
         .subcommand(clap::SubCommand::with_name("purge"))
+        .subcommand(clap::SubCommand::with_name("stop-agent"))
         .get_matches();
 
     ensure_agent();
@@ -160,6 +172,7 @@ fn main() {
         ("remove", Some(_)) => remove(),
         ("lock", Some(_)) => lock(),
         ("purge", Some(_)) => purge(),
+        ("stop-agent", Some(_)) => stop_agent(),
         _ => unimplemented!(),
     }
 }

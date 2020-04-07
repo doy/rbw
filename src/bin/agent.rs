@@ -140,6 +140,7 @@ async fn handle_sock(
         rbw::agent::Action::Decrypt { cipherstring } => {
             decrypt(&mut sock, state.clone(), &cipherstring).await
         }
+        rbw::agent::Action::Quit => std::process::exit(0),
     }
 }
 
