@@ -1,5 +1,3 @@
-extern crate rbw;
-
 use fs2::FileExt as _;
 use std::io::Write as _;
 use tokio::io::AsyncBufReadExt as _;

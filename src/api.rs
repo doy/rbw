@@ -76,15 +76,23 @@ pub struct Client {
     identity_url_base: String,
 }
 
-impl Client {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
+impl Default for Client {
+    fn default() -> Self {
         Self {
             api_url_base: "https://api.bitwarden.com".to_string(),
             identity_url_base: "https://identity.bitwarden.com".to_string(),
         }
     }
+}
 
+impl Client {
+    #[allow(dead_code)]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
     pub fn new_self_hosted(base_url: &str) -> Self {
         Self {
             api_url_base: format!("{}/api", base_url),

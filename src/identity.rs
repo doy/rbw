@@ -9,7 +9,7 @@ pub struct Identity {
 
 impl Identity {
     pub fn new(email: &str, password: &str, iterations: u32) -> Result<Self> {
-        let mut key = vec![0u8; 32];
+        let mut key = vec![0_u8; 32];
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
             password.as_bytes(),
             email.as_bytes(),
@@ -17,7 +17,7 @@ impl Identity {
             &mut key,
         );
 
-        let mut hash = vec![0u8; 32];
+        let mut hash = vec![0_u8; 32];
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
             &key,
             password.as_bytes(),
@@ -30,7 +30,7 @@ impl Identity {
         hkdf.expand(b"enc", &mut key)
             .map_err(|_| Error::HkdfExpand)?;
 
-        let mut mac_key = vec![0u8; 32];
+        let mut mac_key = vec![0_u8; 32];
         hkdf.expand(b"mac", &mut mac_key)
             .map_err(|_| Error::HkdfExpand)?;
 

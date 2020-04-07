@@ -47,10 +47,10 @@ pub async fn getpin(
         crate::error::FailedToParsePinentryUtf8 { out: out.clone() },
     )?;
     for line in out_str.lines() {
-        if line.starts_with("OK") {
-            continue;
-        } else if line.starts_with("D ") {
+        if line.starts_with("D ") {
             return Ok(line[2..line.len()].to_string());
+        } else if !line.starts_with("OK") {
+            break;
         }
     }
 
