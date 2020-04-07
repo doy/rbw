@@ -4,6 +4,7 @@
 #![allow(clippy::similar_names)]
 
 pub mod actions;
+pub mod agent;
 pub mod api;
 pub mod cipherstring;
 pub mod dirs;

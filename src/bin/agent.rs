@@ -3,24 +3,6 @@ use std::io::Write as _;
 use tokio::io::AsyncBufReadExt as _;
 use tokio::stream::StreamExt as _;
 
-#[derive(serde::Deserialize, Debug)]
-struct Message {
-    tty: Option<String>,
-    action: Action,
-}
-
-#[derive(serde::Deserialize, Debug)]
-#[serde(tag = "type")]
-enum Action {
-    Login,
-    Unlock,
-    Sync,
-    Decrypt { cipherstring: String },
-    // add
-    // update
-    // remove
-}
-
 fn make_pidfile() -> std::fs::File {
     let runtime_dir = rbw::dirs::runtime_dir();
     std::fs::create_dir_all(&runtime_dir).unwrap();
@@ -135,12 +117,16 @@ async fn handle_sock(
     let mut lines = buf.lines();
     while let Some(line) = lines.next().await {
         let line = line.unwrap();
-        let msg: Message = serde_json::from_str(&line).unwrap();
+        let msg: rbw::agent::Message = serde_json::from_str(&line).unwrap();
         match msg.action {
-            Action::Login => login(state.clone(), msg.tty.as_deref()).await,
-            Action::Unlock => unlock(state.clone(), msg.tty.as_deref()).await,
-            Action::Sync => sync(state.clone()).await,
-            Action::Decrypt { cipherstring } => {
+            rbw::agent::Action::Login => {
+                login(state.clone(), msg.tty.as_deref()).await
+            }
+            rbw::agent::Action::Unlock => {
+                unlock(state.clone(), msg.tty.as_deref()).await
+            }
+            rbw::agent::Action::Sync => sync(state.clone()).await,
+            rbw::agent::Action::Decrypt { cipherstring } => {
                 decrypt(state.clone(), &cipherstring).await
             }
         }

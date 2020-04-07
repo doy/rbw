@@ -1,44 +1,97 @@
-extern crate rbw;
+use std::io::Write as _;
+
+fn send(msg: &rbw::agent::Message) {
+    let mut sock = std::os::unix::net::UnixStream::connect(
+        rbw::dirs::runtime_dir().join("socket"),
+    )
+    .unwrap();
+    sock.write_all(serde_json::to_string(msg).unwrap().as_bytes())
+        .unwrap();
+}
+
+fn login() {
+    send(&rbw::agent::Message {
+        tty: std::env::var("TTY").ok(),
+        action: rbw::agent::Action::Login,
+    })
+}
+
+fn unlock() {
+    send(&rbw::agent::Message {
+        tty: std::env::var("TTY").ok(),
+        action: rbw::agent::Action::Unlock,
+    })
+}
+
+fn sync() {
+    send(&rbw::agent::Message {
+        tty: std::env::var("TTY").ok(),
+        action: rbw::agent::Action::Sync,
+    })
+}
+
+fn list() {
+    todo!()
+}
+
+fn get() {
+    todo!()
+}
+
+fn add() {
+    todo!()
+}
+
+fn generate() {
+    todo!()
+}
+
+fn edit() {
+    todo!()
+}
+
+fn remove() {
+    todo!()
+}
+
+fn lock() {
+    todo!()
+}
+
+fn purge() {
+    todo!()
+}
 
 fn main() {
-    let client =
-        rbw::api::Client::new_self_hosted("https://bitwarden.tozt.net");
+    let matches = clap::App::new("rbw")
+        .about("unofficial bitwarden cli")
+        .author(clap::crate_authors!())
+        .version(clap::crate_version!())
+        .subcommand(clap::SubCommand::with_name("login"))
+        .subcommand(clap::SubCommand::with_name("unlock"))
+        .subcommand(clap::SubCommand::with_name("sync"))
+        .subcommand(clap::SubCommand::with_name("list"))
+        .subcommand(clap::SubCommand::with_name("get"))
+        .subcommand(clap::SubCommand::with_name("add"))
+        .subcommand(clap::SubCommand::with_name("generate"))
+        .subcommand(clap::SubCommand::with_name("edit"))
+        .subcommand(clap::SubCommand::with_name("remove"))
+        .subcommand(clap::SubCommand::with_name("lock"))
+        .subcommand(clap::SubCommand::with_name("purge"))
+        .get_matches();
 
-    let email = rprompt::prompt_reply_stderr("Email: ").unwrap();
-    let password = rpassword::prompt_password_stderr("Password: ").unwrap();
-
-    let iterations = client.prelogin(&email).unwrap();
-    let identity =
-        rbw::identity::Identity::new(&email, &password, iterations).unwrap();
-
-    let (access_token, _refresh_token, protected_key) = client
-        .login(&identity.email, &identity.master_password_hash)
-        .unwrap();
-
-    let protected_key =
-        rbw::cipherstring::CipherString::new(&protected_key).unwrap();
-    let master_key = protected_key
-        .decrypt(&identity.enc_key, &identity.mac_key)
-        .unwrap();
-
-    let enc_key = &master_key[0..32];
-    let mac_key = &master_key[32..64];
-
-    let (_, ciphers) = client.sync(&access_token).unwrap();
-    for cipher in ciphers {
-        let secret_name =
-            rbw::cipherstring::CipherString::new(&cipher.name).unwrap();
-        let name = secret_name.decrypt(enc_key, mac_key).unwrap();
-        let secret_username =
-            rbw::cipherstring::CipherString::new(&cipher.login.username)
-                .unwrap();
-        let username = secret_username.decrypt(enc_key, mac_key).unwrap();
-        let secret_password =
-            rbw::cipherstring::CipherString::new(&cipher.login.password)
-                .unwrap();
-        let password = secret_password.decrypt(enc_key, mac_key).unwrap();
-        println!("{}:", String::from_utf8(name).unwrap());
-        println!("  Username: {}", String::from_utf8(username).unwrap());
-        println!("  Password: {}", String::from_utf8(password).unwrap());
+    match matches.subcommand() {
+        ("login", Some(_)) => login(),
+        ("unlock", Some(_)) => unlock(),
+        ("sync", Some(_)) => sync(),
+        ("list", Some(_)) => list(),
+        ("get", Some(_)) => get(),
+        ("add", Some(_)) => add(),
+        ("generate", Some(_)) => generate(),
+        ("edit", Some(_)) => edit(),
+        ("remove", Some(_)) => remove(),
+        ("lock", Some(_)) => lock(),
+        ("purge", Some(_)) => purge(),
+        _ => unimplemented!(),
     }
 }
