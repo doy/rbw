@@ -1,4 +1,4 @@
-use tokio::io::AsyncBufReadExt as _;
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
 use tokio::stream::StreamExt as _;
 
 fn make_socket() -> anyhow::Result<tokio::net::UnixListener> {
@@ -12,14 +12,28 @@ fn make_socket() -> anyhow::Result<tokio::net::UnixListener> {
     Ok(sock)
 }
 
-async fn ensure_login(state: std::sync::Arc<tokio::sync::RwLock<State>>) {
+async fn send_response(
+    sock: &mut tokio::net::UnixStream,
+    res: &rbw::agent::Response,
+) {
+    sock.write_all(serde_json::to_string(res).unwrap().as_bytes())
+        .await
+        .unwrap();
+    sock.write_all(b"\n").await.unwrap();
+}
+
+async fn ensure_login(
+    sock: &mut tokio::net::UnixStream,
+    state: std::sync::Arc<tokio::sync::RwLock<State>>,
+) {
     let rstate = state.read().await;
     if rstate.access_token.is_none() {
-        login(state.clone(), None).await; // tty
+        login(sock, state.clone(), None).await; // tty
     }
 }
 
 async fn login(
+    sock: &mut tokio::net::UnixStream,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
     tty: Option<&str>,
 ) {
@@ -36,16 +50,22 @@ async fn login(
             .await
             .unwrap();
     state.priv_key = Some((enc_key, mac_key));
+
+    send_response(sock, &rbw::agent::Response::Ack).await;
 }
 
-async fn ensure_unlock(state: std::sync::Arc<tokio::sync::RwLock<State>>) {
+async fn ensure_unlock(
+    sock: &mut tokio::net::UnixStream,
+    state: std::sync::Arc<tokio::sync::RwLock<State>>,
+) {
     let rstate = state.read().await;
     if rstate.priv_key.is_none() {
-        unlock(state.clone(), None).await; // tty
+        unlock(sock, state.clone(), None).await; // tty
     }
 }
 
 async fn unlock(
+    sock: &mut tokio::net::UnixStream,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
     tty: Option<&str>,
 ) {
@@ -62,10 +82,15 @@ async fn unlock(
     .await
     .unwrap();
     state.priv_key = Some((enc_key, mac_key));
+
+    send_response(sock, &rbw::agent::Response::Ack).await;
 }
 
-async fn sync(state: std::sync::Arc<tokio::sync::RwLock<State>>) {
-    ensure_login(state.clone()).await;
+async fn sync(
+    sock: &mut tokio::net::UnixStream,
+    state: std::sync::Arc<tokio::sync::RwLock<State>>,
+) {
+    ensure_login(sock, state.clone()).await;
     let mut state = state.write().await;
     let (protected_key, ciphers) =
         rbw::actions::sync(state.access_token.as_ref().unwrap())
@@ -74,41 +99,46 @@ async fn sync(state: std::sync::Arc<tokio::sync::RwLock<State>>) {
     state.protected_key = Some(protected_key);
     println!("{}", serde_json::to_string(&ciphers).unwrap());
     state.ciphers = ciphers;
+
+    send_response(sock, &rbw::agent::Response::Ack).await;
 }
 
 async fn decrypt(
+    sock: &mut tokio::net::UnixStream,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
     cipherstring: &str,
 ) {
-    ensure_unlock(state.clone()).await;
+    ensure_unlock(sock, state.clone()).await;
     let state = state.read().await;
     let (enc_key, mac_key) = state.priv_key.as_ref().unwrap();
     let cipherstring =
         rbw::cipherstring::CipherString::new(cipherstring).unwrap();
-    let plain = cipherstring.decrypt(&enc_key, &mac_key).unwrap();
-    println!("{}", String::from_utf8(plain).unwrap());
+    let plaintext =
+        String::from_utf8(cipherstring.decrypt(&enc_key, &mac_key).unwrap())
+            .unwrap();
+
+    send_response(sock, &rbw::agent::Response::Decrypt { plaintext }).await;
 }
 
 async fn handle_sock(
     sock: tokio::net::UnixStream,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
 ) {
-    let buf = tokio::io::BufStream::new(sock);
-    let mut lines = buf.lines();
-    while let Some(line) = lines.next().await {
-        let line = line.unwrap();
-        let msg: rbw::agent::Message = serde_json::from_str(&line).unwrap();
-        match msg.action {
-            rbw::agent::Action::Login => {
-                login(state.clone(), msg.tty.as_deref()).await
-            }
-            rbw::agent::Action::Unlock => {
-                unlock(state.clone(), msg.tty.as_deref()).await
-            }
-            rbw::agent::Action::Sync => sync(state.clone()).await,
-            rbw::agent::Action::Decrypt { cipherstring } => {
-                decrypt(state.clone(), &cipherstring).await
-            }
+    let mut buf = tokio::io::BufStream::new(sock);
+    let mut line = String::new();
+    buf.read_line(&mut line).await.unwrap();
+    let mut sock = buf.into_inner();
+    let msg: rbw::agent::Request = serde_json::from_str(&line).unwrap();
+    match msg.action {
+        rbw::agent::Action::Login => {
+            login(&mut sock, state.clone(), msg.tty.as_deref()).await
+        }
+        rbw::agent::Action::Unlock => {
+            unlock(&mut sock, state.clone(), msg.tty.as_deref()).await
+        }
+        rbw::agent::Action::Sync => sync(&mut sock, state.clone()).await,
+        rbw::agent::Action::Decrypt { cipherstring } => {
+            decrypt(&mut sock, state.clone(), &cipherstring).await
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::io::Write as _;
+use std::io::{BufRead as _, Write as _};
 
 fn ensure_agent() {
     let agent_path = std::env::var("RBW_AGENT");
@@ -16,34 +16,84 @@ fn ensure_agent() {
     }
 }
 
-fn send(msg: &rbw::agent::Message) {
-    let mut sock = std::os::unix::net::UnixStream::connect(
+fn connect() -> std::os::unix::net::UnixStream {
+    std::os::unix::net::UnixStream::connect(
         rbw::dirs::runtime_dir().join("socket"),
     )
-    .unwrap();
+    .unwrap()
+}
+
+fn send(
+    sock: &mut std::os::unix::net::UnixStream,
+    msg: &rbw::agent::Request,
+) {
     sock.write_all(serde_json::to_string(msg).unwrap().as_bytes())
         .unwrap();
+    sock.write_all(b"\n").unwrap();
+}
+
+fn recv(sock: &mut std::os::unix::net::UnixStream) -> rbw::agent::Response {
+    let mut buf = std::io::BufReader::new(sock);
+    let mut line = String::new();
+    buf.read_line(&mut line).unwrap();
+    serde_json::from_str(&line).unwrap()
 }
 
 fn login() {
-    send(&rbw::agent::Message {
-        tty: std::env::var("TTY").ok(),
-        action: rbw::agent::Action::Login,
-    })
+    let mut sock = connect();
+    send(
+        &mut sock,
+        &rbw::agent::Request {
+            tty: std::env::var("TTY").ok(),
+            action: rbw::agent::Action::Login,
+        },
+    );
+    let res = recv(&mut sock);
+    match res {
+        rbw::agent::Response::Ack => (),
+        rbw::agent::Response::Error { error } => {
+            panic!("failed to login: {}", error)
+        }
+        _ => panic!("unexpected message: {:?}", res),
+    }
 }
 
 fn unlock() {
-    send(&rbw::agent::Message {
-        tty: std::env::var("TTY").ok(),
-        action: rbw::agent::Action::Unlock,
-    })
+    let mut sock = connect();
+    send(
+        &mut sock,
+        &rbw::agent::Request {
+            tty: std::env::var("TTY").ok(),
+            action: rbw::agent::Action::Unlock,
+        },
+    );
+    let res = recv(&mut sock);
+    match res {
+        rbw::agent::Response::Ack => (),
+        rbw::agent::Response::Error { error } => {
+            panic!("failed to login: {}", error)
+        }
+        _ => panic!("unexpected message: {:?}", res),
+    }
 }
 
 fn sync() {
-    send(&rbw::agent::Message {
-        tty: std::env::var("TTY").ok(),
-        action: rbw::agent::Action::Sync,
-    })
+    let mut sock = connect();
+    send(
+        &mut sock,
+        &rbw::agent::Request {
+            tty: std::env::var("TTY").ok(),
+            action: rbw::agent::Action::Sync,
+        },
+    );
+    let res = recv(&mut sock);
+    match res {
+        rbw::agent::Response::Ack => (),
+        rbw::agent::Response::Error { error } => {
+            panic!("failed to login: {}", error)
+        }
+        _ => panic!("unexpected message: {:?}", res),
+    }
 }
 
 fn list() {
