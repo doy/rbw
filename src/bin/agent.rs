@@ -1,35 +1,15 @@
-use fs2::FileExt as _;
-use std::io::Write as _;
 use tokio::io::AsyncBufReadExt as _;
 use tokio::stream::StreamExt as _;
 
-fn make_pidfile() -> std::fs::File {
+fn make_socket() -> anyhow::Result<tokio::net::UnixListener> {
     let runtime_dir = rbw::dirs::runtime_dir();
-    std::fs::create_dir_all(&runtime_dir).unwrap();
-
-    let mut fh = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open(runtime_dir.join("pidfile"))
-        .unwrap();
-
-    fh.try_lock_exclusive().unwrap();
-
-    fh.set_len(0).unwrap();
-    fh.write_all(format!("{}", std::process::id()).as_bytes())
-        .unwrap();
-
-    fh
-}
-
-fn make_socket() -> tokio::net::UnixListener {
-    let runtime_dir = rbw::dirs::runtime_dir();
-    std::fs::create_dir_all(&runtime_dir).unwrap();
+    std::fs::create_dir_all(&runtime_dir)?;
 
     let path = runtime_dir.join("socket");
-    std::fs::remove_file(&path).unwrap();
-
-    tokio::net::UnixListener::bind(path).unwrap()
+    std::fs::remove_file(&path)?;
+    let sock = tokio::net::UnixListener::bind(&path)?;
+    log::debug!("listening on socket {}", path.to_string_lossy());
+    Ok(sock)
 }
 
 async fn ensure_login(state: std::sync::Arc<tokio::sync::RwLock<State>>) {
@@ -181,10 +161,49 @@ impl Agent {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let _lock = make_pidfile();
-    let listener = make_socket();
-    let mut agent = Agent::new();
-    agent.run(listener).await;
+fn main() {
+    env_logger::from_env(
+        env_logger::Env::default().default_filter_or("info"),
+    )
+    .init();
+
+    let runtime_dir = rbw::dirs::runtime_dir();
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+
+    let (r, w) = nix::unistd::pipe().unwrap();
+    let res = daemonize::Daemonize::new()
+        .pid_file(runtime_dir.join("pidfile"))
+        .exit_action(move || {
+            nix::unistd::close(w).unwrap();
+            let mut buf = [0; 1];
+            nix::unistd::read(r, &mut buf).unwrap();
+            nix::unistd::close(r).unwrap();
+        })
+        .start();
+    nix::unistd::close(r).unwrap();
+
+    match res {
+        Ok(_) => (),
+        Err(e) => {
+            match e {
+                daemonize::DaemonizeError::LockPidfile(_) => {
+                    // this means that there is already an agent running, so
+                    // return a special exit code to allow the cli to detect
+                    // this case and not error out
+                    std::process::exit(23);
+                }
+                _ => panic!("failed to daemonize: {}", e),
+            }
+        }
+    }
+
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let listener = make_socket();
+
+        nix::unistd::write(w, &[0]).unwrap();
+        nix::unistd::close(w).unwrap();
+
+        let mut agent = Agent::new();
+        agent.run(listener.unwrap()).await;
+    })
 }

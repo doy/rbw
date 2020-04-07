@@ -6,17 +6,19 @@ edition = "2018"
 
 [dependencies]
 aes = "*"
+anyhow = "*"
 base64 = "*"
 block-modes = "*"
 clap = "*"
+daemonize = "*"
 directories = "*"
-fs2 = "*"
+env_logger = "*"
 hkdf = "*"
 hmac = "*"
+log = "*"
+nix = "*"
 pbkdf2 = "*"
 reqwest = { version = "*", features = ["blocking", "json"] }
-rpassword = "*"
-rprompt = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 sha2 = "*"
