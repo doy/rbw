@@ -74,7 +74,7 @@ async fn unlock(
         email,
         &password,
         state.iterations.unwrap(),
-        state.protected_key.as_ref().unwrap().to_string(),
+        state.protected_key.as_ref().unwrap(),
     )
     .await
     .unwrap();
@@ -93,7 +93,8 @@ async fn sync(
         rbw::actions::sync(state.access_token.as_ref().unwrap())
             .await
             .unwrap();
-    state.protected_key = Some(protected_key);
+    state.protected_key =
+        Some(rbw::cipherstring::CipherString::new(&protected_key).unwrap());
     println!("{}", serde_json::to_string(&ciphers).unwrap());
     state.ciphers = ciphers;
 
@@ -151,7 +152,7 @@ struct State {
 
     // these should be in a state file
     iterations: Option<u32>,
-    protected_key: Option<String>,
+    protected_key: Option<rbw::cipherstring::CipherString>,
     ciphers: Vec<rbw::api::Cipher>,
 }
 
