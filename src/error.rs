@@ -12,16 +12,6 @@ pub enum Error {
     #[snafu(display("failed to parse pinentry output ({:?})", out,))]
     FailedToParsePinentry { out: Vec<u8> },
 
-    #[snafu(display(
-        "failed to parse pinentry output ({:?}): {}",
-        out,
-        source
-    ))]
-    FailedToParsePinentryUtf8 {
-        out: Vec<u8>,
-        source: std::string::FromUtf8Error,
-    },
-
     // no Error impl
     // #[snafu(display("failed to expand with hkdf: {}", source))]
     // HkdfExpand { source: hkdf::InvalidLength },
@@ -49,8 +39,11 @@ pub enum Error {
     #[snafu(display("invalid mac key"))]
     InvalidMacKey,
 
+    #[snafu(display("error reading pinentry output: {}", source))]
+    PinentryReadOutput { source: tokio::io::Error },
+
     #[snafu(display("error waiting for pinentry to exit: {}", source))]
-    ProcessWaitOutput { source: tokio::io::Error },
+    PinentryWait { source: tokio::io::Error },
 
     #[snafu(display("error making api request: {}", source))]
     Reqwest { source: reqwest::Error },

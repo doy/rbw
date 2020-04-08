@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 aes = "*"
 anyhow = "*"
+arrayvec = "*"
 base64 = "*"
 block-modes = "*"
 clap = "*"
@@ -18,6 +19,7 @@ hmac = "*"
 log = "*"
 nix = "*"
 pbkdf2 = "*"
+region = "*"
 reqwest = { version = "*", features = ["blocking", "json"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"

@@ -119,12 +119,12 @@ impl Client {
     pub async fn login(
         &self,
         email: &str,
-        master_password_hash: &[u8],
+        master_password_hash: &crate::locked::PasswordHash,
     ) -> Result<(String, String, String)> {
         let connect_req = ConnectReq {
             grant_type: "password".to_string(),
             username: email.to_string(),
-            password: base64::encode(&master_password_hash),
+            password: base64::encode(master_password_hash.hash()),
             scope: "api offline_access".to_string(),
             client_id: "desktop".to_string(),
             device_type: 8,

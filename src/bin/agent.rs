@@ -45,11 +45,11 @@ async fn login(
         rbw::actions::login(email, &password).await.unwrap();
     state.access_token = Some(access_token);
     state.iterations = Some(iterations);
-    let (enc_key, mac_key) =
+    let keys =
         rbw::actions::unlock(email, &password, iterations, protected_key)
             .await
             .unwrap();
-    state.priv_key = Some((enc_key, mac_key));
+    state.priv_key = Some(keys);
 
     send_response(sock, &rbw::agent::Response::Ack).await;
 }
@@ -73,7 +73,7 @@ async fn unlock(
     let email = "bitwarden@tozt.net"; // XXX read from config
     let password =
         rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
-    let (enc_key, mac_key) = rbw::actions::unlock(
+    let keys = rbw::actions::unlock(
         email,
         &password,
         state.iterations.unwrap(),
@@ -81,7 +81,7 @@ async fn unlock(
     )
     .await
     .unwrap();
-    state.priv_key = Some((enc_key, mac_key));
+    state.priv_key = Some(keys);
 
     send_response(sock, &rbw::agent::Response::Ack).await;
 }
@@ -110,12 +110,11 @@ async fn decrypt(
 ) {
     ensure_unlock(sock, state.clone()).await;
     let state = state.read().await;
-    let (enc_key, mac_key) = state.priv_key.as_ref().unwrap();
+    let keys = state.priv_key.as_ref().unwrap();
     let cipherstring =
         rbw::cipherstring::CipherString::new(cipherstring).unwrap();
     let plaintext =
-        String::from_utf8(cipherstring.decrypt(&enc_key, &mac_key).unwrap())
-            .unwrap();
+        String::from_utf8(cipherstring.decrypt(keys).unwrap()).unwrap();
 
     send_response(sock, &rbw::agent::Response::Decrypt { plaintext }).await;
 }
@@ -151,7 +150,7 @@ struct Agent {
 
 struct State {
     access_token: Option<String>,
-    priv_key: Option<(Vec<u8>, Vec<u8>)>,
+    priv_key: Option<rbw::locked::Keys>,
 
     // these should be in a state file
     iterations: Option<u32>,

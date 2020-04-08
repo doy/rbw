@@ -2,43 +2,52 @@ use crate::prelude::*;
 
 pub struct Identity {
     pub email: String,
-    pub enc_key: Vec<u8>,
-    pub mac_key: Vec<u8>,
-    pub master_password_hash: Vec<u8>,
+    pub keys: crate::locked::Keys,
+    pub master_password_hash: crate::locked::PasswordHash,
 }
 
 impl Identity {
-    pub fn new(email: &str, password: &str, iterations: u32) -> Result<Self> {
-        let mut key = vec![0_u8; 32];
+    pub fn new(
+        email: &str,
+        password: &crate::locked::Password,
+        iterations: u32,
+    ) -> Result<Self> {
+        let mut keys = crate::locked::Vec::new();
+        keys.extend(std::iter::repeat(0).take(64));
+
+        let enc_key = &mut keys.data_mut()[0..32];
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
-            password.as_bytes(),
+            password.password(),
             email.as_bytes(),
             iterations as usize,
-            &mut key,
+            enc_key,
         );
 
-        let mut hash = vec![0_u8; 32];
+        let mut hash = crate::locked::Vec::new();
+        hash.extend(std::iter::repeat(0).take(32));
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
-            &key,
-            password.as_bytes(),
+            enc_key,
+            password.password(),
             1,
-            &mut hash,
+            hash.data_mut(),
         );
 
-        let hkdf = hkdf::Hkdf::<sha2::Sha256>::from_prk(&key)
+        let hkdf = hkdf::Hkdf::<sha2::Sha256>::from_prk(enc_key)
             .map_err(|_| Error::HkdfFromPrk)?;
-        hkdf.expand(b"enc", &mut key)
+        hkdf.expand(b"enc", enc_key)
             .map_err(|_| Error::HkdfExpand)?;
 
-        let mut mac_key = vec![0_u8; 32];
-        hkdf.expand(b"mac", &mut mac_key)
+        let mac_key = &mut keys.data_mut()[32..64];
+        hkdf.expand(b"mac", mac_key)
             .map_err(|_| Error::HkdfExpand)?;
+
+        let keys = crate::locked::Keys::new(keys);
+        let master_password_hash = crate::locked::PasswordHash::new(hash);
 
         Ok(Self {
             email: email.to_string(),
-            enc_key: key,
-            mac_key,
-            master_password_hash: hash,
+            keys,
+            master_password_hash,
         })
     }
 }
