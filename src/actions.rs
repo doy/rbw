@@ -3,7 +3,7 @@ use crate::prelude::*;
 pub async fn login(
     email: &str,
     password: &crate::locked::Password,
-) -> Result<(String, u32, String)> {
+) -> Result<(String, u32, String, crate::locked::Keys)> {
     let client =
         crate::api::Client::new_self_hosted("https://bitwarden.tozt.net");
 
@@ -14,8 +14,16 @@ pub async fn login(
     let (access_token, _refresh_token, protected_key) = client
         .login(&identity.email, &identity.master_password_hash)
         .await?;
+    let protected_key_cs =
+        crate::cipherstring::CipherString::new(&protected_key)?;
+    let master_keys = protected_key_cs.decrypt_locked(&identity.keys)?;
 
-    Ok((access_token, iterations, protected_key))
+    Ok((
+        access_token,
+        iterations,
+        protected_key,
+        crate::locked::Keys::new(master_keys),
+    ))
 }
 
 pub async fn unlock(

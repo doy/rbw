@@ -41,14 +41,11 @@ async fn login(
     let email = "bitwarden@tozt.net"; // XXX read from config
     let password =
         rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
-    let (access_token, iterations, protected_key) =
+    let (access_token, iterations, protected_key, keys) =
         rbw::actions::login(email, &password).await.unwrap();
     state.access_token = Some(access_token);
     state.iterations = Some(iterations);
-    let keys =
-        rbw::actions::unlock(email, &password, iterations, protected_key)
-            .await
-            .unwrap();
+    state.protected_key = Some(protected_key);
     state.priv_key = Some(keys);
 
     send_response(sock, &rbw::agent::Response::Ack).await;
