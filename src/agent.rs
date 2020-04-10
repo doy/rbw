@@ -9,6 +9,7 @@ pub struct Request {
 pub enum Action {
     Login,
     Unlock,
+    Lock,
     Sync,
     Decrypt { cipherstring: String },
     // add

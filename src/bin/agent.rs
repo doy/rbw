@@ -79,6 +79,17 @@ async fn unlock(
     send_response(sock, &rbw::agent::Response::Ack).await;
 }
 
+async fn lock(
+    sock: &mut tokio::net::UnixStream,
+    state: std::sync::Arc<tokio::sync::RwLock<State>>,
+) {
+    let mut state = state.write().await;
+
+    state.priv_key = None;
+
+    send_response(sock, &rbw::agent::Response::Ack).await;
+}
+
 async fn sync(sock: &mut tokio::net::UnixStream) {
     let email = config_email().await;
     let mut db = rbw::db::Db::load_async(&email)
@@ -127,6 +138,7 @@ async fn handle_sock(
         rbw::agent::Action::Unlock => {
             unlock(&mut sock, state.clone(), msg.tty.as_deref()).await
         }
+        rbw::agent::Action::Lock => lock(&mut sock, state.clone()).await,
         rbw::agent::Action::Sync => sync(&mut sock).await,
         rbw::agent::Action::Decrypt { cipherstring } => {
             decrypt(&mut sock, state.clone(), &cipherstring).await

@@ -184,7 +184,25 @@ fn remove() {
 }
 
 fn lock() {
-    todo!()
+    ensure_agent();
+
+    let mut sock = connect();
+    send(
+        &mut sock,
+        &rbw::agent::Request {
+            tty: std::env::var("TTY").ok(),
+            action: rbw::agent::Action::Lock,
+        },
+    );
+
+    let res = recv(&mut sock);
+    match res {
+        rbw::agent::Response::Ack => (),
+        rbw::agent::Response::Error { error } => {
+            panic!("failed to lock: {}", error)
+        }
+        _ => panic!("unexpected message: {:?}", res),
+    }
 }
 
 fn purge() {
