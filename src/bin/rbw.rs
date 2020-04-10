@@ -95,7 +95,7 @@ fn unlock() {
     match res {
         rbw::agent::Response::Ack => (),
         rbw::agent::Response::Error { error } => {
-            panic!("failed to login: {}", error)
+            panic!("failed to unlock: {}", error)
         }
         _ => panic!("unexpected message: {:?}", res),
     }
@@ -117,7 +117,7 @@ fn sync() {
     match res {
         rbw::agent::Response::Ack => (),
         rbw::agent::Response::Error { error } => {
-            panic!("failed to login: {}", error)
+            panic!("failed to sync: {}", error)
         }
         _ => panic!("unexpected message: {:?}", res),
     }
@@ -146,7 +146,7 @@ fn list() {
                 println!("{}", plaintext);
             }
             rbw::agent::Response::Error { error } => {
-                panic!("failed to login: {}", error)
+                panic!("failed to decrypt: {}", error)
             }
             _ => panic!("unexpected message: {:?}", res),
         }
