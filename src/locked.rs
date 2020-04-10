@@ -31,6 +31,18 @@ impl Vec {
     pub fn truncate(&mut self, len: usize) {
         self.data.truncate(len);
     }
+
+    pub fn shred(&mut self) {
+        self.data.truncate(0);
+        self.data.extend(std::iter::repeat(0));
+        self.data.truncate(0);
+    }
+}
+
+impl Drop for Vec {
+    fn drop(&mut self) {
+        self.shred();
+    }
 }
 
 pub struct Password {
