@@ -38,11 +38,11 @@ async fn login(
     tty: Option<&str>,
 ) {
     let mut state = state.write().await;
-    let email = "bitwarden@tozt.net"; // XXX read from config
+    let email = config_email().await;
     let password =
         rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
     let (access_token, iterations, protected_key, keys) =
-        rbw::actions::login(email, &password).await.unwrap();
+        rbw::actions::login(&email, &password).await.unwrap();
     state.access_token = Some(access_token);
     state.iterations = Some(iterations);
     state.protected_key = Some(protected_key);
@@ -67,11 +67,11 @@ async fn unlock(
     tty: Option<&str>,
 ) {
     let mut state = state.write().await;
-    let email = "bitwarden@tozt.net"; // XXX read from config
+    let email = config_email().await;
     let password =
         rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
     let keys = rbw::actions::unlock(
-        email,
+        &email,
         &password,
         state.iterations.unwrap(),
         state.protected_key.as_ref().unwrap(),
@@ -139,6 +139,11 @@ async fn handle_sock(
         }
         rbw::agent::Action::Quit => std::process::exit(0),
     }
+}
+
+async fn config_email() -> String {
+    let config = rbw::config::Config::load_async().await.unwrap();
+    config.email.unwrap()
 }
 
 struct Agent {

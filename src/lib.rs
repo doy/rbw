@@ -9,6 +9,7 @@ pub mod actions;
 pub mod agent;
 pub mod api;
 pub mod cipherstring;
+pub mod config;
 pub mod dirs;
 mod error;
 pub mod identity;

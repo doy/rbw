@@ -39,7 +39,27 @@ fn recv(sock: &mut std::os::unix::net::UnixStream) -> rbw::agent::Response {
     serde_json::from_str(&line).unwrap()
 }
 
+fn config_show() {
+    let config = rbw::config::Config::load().unwrap();
+    serde_json::to_writer_pretty(std::io::stdout(), &config).unwrap();
+    println!();
+}
+
+fn config_set(key: &str, value: &str) {
+    let mut config = rbw::config::Config::load()
+        .unwrap_or_else(|_| rbw::config::Config::new());
+    match key {
+        "email" => config.email = Some(value.to_string()),
+        "base_url" => config.base_url = Some(value.to_string()),
+        "identity_url" => config.identity_url = Some(value.to_string()),
+        _ => unimplemented!(),
+    }
+    config.save().unwrap();
+}
+
 fn login() {
+    ensure_agent();
+
     let mut sock = connect();
     send(
         &mut sock,
@@ -59,6 +79,8 @@ fn login() {
 }
 
 fn unlock() {
+    ensure_agent();
+
     let mut sock = connect();
     send(
         &mut sock,
@@ -78,6 +100,8 @@ fn unlock() {
 }
 
 fn sync() {
+    ensure_agent();
+
     let mut sock = connect();
     send(
         &mut sock,
@@ -97,26 +121,38 @@ fn sync() {
 }
 
 fn list() {
+    ensure_agent();
+
     todo!()
 }
 
 fn get() {
+    ensure_agent();
+
     todo!()
 }
 
 fn add() {
+    ensure_agent();
+
     todo!()
 }
 
 fn generate() {
+    ensure_agent();
+
     todo!()
 }
 
 fn edit() {
+    ensure_agent();
+
     todo!()
 }
 
 fn remove() {
+    ensure_agent();
+
     todo!()
 }
 
@@ -144,6 +180,15 @@ fn main() {
         .about("unofficial bitwarden cli")
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
+        .subcommand(
+            clap::SubCommand::with_name("config")
+                .subcommand(clap::SubCommand::with_name("show"))
+                .subcommand(
+                    clap::SubCommand::with_name("set")
+                        .arg(clap::Arg::with_name("key"))
+                        .arg(clap::Arg::with_name("value")),
+                ),
+        )
         .subcommand(clap::SubCommand::with_name("login"))
         .subcommand(clap::SubCommand::with_name("unlock"))
         .subcommand(clap::SubCommand::with_name("sync"))
@@ -158,9 +203,18 @@ fn main() {
         .subcommand(clap::SubCommand::with_name("stop-agent"))
         .get_matches();
 
-    ensure_agent();
-
     match matches.subcommand() {
+        ("config", Some(smatches)) => match smatches.subcommand() {
+            ("show", Some(_)) => config_show(),
+            ("set", Some(ssmatches)) => config_set(
+                ssmatches.value_of("key").unwrap(),
+                ssmatches.value_of("value").unwrap(),
+            ),
+            _ => {
+                eprintln!("{}", smatches.usage());
+                std::process::exit(1);
+            }
+        },
         ("login", Some(_)) => login(),
         ("unlock", Some(_)) => unlock(),
         ("sync", Some(_)) => sync(),
@@ -173,6 +227,9 @@ fn main() {
         ("lock", Some(_)) => lock(),
         ("purge", Some(_)) => purge(),
         ("stop-agent", Some(_)) => stop_agent(),
-        _ => unimplemented!(),
+        _ => {
+            eprintln!("{}", matches.usage());
+            std::process::exit(1);
+        }
     }
 }

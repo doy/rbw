@@ -72,31 +72,15 @@ pub struct Login {
 
 #[derive(Debug)]
 pub struct Client {
-    api_url_base: String,
-    identity_url_base: String,
-}
-
-impl Default for Client {
-    fn default() -> Self {
-        Self {
-            api_url_base: "https://api.bitwarden.com".to_string(),
-            identity_url_base: "https://identity.bitwarden.com".to_string(),
-        }
-    }
+    base_url: String,
+    identity_url: String,
 }
 
 impl Client {
-    #[allow(dead_code)]
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    #[must_use]
-    pub fn new_self_hosted(base_url: &str) -> Self {
+    pub fn new(base_url: &str, identity_url: &str) -> Self {
         Self {
-            api_url_base: format!("{}/api", base_url),
-            identity_url_base: format!("{}/identity", base_url),
+            base_url: base_url.to_string(),
+            identity_url: identity_url.to_string(),
         }
     }
 
@@ -167,10 +151,10 @@ impl Client {
     }
 
     fn api_url(&self, path: &str) -> String {
-        format!("{}{}", self.api_url_base, path)
+        format!("{}{}", self.base_url, path)
     }
 
     fn identity_url(&self, path: &str) -> String {
-        format!("{}{}", self.identity_url_base, path)
+        format!("{}{}", self.identity_url, path)
     }
 }

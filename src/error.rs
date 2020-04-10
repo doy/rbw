@@ -39,6 +39,15 @@ pub enum Error {
     #[snafu(display("invalid mac key"))]
     InvalidMacKey,
 
+    #[snafu(display("failed to load config: {}", source))]
+    LoadConfig { source: std::io::Error },
+
+    #[snafu(display("failed to load config: {}", source))]
+    LoadConfigAsync { source: tokio::io::Error },
+
+    #[snafu(display("failed to load config: {}", source))]
+    LoadConfigJson { source: serde_json::Error },
+
     #[snafu(display("error reading pinentry output: {}", source))]
     PinentryReadOutput { source: tokio::io::Error },
 
@@ -47,6 +56,12 @@ pub enum Error {
 
     #[snafu(display("error making api request: {}", source))]
     Reqwest { source: reqwest::Error },
+
+    #[snafu(display("failed to save config: {}", source))]
+    SaveConfig { source: std::io::Error },
+
+    #[snafu(display("failed to save config: {}", source))]
+    SaveConfigJson { source: serde_json::Error },
 
     #[snafu(display("error spawning pinentry: {}", source))]
     Spawn { source: tokio::io::Error },

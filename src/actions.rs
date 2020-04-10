@@ -9,8 +9,9 @@ pub async fn login(
     crate::cipherstring::CipherString,
     crate::locked::Keys,
 )> {
+    let config = crate::config::Config::load_async().await?;
     let client =
-        crate::api::Client::new_self_hosted("https://bitwarden.tozt.net");
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
 
     let iterations = client.prelogin(email).await?;
     let identity =
@@ -48,7 +49,8 @@ pub async fn unlock(
 pub async fn sync(
     access_token: &str,
 ) -> Result<(String, Vec<crate::api::Cipher>)> {
+    let config = crate::config::Config::load_async().await?;
     let client =
-        crate::api::Client::new_self_hosted("https://bitwarden.tozt.net");
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
     client.sync(access_token).await
 }
