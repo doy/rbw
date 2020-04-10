@@ -68,6 +68,7 @@ fn login() {
             action: rbw::agent::Action::Login,
         },
     );
+
     let res = recv(&mut sock);
     match res {
         rbw::agent::Response::Ack => (),
@@ -89,6 +90,7 @@ fn unlock() {
             action: rbw::agent::Action::Unlock,
         },
     );
+
     let res = recv(&mut sock);
     match res {
         rbw::agent::Response::Ack => (),
@@ -110,6 +112,7 @@ fn sync() {
             action: rbw::agent::Action::Sync,
         },
     );
+
     let res = recv(&mut sock);
     match res {
         rbw::agent::Response::Ack => (),
@@ -123,7 +126,31 @@ fn sync() {
 fn list() {
     ensure_agent();
 
-    todo!()
+    let email = config_email();
+    let db = rbw::db::Db::load(&email).unwrap_or_else(|_| rbw::db::Db::new());
+    for cipher in db.ciphers {
+        let mut sock = connect();
+        send(
+            &mut sock,
+            &rbw::agent::Request {
+                tty: std::env::var("TTY").ok(),
+                action: rbw::agent::Action::Decrypt {
+                    cipherstring: cipher.name,
+                },
+            },
+        );
+
+        let res = recv(&mut sock);
+        match res {
+            rbw::agent::Response::Decrypt { plaintext } => {
+                println!("{}", plaintext);
+            }
+            rbw::agent::Response::Error { error } => {
+                panic!("failed to login: {}", error)
+            }
+            _ => panic!("unexpected message: {:?}", res),
+        }
+    }
 }
 
 fn get() {
@@ -173,6 +200,11 @@ fn stop_agent() {
             action: rbw::agent::Action::Quit,
         },
     );
+}
+
+fn config_email() -> String {
+    let config = rbw::config::Config::load().unwrap();
+    config.email.unwrap()
 }
 
 fn main() {

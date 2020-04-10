@@ -48,6 +48,15 @@ pub enum Error {
     #[snafu(display("failed to load config: {}", source))]
     LoadConfigJson { source: serde_json::Error },
 
+    #[snafu(display("failed to load db: {}", source))]
+    LoadDb { source: std::io::Error },
+
+    #[snafu(display("failed to load db: {}", source))]
+    LoadDbAsync { source: tokio::io::Error },
+
+    #[snafu(display("failed to load db: {}", source))]
+    LoadDbJson { source: serde_json::Error },
+
     #[snafu(display("error reading pinentry output: {}", source))]
     PinentryReadOutput { source: tokio::io::Error },
 
@@ -62,6 +71,15 @@ pub enum Error {
 
     #[snafu(display("failed to save config: {}", source))]
     SaveConfigJson { source: serde_json::Error },
+
+    #[snafu(display("failed to save db: {}", source))]
+    SaveDb { source: std::io::Error },
+
+    #[snafu(display("failed to save db: {}", source))]
+    SaveDbAsync { source: tokio::io::Error },
+
+    #[snafu(display("failed to save db: {}", source))]
+    SaveDbJson { source: serde_json::Error },
 
     #[snafu(display("error spawning pinentry: {}", source))]
     Spawn { source: tokio::io::Error },

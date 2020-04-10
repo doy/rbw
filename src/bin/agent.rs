@@ -22,43 +22,32 @@ async fn send_response(
     sock.write_all(b"\n").await.unwrap();
 }
 
-async fn ensure_login(
-    sock: &mut tokio::net::UnixStream,
-    state: std::sync::Arc<tokio::sync::RwLock<State>>,
-) {
-    let rstate = state.read().await;
-    if rstate.access_token.is_none() {
-        login(sock, state.clone(), None).await; // tty
-    }
-}
-
 async fn login(
     sock: &mut tokio::net::UnixStream,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
     tty: Option<&str>,
 ) {
     let mut state = state.write().await;
+
     let email = config_email().await;
     let password =
         rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
-    let (access_token, iterations, protected_key, keys) =
+
+    let (access_token, refresh_token, iterations, protected_key, keys) =
         rbw::actions::login(&email, &password).await.unwrap();
-    state.access_token = Some(access_token);
-    state.iterations = Some(iterations);
-    state.protected_key = Some(protected_key);
+
     state.priv_key = Some(keys);
 
-    send_response(sock, &rbw::agent::Response::Ack).await;
-}
+    let mut db = rbw::db::Db::load_async(&email)
+        .await
+        .unwrap_or_else(|_| rbw::db::Db::new());
+    db.access_token = Some(access_token);
+    db.refresh_token = Some(refresh_token);
+    db.iterations = Some(iterations);
+    db.protected_key = Some(protected_key);
+    db.save_async(&email).await.unwrap();
 
-async fn ensure_unlock(
-    sock: &mut tokio::net::UnixStream,
-    state: std::sync::Arc<tokio::sync::RwLock<State>>,
-) {
-    let rstate = state.read().await;
-    if rstate.priv_key.is_none() {
-        unlock(sock, state.clone(), None).await; // tty
-    }
+    send_response(sock, &rbw::agent::Response::Ack).await;
 }
 
 async fn unlock(
@@ -67,36 +56,42 @@ async fn unlock(
     tty: Option<&str>,
 ) {
     let mut state = state.write().await;
+
     let email = config_email().await;
     let password =
         rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
+
+    let db = rbw::db::Db::load_async(&email)
+        .await
+        .unwrap_or_else(|_| rbw::db::Db::new());
+
     let keys = rbw::actions::unlock(
         &email,
         &password,
-        state.iterations.unwrap(),
-        state.protected_key.as_ref().unwrap(),
+        db.iterations.unwrap(),
+        db.protected_key.as_deref().unwrap(),
     )
     .await
     .unwrap();
+
     state.priv_key = Some(keys);
 
     send_response(sock, &rbw::agent::Response::Ack).await;
 }
 
-async fn sync(
-    sock: &mut tokio::net::UnixStream,
-    state: std::sync::Arc<tokio::sync::RwLock<State>>,
-) {
-    ensure_login(sock, state.clone()).await;
-    let mut state = state.write().await;
+async fn sync(sock: &mut tokio::net::UnixStream) {
+    let email = config_email().await;
+    let mut db = rbw::db::Db::load_async(&email)
+        .await
+        .unwrap_or_else(|_| rbw::db::Db::new());
+
     let (protected_key, ciphers) =
-        rbw::actions::sync(state.access_token.as_ref().unwrap())
+        rbw::actions::sync(db.access_token.as_ref().unwrap())
             .await
             .unwrap();
-    state.protected_key =
-        Some(rbw::cipherstring::CipherString::new(&protected_key).unwrap());
-    println!("{}", serde_json::to_string(&ciphers).unwrap());
-    state.ciphers = ciphers;
+    db.protected_key = Some(protected_key);
+    db.ciphers = ciphers;
+    db.save_async(&email).await.unwrap();
 
     send_response(sock, &rbw::agent::Response::Ack).await;
 }
@@ -106,7 +101,6 @@ async fn decrypt(
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
     cipherstring: &str,
 ) {
-    ensure_unlock(sock, state.clone()).await;
     let state = state.read().await;
     let keys = state.priv_key.as_ref().unwrap();
     let cipherstring =
@@ -133,7 +127,7 @@ async fn handle_sock(
         rbw::agent::Action::Unlock => {
             unlock(&mut sock, state.clone(), msg.tty.as_deref()).await
         }
-        rbw::agent::Action::Sync => sync(&mut sock, state.clone()).await,
+        rbw::agent::Action::Sync => sync(&mut sock).await,
         rbw::agent::Action::Decrypt { cipherstring } => {
             decrypt(&mut sock, state.clone(), &cipherstring).await
         }
@@ -152,13 +146,7 @@ struct Agent {
 }
 
 struct State {
-    access_token: Option<String>,
     priv_key: Option<rbw::locked::Keys>,
-
-    // these should be in a state file
-    iterations: Option<u32>,
-    protected_key: Option<rbw::cipherstring::CipherString>,
-    ciphers: Vec<rbw::api::Cipher>,
 }
 
 impl Agent {
@@ -168,11 +156,7 @@ impl Agent {
                 tokio::time::Duration::from_secs(600), // read from config
             ),
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
-                access_token: None,
-                iterations: None,
-                protected_key: None,
                 priv_key: None,
-                ciphers: vec![],
             })),
         }
     }
