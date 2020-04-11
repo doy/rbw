@@ -39,6 +39,28 @@ fn recv(sock: &mut std::os::unix::net::UnixStream) -> rbw::agent::Response {
     serde_json::from_str(&line).unwrap()
 }
 
+fn decrypt(cipherstring: &str) -> String {
+    let mut sock = connect();
+    send(
+        &mut sock,
+        &rbw::agent::Request {
+            tty: std::env::var("TTY").ok(),
+            action: rbw::agent::Action::Decrypt {
+                cipherstring: cipherstring.to_string(),
+            },
+        },
+    );
+
+    let res = recv(&mut sock);
+    match res {
+        rbw::agent::Response::Decrypt { plaintext } => plaintext,
+        rbw::agent::Response::Error { error } => {
+            panic!("failed to decrypt: {}", error)
+        }
+        _ => panic!("unexpected message: {:?}", res),
+    }
+}
+
 fn config_show() {
     let config = rbw::config::Config::load().unwrap();
     serde_json::to_writer_pretty(std::io::stdout(), &config).unwrap();
@@ -129,34 +151,32 @@ fn list() {
     let email = config_email();
     let db = rbw::db::Db::load(&email).unwrap_or_else(|_| rbw::db::Db::new());
     for cipher in db.ciphers {
-        let mut sock = connect();
-        send(
-            &mut sock,
-            &rbw::agent::Request {
-                tty: std::env::var("TTY").ok(),
-                action: rbw::agent::Action::Decrypt {
-                    cipherstring: cipher.name,
-                },
-            },
-        );
-
-        let res = recv(&mut sock);
-        match res {
-            rbw::agent::Response::Decrypt { plaintext } => {
-                println!("{}", plaintext);
-            }
-            rbw::agent::Response::Error { error } => {
-                panic!("failed to decrypt: {}", error)
-            }
-            _ => panic!("unexpected message: {:?}", res),
-        }
+        println!("{}", decrypt(&cipher.name));
     }
 }
 
-fn get() {
+fn get(name: &str, user: Option<&str>) {
     ensure_agent();
 
-    todo!()
+    let email = config_email();
+    let db = rbw::db::Db::load(&email).unwrap_or_else(|_| rbw::db::Db::new());
+    for cipher in db.ciphers {
+        let cipher_name = decrypt(&cipher.name);
+        if name == cipher_name {
+            let cipher_user = decrypt(&cipher.login.username);
+            if let Some(user) = user {
+                if user == cipher_user {
+                    let pass = decrypt(&cipher.login.password);
+                    println!("{}", pass);
+                    return;
+                }
+            } else {
+                let pass = decrypt(&cipher.login.password);
+                println!("{}", pass);
+                return;
+            }
+        }
+    }
 }
 
 fn add() {
@@ -235,15 +255,19 @@ fn main() {
                 .subcommand(clap::SubCommand::with_name("show"))
                 .subcommand(
                     clap::SubCommand::with_name("set")
-                        .arg(clap::Arg::with_name("key"))
-                        .arg(clap::Arg::with_name("value")),
+                        .arg(clap::Arg::with_name("key").required(true))
+                        .arg(clap::Arg::with_name("value").required(true)),
                 ),
         )
         .subcommand(clap::SubCommand::with_name("login"))
         .subcommand(clap::SubCommand::with_name("unlock"))
         .subcommand(clap::SubCommand::with_name("sync"))
         .subcommand(clap::SubCommand::with_name("list"))
-        .subcommand(clap::SubCommand::with_name("get"))
+        .subcommand(
+            clap::SubCommand::with_name("get")
+                .arg(clap::Arg::with_name("name").required(true))
+                .arg(clap::Arg::with_name("user")),
+        )
         .subcommand(clap::SubCommand::with_name("add"))
         .subcommand(clap::SubCommand::with_name("generate"))
         .subcommand(clap::SubCommand::with_name("edit"))
@@ -269,7 +293,10 @@ fn main() {
         ("unlock", Some(_)) => unlock(),
         ("sync", Some(_)) => sync(),
         ("list", Some(_)) => list(),
-        ("get", Some(_)) => get(),
+        ("get", Some(smatches)) => get(
+            smatches.value_of("name").unwrap(),
+            smatches.value_of("user"),
+        ),
         ("add", Some(_)) => add(),
         ("generate", Some(_)) => generate(),
         ("edit", Some(_)) => edit(),
