@@ -7,7 +7,7 @@ pub struct Vec {
 
 impl Default for Vec {
     fn default() -> Self {
-        let data = Box::new(arrayvec::ArrayVec::<[_; 4096]>::new());
+        let data = Box::new(arrayvec::ArrayVec::<_>::new());
         let lock = region::lock(data.as_ptr(), data.capacity()).unwrap();
         Self { data, _lock: lock }
     }
