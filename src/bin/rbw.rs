@@ -39,6 +39,27 @@ fn recv(sock: &mut std::os::unix::net::UnixStream) -> rbw::agent::Response {
     serde_json::from_str(&line).unwrap()
 }
 
+fn single_action(action: rbw::agent::Action) {
+    let mut sock = connect();
+
+    send(
+        &mut sock,
+        &rbw::agent::Request {
+            tty: std::env::var("TTY").ok(),
+            action,
+        },
+    );
+
+    let res = recv(&mut sock);
+    match res {
+        rbw::agent::Response::Ack => (),
+        rbw::agent::Response::Error { error } => {
+            panic!("failed to login: {}", error)
+        }
+        _ => panic!("unexpected message: {:?}", res),
+    }
+}
+
 fn decrypt(cipherstring: &str) -> String {
     let mut sock = connect();
     send(
@@ -82,67 +103,19 @@ fn config_set(key: &str, value: &str) {
 fn login() {
     ensure_agent();
 
-    let mut sock = connect();
-    send(
-        &mut sock,
-        &rbw::agent::Request {
-            tty: std::env::var("TTY").ok(),
-            action: rbw::agent::Action::Login,
-        },
-    );
-
-    let res = recv(&mut sock);
-    match res {
-        rbw::agent::Response::Ack => (),
-        rbw::agent::Response::Error { error } => {
-            panic!("failed to login: {}", error)
-        }
-        _ => panic!("unexpected message: {:?}", res),
-    }
+    single_action(rbw::agent::Action::Login);
 }
 
 fn unlock() {
     ensure_agent();
 
-    let mut sock = connect();
-    send(
-        &mut sock,
-        &rbw::agent::Request {
-            tty: std::env::var("TTY").ok(),
-            action: rbw::agent::Action::Unlock,
-        },
-    );
-
-    let res = recv(&mut sock);
-    match res {
-        rbw::agent::Response::Ack => (),
-        rbw::agent::Response::Error { error } => {
-            panic!("failed to unlock: {}", error)
-        }
-        _ => panic!("unexpected message: {:?}", res),
-    }
+    single_action(rbw::agent::Action::Unlock);
 }
 
 fn sync() {
     ensure_agent();
 
-    let mut sock = connect();
-    send(
-        &mut sock,
-        &rbw::agent::Request {
-            tty: std::env::var("TTY").ok(),
-            action: rbw::agent::Action::Sync,
-        },
-    );
-
-    let res = recv(&mut sock);
-    match res {
-        rbw::agent::Response::Ack => (),
-        rbw::agent::Response::Error { error } => {
-            panic!("failed to sync: {}", error)
-        }
-        _ => panic!("unexpected message: {:?}", res),
-    }
+    single_action(rbw::agent::Action::Sync);
 }
 
 fn list() {
@@ -206,23 +179,7 @@ fn remove() {
 fn lock() {
     ensure_agent();
 
-    let mut sock = connect();
-    send(
-        &mut sock,
-        &rbw::agent::Request {
-            tty: std::env::var("TTY").ok(),
-            action: rbw::agent::Action::Lock,
-        },
-    );
-
-    let res = recv(&mut sock);
-    match res {
-        rbw::agent::Response::Ack => (),
-        rbw::agent::Response::Error { error } => {
-            panic!("failed to lock: {}", error)
-        }
-        _ => panic!("unexpected message: {:?}", res),
-    }
+    single_action(rbw::agent::Action::Lock);
 }
 
 fn purge() {
