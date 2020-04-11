@@ -39,7 +39,7 @@ fn recv(sock: &mut std::os::unix::net::UnixStream) -> rbw::agent::Response {
     serde_json::from_str(&line).unwrap()
 }
 
-fn single_action(action: rbw::agent::Action) {
+fn single_action(action: rbw::agent::Action, desc: &str) {
     let mut sock = connect();
 
     send(
@@ -54,7 +54,7 @@ fn single_action(action: rbw::agent::Action) {
     match res {
         rbw::agent::Response::Ack => (),
         rbw::agent::Response::Error { error } => {
-            panic!("failed to login: {}", error)
+            panic!("failed to {}: {}", desc, error)
         }
         _ => panic!("unexpected message: {:?}", res),
     }
@@ -103,19 +103,19 @@ fn config_set(key: &str, value: &str) {
 fn login() {
     ensure_agent();
 
-    single_action(rbw::agent::Action::Login);
+    single_action(rbw::agent::Action::Login, "login");
 }
 
 fn unlock() {
     ensure_agent();
 
-    single_action(rbw::agent::Action::Unlock);
+    single_action(rbw::agent::Action::Unlock, "unlock");
 }
 
 fn sync() {
     ensure_agent();
 
-    single_action(rbw::agent::Action::Sync);
+    single_action(rbw::agent::Action::Sync, "sync");
 }
 
 fn list() {
@@ -179,7 +179,7 @@ fn remove() {
 fn lock() {
     ensure_agent();
 
-    single_action(rbw::agent::Action::Lock);
+    single_action(rbw::agent::Action::Lock, "lock");
 }
 
 fn purge() {
