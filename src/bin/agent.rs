@@ -183,7 +183,7 @@ impl Agent {
                     });
                 }
                 _ = &mut self.timeout => {
-                    break;
+                    self.state.write().await.priv_key = None
                 }
             }
         }
