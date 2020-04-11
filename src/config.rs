@@ -8,6 +8,12 @@ pub struct Config {
     pub email: Option<String>,
     pub base_url: Option<String>,
     pub identity_url: Option<String>,
+    #[serde(default = "default_lock_timeout")]
+    pub lock_timeout: u64,
+}
+
+fn default_lock_timeout() -> u64 {
+    3600
 }
 
 impl Config {

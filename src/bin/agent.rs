@@ -163,9 +163,10 @@ struct State {
 
 impl Agent {
     fn new() -> Self {
+        let config = rbw::config::Config::load().unwrap();
         Self {
             timeout: tokio::time::delay_for(
-                tokio::time::Duration::from_secs(600), // read from config
+                tokio::time::Duration::from_secs(config.lock_timeout),
             ),
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
                 priv_key: None,

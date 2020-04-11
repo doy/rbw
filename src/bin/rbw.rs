@@ -95,6 +95,7 @@ fn config_set(key: &str, value: &str) {
         "email" => config.email = Some(value.to_string()),
         "base_url" => config.base_url = Some(value.to_string()),
         "identity_url" => config.identity_url = Some(value.to_string()),
+        "lock_timeout" => config.lock_timeout = value.parse().unwrap(),
         _ => unimplemented!(),
     }
     config.save().unwrap();
