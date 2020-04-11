@@ -110,17 +110,22 @@ fn login() {
 fn unlock() {
     ensure_agent();
 
+    single_action(rbw::agent::Action::Login, "login");
     single_action(rbw::agent::Action::Unlock, "unlock");
 }
 
 fn sync() {
     ensure_agent();
 
+    single_action(rbw::agent::Action::Login, "login");
     single_action(rbw::agent::Action::Sync, "sync");
 }
 
 fn list() {
     ensure_agent();
+
+    single_action(rbw::agent::Action::Login, "login");
+    single_action(rbw::agent::Action::Unlock, "unlock");
 
     let email = config_email();
     let db = rbw::db::Db::load(&email).unwrap_or_else(|_| rbw::db::Db::new());
@@ -131,6 +136,9 @@ fn list() {
 
 fn get(name: &str, user: Option<&str>) {
     ensure_agent();
+
+    single_action(rbw::agent::Action::Login, "login");
+    single_action(rbw::agent::Action::Unlock, "unlock");
 
     let email = config_email();
     let db = rbw::db::Db::load(&email).unwrap_or_else(|_| rbw::db::Db::new());
