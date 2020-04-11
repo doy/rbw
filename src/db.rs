@@ -83,6 +83,13 @@ impl Db {
         Ok(())
     }
 
+    pub fn needs_login(&self) -> bool {
+        self.access_token.is_none()
+            || self.refresh_token.is_none()
+            || self.iterations.is_none()
+            || self.protected_key.is_none()
+    }
+
     fn filename(email: &str) -> std::path::PathBuf {
         crate::dirs::cache_dir().join(format!("{}.json", email))
     }

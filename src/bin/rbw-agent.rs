@@ -28,24 +28,25 @@ async fn login(
     tty: Option<&str>,
 ) {
     let mut state = state.write().await;
-
     let email = config_email().await;
-    let password =
-        rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
-
-    let (access_token, refresh_token, iterations, protected_key, keys) =
-        rbw::actions::login(&email, &password).await.unwrap();
-
-    state.priv_key = Some(keys);
-
     let mut db = rbw::db::Db::load_async(&email)
         .await
         .unwrap_or_else(|_| rbw::db::Db::new());
-    db.access_token = Some(access_token);
-    db.refresh_token = Some(refresh_token);
-    db.iterations = Some(iterations);
-    db.protected_key = Some(protected_key);
-    db.save_async(&email).await.unwrap();
+
+    if db.needs_login() {
+        let password =
+            rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
+        let (access_token, refresh_token, iterations, protected_key, keys) =
+            rbw::actions::login(&email, &password).await.unwrap();
+
+        state.priv_key = Some(keys);
+
+        db.access_token = Some(access_token);
+        db.refresh_token = Some(refresh_token);
+        db.iterations = Some(iterations);
+        db.protected_key = Some(protected_key);
+        db.save_async(&email).await.unwrap();
+    }
 
     send_response(sock, &rbw::agent::Response::Ack).await;
 }
@@ -57,24 +58,26 @@ async fn unlock(
 ) {
     let mut state = state.write().await;
 
-    let email = config_email().await;
-    let password =
-        rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
+    if state.needs_unlock() {
+        let email = config_email().await;
+        let password =
+            rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
 
-    let db = rbw::db::Db::load_async(&email)
+        let db = rbw::db::Db::load_async(&email)
+            .await
+            .unwrap_or_else(|_| rbw::db::Db::new());
+
+        let keys = rbw::actions::unlock(
+            &email,
+            &password,
+            db.iterations.unwrap(),
+            db.protected_key.as_deref().unwrap(),
+        )
         .await
-        .unwrap_or_else(|_| rbw::db::Db::new());
+        .unwrap();
 
-    let keys = rbw::actions::unlock(
-        &email,
-        &password,
-        db.iterations.unwrap(),
-        db.protected_key.as_deref().unwrap(),
-    )
-    .await
-    .unwrap();
-
-    state.priv_key = Some(keys);
+        state.priv_key = Some(keys);
+    }
 
     send_response(sock, &rbw::agent::Response::Ack).await;
 }
@@ -152,13 +155,19 @@ async fn config_email() -> String {
     config.email.unwrap()
 }
 
+struct State {
+    priv_key: Option<rbw::locked::Keys>,
+}
+
+impl State {
+    fn needs_unlock(&self) -> bool {
+        self.priv_key.is_none()
+    }
+}
+
 struct Agent {
     timeout: tokio::time::Delay,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
-}
-
-struct State {
-    priv_key: Option<rbw::locked::Keys>,
 }
 
 impl Agent {
