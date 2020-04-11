@@ -159,10 +159,19 @@ fn add() {
     todo!()
 }
 
-fn generate() {
-    ensure_agent();
+fn generate(
+    name: Option<&str>,
+    user: Option<&str>,
+    len: usize,
+    ty: rbw::pwgen::Type,
+) {
+    let pw = rbw::pwgen::pwgen(ty, len);
+    println!("{}", std::str::from_utf8(pw.data()).unwrap());
 
-    todo!()
+    if name.is_some() && user.is_some() {
+        ensure_agent();
+        todo!();
+    }
 }
 
 fn edit() {
@@ -230,7 +239,27 @@ fn main() {
                 .arg(clap::Arg::with_name("user")),
         )
         .subcommand(clap::SubCommand::with_name("add"))
-        .subcommand(clap::SubCommand::with_name("generate"))
+        .subcommand(
+            clap::SubCommand::with_name("generate")
+                .arg(clap::Arg::with_name("len").required(true))
+                .arg(clap::Arg::with_name("name"))
+                .arg(clap::Arg::with_name("user"))
+                .arg(clap::Arg::with_name("no-symbols").long("no-symbols"))
+                .arg(
+                    clap::Arg::with_name("only-numbers").long("only-numbers"),
+                )
+                .arg(
+                    clap::Arg::with_name("nonconfusables")
+                        .long("nonconfusables"),
+                )
+                .arg(clap::Arg::with_name("diceware").long("diceware"))
+                .group(clap::ArgGroup::with_name("password-type").args(&[
+                    "no-symbols",
+                    "only-numbers",
+                    "nonconfusables",
+                    "diceware",
+                ])),
+        )
         .subcommand(clap::SubCommand::with_name("edit"))
         .subcommand(clap::SubCommand::with_name("remove"))
         .subcommand(clap::SubCommand::with_name("lock"))
@@ -259,7 +288,25 @@ fn main() {
             smatches.value_of("user"),
         ),
         ("add", Some(_)) => add(),
-        ("generate", Some(_)) => generate(),
+        ("generate", Some(smatches)) => {
+            let ty = if smatches.is_present("no-symbols") {
+                rbw::pwgen::Type::NoSymbols
+            } else if smatches.is_present("only-numbers") {
+                rbw::pwgen::Type::Numbers
+            } else if smatches.is_present("nonconfusables") {
+                rbw::pwgen::Type::NonConfusables
+            } else if smatches.is_present("diceware") {
+                rbw::pwgen::Type::Diceware
+            } else {
+                rbw::pwgen::Type::AllChars
+            };
+            generate(
+                smatches.value_of("name"),
+                smatches.value_of("user"),
+                smatches.value_of("len").unwrap().parse().unwrap(),
+                ty,
+            );
+        }
         ("edit", Some(_)) => edit(),
         ("remove", Some(_)) => remove(),
         ("lock", Some(_)) => lock(),

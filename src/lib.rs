@@ -17,3 +17,4 @@ pub mod identity;
 pub mod locked;
 pub mod pinentry;
 mod prelude;
+pub mod pwgen;
