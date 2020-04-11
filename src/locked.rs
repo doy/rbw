@@ -1,3 +1,5 @@
+use zeroize::Zeroize;
+
 pub struct Vec {
     data: Box<arrayvec::ArrayVec<[u8; 4096]>>,
     _lock: region::LockGuard,
@@ -31,17 +33,11 @@ impl Vec {
     pub fn truncate(&mut self, len: usize) {
         self.data.truncate(len);
     }
-
-    pub fn shred(&mut self) {
-        self.data.truncate(0);
-        self.data.extend(std::iter::repeat(0));
-        self.data.truncate(0);
-    }
 }
 
 impl Drop for Vec {
     fn drop(&mut self) {
-        self.shred();
+        self.data.as_mut().zeroize();
     }
 }
 

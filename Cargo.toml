@@ -27,3 +27,4 @@ sha2 = "*"
 snafu = "*"
 tokio = { version = "*", features = ["full"] }
 uuid = { version = "*", features = ["v4"] }
+zeroize = "*"

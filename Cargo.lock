@@ -1036,6 +1036,7 @@ dependencies = [
  "snafu",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1687,3 +1688,9 @@ dependencies = [
  "winapi 0.2.8",
  "winapi-build",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cbac2ed2ba24cc90f5e06485ac8c7c1e5449fe8911aef4d8877218af021a5b8"
