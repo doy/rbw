@@ -77,6 +77,12 @@ impl Db {
         Ok(())
     }
 
+    pub fn remove(email: &str) -> Result<()> {
+        let filename = Self::filename(email);
+        std::fs::remove_file(filename).context(crate::error::RemoveDb)?;
+        Ok(())
+    }
+
     fn filename(email: &str) -> std::path::PathBuf {
         crate::dirs::cache_dir().join(format!("{}.json", email))
     }

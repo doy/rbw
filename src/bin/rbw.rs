@@ -183,7 +183,10 @@ fn lock() {
 }
 
 fn purge() {
-    todo!()
+    stop_agent();
+
+    let email = config_email();
+    rbw::db::Db::remove(&email).unwrap();
 }
 
 fn stop_agent() {

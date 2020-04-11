@@ -63,6 +63,9 @@ pub enum Error {
     #[snafu(display("error waiting for pinentry to exit: {}", source))]
     PinentryWait { source: tokio::io::Error },
 
+    #[snafu(display("failed to remove db: {}", source))]
+    RemoveDb { source: std::io::Error },
+
     #[snafu(display("error making api request: {}", source))]
     Reqwest { source: reqwest::Error },
 
