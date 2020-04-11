@@ -41,7 +41,10 @@ impl Agent {
                     });
                 }
                 _ = &mut self.timeout => {
-                    self.state.write().await.priv_key = None
+                    let state = self.state.clone();
+                    tokio::spawn(async move{
+                        state.write().await.priv_key = None
+                    });
                 }
             }
         }
