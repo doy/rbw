@@ -71,7 +71,7 @@ async fn read_password<
                 break;
             } else {
                 return Err(Error::FailedToParsePinentry {
-                    out: data.to_vec(),
+                    out: String::from_utf8_lossy(data).to_string(),
                 });
             }
         } else {

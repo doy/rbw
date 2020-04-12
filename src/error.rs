@@ -10,7 +10,7 @@ pub enum Error {
     Decrypt { source: block_modes::BlockModeError },
 
     #[snafu(display("failed to parse pinentry output ({:?})", out,))]
-    FailedToParsePinentry { out: Vec<u8> },
+    FailedToParsePinentry { out: String },
 
     // no Error impl
     // #[snafu(display("failed to expand with hkdf: {}", source))]
