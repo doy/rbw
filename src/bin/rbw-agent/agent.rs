@@ -1,18 +1,38 @@
 use anyhow::Context as _;
 use tokio::stream::StreamExt as _;
 
+#[derive(Debug)]
+pub enum TimeoutEvent {
+    Set,
+    Clear,
+}
+
 pub struct State {
     pub priv_key: Option<rbw::locked::Keys>,
+    pub timeout_chan: tokio::sync::mpsc::UnboundedSender<TimeoutEvent>,
 }
 
 impl State {
     pub fn needs_unlock(&self) -> bool {
         self.priv_key.is_none()
     }
+
+    pub fn set_timeout(&mut self) {
+        // no real better option to unwrap here
+        self.timeout_chan.send(TimeoutEvent::Set).unwrap();
+    }
+
+    pub fn clear(&mut self) {
+        self.priv_key = None;
+        // no real better option to unwrap here
+        self.timeout_chan.send(TimeoutEvent::Clear).unwrap();
+    }
 }
 
 pub struct Agent {
-    timeout: tokio::time::Delay,
+    timeout_duration: tokio::time::Duration,
+    timeout: Option<tokio::time::Delay>,
+    timeout_chan: tokio::sync::mpsc::UnboundedReceiver<TimeoutEvent>,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
 }
 
@@ -20,28 +40,43 @@ impl Agent {
     pub fn new() -> anyhow::Result<Self> {
         let config =
             rbw::config::Config::load().context("failed to load config")?;
+        let timeout_duration =
+            tokio::time::Duration::from_secs(config.lock_timeout);
+        let (w, r) = tokio::sync::mpsc::unbounded_channel();
         Ok(Self {
-            timeout: tokio::time::delay_for(
-                tokio::time::Duration::from_secs(config.lock_timeout),
-            ),
+            timeout_duration,
+            timeout: None,
+            timeout_chan: r,
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
                 priv_key: None,
+                timeout_chan: w,
             })),
         })
+    }
+
+    fn set_timeout(&mut self) {
+        self.timeout = Some(tokio::time::delay_for(self.timeout_duration));
+    }
+
+    fn clear_timeout(&mut self) {
+        self.timeout = None;
     }
 
     pub async fn run(
         &mut self,
         mut listener: tokio::net::UnixListener,
     ) -> anyhow::Result<()> {
+        let mut forever = tokio::time::delay_for(
+            tokio::time::Duration::from_secs(999_999_999),
+        );
         loop {
+            let timeout = if let Some(timeout) = &mut self.timeout {
+                timeout
+            } else {
+                &mut forever
+            };
             tokio::select! {
-                sock = listener.next() => {
-                    let sock = if let Some(sock) = sock {
-                        sock
-                    } else {
-                        return Ok(());
-                    };
+                Some(sock) = listener.next() => {
                     let mut sock = crate::sock::Sock::new(
                         sock.context("failed to accept incoming connection")?
                     );
@@ -57,11 +92,17 @@ impl Agent {
                         }
                     });
                 }
-                _ = &mut self.timeout => {
+                _ = timeout => {
                     let state = self.state.clone();
                     tokio::spawn(async move{
-                        state.write().await.priv_key = None
+                        state.write().await.clear();
                     });
+                }
+                Some(ev) = &mut self.timeout_chan.next() => {
+                    match ev {
+                        TimeoutEvent::Set => self.set_timeout(),
+                        TimeoutEvent::Clear => self.clear_timeout(),
+                    }
                 }
             }
         }
@@ -76,22 +117,36 @@ async fn handle_request(
         .recv()
         .await
         .context("failed to receive incoming message")?;
-    match &req.action {
+    let set_timeout = match &req.action {
         rbw::protocol::Action::Login => {
             crate::actions::login(sock, state.clone(), req.tty.as_deref())
-                .await
+                .await?;
+            true
         }
         rbw::protocol::Action::Unlock => {
             crate::actions::unlock(sock, state.clone(), req.tty.as_deref())
-                .await
+                .await?;
+            true
         }
         rbw::protocol::Action::Lock => {
-            crate::actions::lock(sock, state.clone()).await
+            crate::actions::lock(sock, state.clone()).await?;
+            false
         }
-        rbw::protocol::Action::Sync => crate::actions::sync(sock).await,
+        rbw::protocol::Action::Sync => {
+            crate::actions::sync(sock).await?;
+            false
+        }
         rbw::protocol::Action::Decrypt { cipherstring } => {
-            crate::actions::decrypt(sock, state.clone(), &cipherstring).await
+            crate::actions::decrypt(sock, state.clone(), &cipherstring)
+                .await?;
+            true
         }
         rbw::protocol::Action::Quit => std::process::exit(0),
+    };
+
+    if set_timeout {
+        state.write().await.set_timeout();
     }
+
+    Ok(())
 }
