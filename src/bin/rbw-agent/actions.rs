@@ -5,7 +5,6 @@ pub async fn login(
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     tty: Option<&str>,
 ) -> anyhow::Result<()> {
-    let mut state = state.write().await;
     let email = config_email()
         .await
         .context("failed to read email from config")?;
@@ -39,7 +38,7 @@ pub async fn login(
                 .await
                 .context("failed to log in to bitwarden instance")?;
 
-        state.priv_key = Some(keys);
+        state.write().await.priv_key = Some(keys);
 
         db.access_token = Some(access_token);
         db.refresh_token = Some(refresh_token);
@@ -62,9 +61,7 @@ pub async fn unlock(
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     tty: Option<&str>,
 ) -> anyhow::Result<()> {
-    let mut state = state.write().await;
-
-    if state.needs_unlock() {
+    if state.read().await.needs_unlock() {
         let email = config_email()
             .await
             .context("failed to read email from config")?;
@@ -103,7 +100,7 @@ pub async fn unlock(
         .await
         .context("failed to unlock database")?;
 
-        state.priv_key = Some(keys);
+        state.write().await.priv_key = Some(keys);
     }
 
     respond_ack(sock).await?;
@@ -115,9 +112,7 @@ pub async fn lock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
 ) -> anyhow::Result<()> {
-    let mut state = state.write().await;
-
-    state.priv_key = None;
+    state.write().await.clear();
 
     respond_ack(sock).await?;
 
