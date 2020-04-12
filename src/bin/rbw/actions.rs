@@ -1,27 +1,27 @@
 use anyhow::Context as _;
 
 pub fn login() -> anyhow::Result<()> {
-    simple_action(rbw::agent::Action::Login, "login")
+    simple_action(rbw::protocol::Action::Login, "login")
 }
 
 pub fn unlock() -> anyhow::Result<()> {
-    simple_action(rbw::agent::Action::Unlock, "unlock")
+    simple_action(rbw::protocol::Action::Unlock, "unlock")
 }
 
 pub fn sync() -> anyhow::Result<()> {
-    simple_action(rbw::agent::Action::Sync, "sync")
+    simple_action(rbw::protocol::Action::Sync, "sync")
 }
 
 pub fn lock() -> anyhow::Result<()> {
-    simple_action(rbw::agent::Action::Lock, "lock")
+    simple_action(rbw::protocol::Action::Lock, "lock")
 }
 
 pub fn quit() -> anyhow::Result<()> {
     match crate::sock::Sock::connect() {
         Ok(mut sock) => {
-            sock.send(&rbw::agent::Request {
+            sock.send(&rbw::protocol::Request {
                 tty: std::env::var("TTY").ok(),
-                action: rbw::agent::Action::Quit,
+                action: rbw::protocol::Action::Quit,
             })?;
             Ok(())
         }
@@ -38,17 +38,17 @@ pub fn quit() -> anyhow::Result<()> {
 pub fn decrypt(cipherstring: &str) -> anyhow::Result<String> {
     let mut sock = crate::sock::Sock::connect()
         .context("failed to connect to rbw-agent")?;
-    sock.send(&rbw::agent::Request {
+    sock.send(&rbw::protocol::Request {
         tty: std::env::var("TTY").ok(),
-        action: rbw::agent::Action::Decrypt {
+        action: rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
         },
     })?;
 
     let res = sock.recv()?;
     match res {
-        rbw::agent::Response::Decrypt { plaintext } => Ok(plaintext),
-        rbw::agent::Response::Error { error } => {
+        rbw::protocol::Response::Decrypt { plaintext } => Ok(plaintext),
+        rbw::protocol::Response::Error { error } => {
             Err(anyhow::anyhow!("failed to decrypt: {}", error))
         }
         _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
@@ -56,21 +56,21 @@ pub fn decrypt(cipherstring: &str) -> anyhow::Result<String> {
 }
 
 fn simple_action(
-    action: rbw::agent::Action,
+    action: rbw::protocol::Action,
     desc: &str,
 ) -> anyhow::Result<()> {
     let mut sock = crate::sock::Sock::connect()
         .context("failed to connect to rbw-agent")?;
 
-    sock.send(&rbw::agent::Request {
+    sock.send(&rbw::protocol::Request {
         tty: std::env::var("TTY").ok(),
         action,
     })?;
 
     let res = sock.recv()?;
     match res {
-        rbw::agent::Response::Ack => Ok(()),
-        rbw::agent::Response::Error { error } => {
+        rbw::protocol::Response::Ack => Ok(()),
+        rbw::protocol::Response::Error { error } => {
             Err(anyhow::anyhow!("failed to {}: {}", desc, error))
         }
         _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),

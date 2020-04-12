@@ -179,7 +179,7 @@ pub async fn decrypt(
 }
 
 async fn respond_ack(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
-    sock.send(&rbw::agent::Response::Ack)
+    sock.send(&rbw::protocol::Response::Ack)
         .await
         .context("failed to send response")?;
 
@@ -190,7 +190,7 @@ async fn respond_decrypt(
     sock: &mut crate::sock::Sock,
     plaintext: String,
 ) -> anyhow::Result<()> {
-    sock.send(&rbw::agent::Response::Decrypt { plaintext })
+    sock.send(&rbw::protocol::Response::Decrypt { plaintext })
         .await
         .context("failed to send response")?;
 

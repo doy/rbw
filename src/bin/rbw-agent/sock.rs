@@ -10,7 +10,7 @@ impl Sock {
 
     pub async fn send(
         &mut self,
-        res: &rbw::agent::Response,
+        res: &rbw::protocol::Response,
     ) -> anyhow::Result<()> {
         let Self(sock) = self;
         sock.write_all(
@@ -26,7 +26,7 @@ impl Sock {
         Ok(())
     }
 
-    pub async fn recv(&mut self) -> anyhow::Result<rbw::agent::Request> {
+    pub async fn recv(&mut self) -> anyhow::Result<rbw::protocol::Request> {
         let Self(sock) = self;
         let mut buf = tokio::io::BufStream::new(sock);
         let mut line = String::new();

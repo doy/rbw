@@ -51,7 +51,7 @@ impl Agent {
                             = handle_request(&mut sock, state.clone()).await;
                         if let Err(e) = res {
                             // unwrap is the only option here
-                            sock.send(&rbw::agent::Response::Error {
+                            sock.send(&rbw::protocol::Response::Error {
                                 error: format!("{:#}", e),
                             }).await.unwrap();
                         }
@@ -77,21 +77,21 @@ async fn handle_request(
         .await
         .context("failed to receive incoming message")?;
     match &req.action {
-        rbw::agent::Action::Login => {
+        rbw::protocol::Action::Login => {
             crate::actions::login(sock, state.clone(), req.tty.as_deref())
                 .await
         }
-        rbw::agent::Action::Unlock => {
+        rbw::protocol::Action::Unlock => {
             crate::actions::unlock(sock, state.clone(), req.tty.as_deref())
                 .await
         }
-        rbw::agent::Action::Lock => {
+        rbw::protocol::Action::Lock => {
             crate::actions::lock(sock, state.clone()).await
         }
-        rbw::agent::Action::Sync => crate::actions::sync(sock).await,
-        rbw::agent::Action::Decrypt { cipherstring } => {
+        rbw::protocol::Action::Sync => crate::actions::sync(sock).await,
+        rbw::protocol::Action::Decrypt { cipherstring } => {
             crate::actions::decrypt(sock, state.clone(), &cipherstring).await
         }
-        rbw::agent::Action::Quit => std::process::exit(0),
+        rbw::protocol::Action::Quit => std::process::exit(0),
     }
 }

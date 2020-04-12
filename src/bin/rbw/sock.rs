@@ -10,7 +10,10 @@ impl Sock {
         )?))
     }
 
-    pub fn send(&mut self, msg: &rbw::agent::Request) -> anyhow::Result<()> {
+    pub fn send(
+        &mut self,
+        msg: &rbw::protocol::Request,
+    ) -> anyhow::Result<()> {
         let Self(sock) = self;
         sock.write_all(
             serde_json::to_string(msg)
@@ -23,7 +26,7 @@ impl Sock {
         Ok(())
     }
 
-    pub fn recv(&mut self) -> anyhow::Result<rbw::agent::Response> {
+    pub fn recv(&mut self) -> anyhow::Result<rbw::protocol::Response> {
         let Self(sock) = self;
         let mut buf = std::io::BufReader::new(sock);
         let mut line = String::new();

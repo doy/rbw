@@ -6,7 +6,6 @@
 #![allow(clippy::similar_names)]
 
 pub mod actions;
-pub mod agent;
 pub mod api;
 pub mod cipherstring;
 pub mod config;
@@ -17,4 +16,5 @@ pub mod identity;
 pub mod locked;
 pub mod pinentry;
 mod prelude;
+pub mod protocol;
 pub mod pwgen;
