@@ -29,9 +29,11 @@ pub async fn login(
         db.iterations = Some(iterations);
         db.protected_key = Some(protected_key);
         db.save_async(&email).await.unwrap();
-    }
 
-    respond_ack(sock).await;
+        sync(sock).await;
+    } else {
+        respond_ack(sock).await;
+    }
 }
 
 pub async fn unlock(
