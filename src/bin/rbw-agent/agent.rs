@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use tokio::stream::StreamExt as _;
 
 pub struct State {
@@ -16,28 +17,44 @@ pub struct Agent {
 }
 
 impl Agent {
-    pub fn new() -> Self {
-        let config = rbw::config::Config::load().unwrap();
-        Self {
+    pub fn new() -> anyhow::Result<Self> {
+        let config =
+            rbw::config::Config::load().context("failed to load config")?;
+        Ok(Self {
             timeout: tokio::time::delay_for(
                 tokio::time::Duration::from_secs(config.lock_timeout),
             ),
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
                 priv_key: None,
             })),
-        }
+        })
     }
 
-    pub async fn run(&mut self, mut listener: tokio::net::UnixListener) {
+    pub async fn run(
+        &mut self,
+        mut listener: tokio::net::UnixListener,
+    ) -> anyhow::Result<()> {
         loop {
             tokio::select! {
                 sock = listener.next() => {
-                    let mut sock
-                        = crate::sock::Sock::new(sock.unwrap().unwrap());
+                    let sock = if let Some(sock) = sock {
+                        sock
+                    } else {
+                        return Ok(());
+                    };
+                    let mut sock = crate::sock::Sock::new(
+                        sock.context("failed to accept incoming connection")?
+                    );
                     let state = self.state.clone();
                     tokio::spawn(async move {
-                        let req = sock.recv().await;
-                        handle_request(&req, &mut sock, state.clone()).await;
+                        let res
+                            = handle_request(&mut sock, state.clone()).await;
+                        if let Err(e) = res {
+                            // unwrap is the only option here
+                            sock.send(&rbw::agent::Response::Error {
+                                error: format!("{:#}", e),
+                            }).await.unwrap();
+                        }
                     });
                 }
                 _ = &mut self.timeout => {
@@ -52,10 +69,13 @@ impl Agent {
 }
 
 async fn handle_request(
-    req: &rbw::agent::Request,
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
-) {
+) -> anyhow::Result<()> {
+    let req = sock
+        .recv()
+        .await
+        .context("failed to receive incoming message")?;
     match &req.action {
         rbw::agent::Action::Login => {
             crate::actions::login(sock, state.clone(), req.tty.as_deref())

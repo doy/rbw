@@ -1,26 +1,43 @@
+use anyhow::Context as _;
+
 pub async fn login(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     tty: Option<&str>,
-) {
+) -> anyhow::Result<()> {
     let mut state = state.write().await;
-    let email = config_email().await;
+    let email = config_email()
+        .await
+        .context("failed to read email from config")?;
     let mut db = rbw::db::Db::load_async(&email)
         .await
         .unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
-        let url = config_base_url().await;
-        let url = reqwest::Url::parse(&url).unwrap();
+        let url_str = config_base_url()
+            .await
+            .context("failed to read base url from config")?;
+        let url = reqwest::Url::parse(&url_str)
+            .context("failed to parse base url")?;
+        let host = if let Some(host) = url.host_str() {
+            host
+        } else {
+            return Err(anyhow::anyhow!(
+                "couldn't find host in rbw base url {}",
+                url_str
+            ));
+        };
         let password = rbw::pinentry::getpin(
             "Master Password",
-            &format!("Log in to {}", url.host_str().unwrap()),
+            &format!("Log in to {}", host),
             tty,
         )
         .await
-        .unwrap();
+        .context("failed to read password from pinentry")?;
         let (access_token, refresh_token, iterations, protected_key, keys) =
-            rbw::actions::login(&email, &password).await.unwrap();
+            rbw::actions::login(&email, &password)
+                .await
+                .context("failed to log in to bitwarden instance")?;
 
         state.priv_key = Some(keys);
 
@@ -28,108 +45,172 @@ pub async fn login(
         db.refresh_token = Some(refresh_token);
         db.iterations = Some(iterations);
         db.protected_key = Some(protected_key);
-        db.save_async(&email).await.unwrap();
+        db.save_async(&email)
+            .await
+            .context("failed to save local database")?;
 
-        sync(sock).await;
+        sync(sock).await?;
     } else {
-        respond_ack(sock).await;
+        respond_ack(sock).await?;
     }
+
+    Ok(())
 }
 
 pub async fn unlock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     tty: Option<&str>,
-) {
+) -> anyhow::Result<()> {
     let mut state = state.write().await;
 
     if state.needs_unlock() {
-        let email = config_email().await;
+        let email = config_email()
+            .await
+            .context("failed to read email from config")?;
         let password = rbw::pinentry::getpin(
             "Master Password",
             "Unlock the local database",
             tty,
         )
         .await
-        .unwrap();
+        .context("failed to read password from pinentry")?;
 
         let db = rbw::db::Db::load_async(&email)
             .await
-            .unwrap_or_else(|_| rbw::db::Db::new());
+            .context("failed to load local database")?;
 
+        let iterations = if let Some(iterations) = db.iterations {
+            iterations
+        } else {
+            return Err(anyhow::anyhow!(
+                "failed to find number of iterations in db"
+            ));
+        };
+        let protected_key = if let Some(protected_key) = db.protected_key {
+            protected_key
+        } else {
+            return Err(anyhow::anyhow!(
+                "failed to find protected key in db"
+            ));
+        };
         let keys = rbw::actions::unlock(
             &email,
             &password,
-            db.iterations.unwrap(),
-            db.protected_key.as_deref().unwrap(),
+            iterations,
+            &protected_key,
         )
         .await
-        .unwrap();
+        .context("failed to unlock database")?;
 
         state.priv_key = Some(keys);
     }
 
-    respond_ack(sock).await;
+    respond_ack(sock).await?;
+
+    Ok(())
 }
 
 pub async fn lock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
-) {
+) -> anyhow::Result<()> {
     let mut state = state.write().await;
 
     state.priv_key = None;
 
-    respond_ack(sock).await;
+    respond_ack(sock).await?;
+
+    Ok(())
 }
 
-pub async fn sync(sock: &mut crate::sock::Sock) {
-    let email = config_email().await;
+pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
+    let email = config_email()
+        .await
+        .context("failed to read email from config")?;
     let mut db = rbw::db::Db::load_async(&email)
         .await
-        .unwrap_or_else(|_| rbw::db::Db::new());
+        .context("failed to load local database")?;
 
-    let (protected_key, ciphers) =
-        rbw::actions::sync(db.access_token.as_ref().unwrap())
-            .await
-            .unwrap();
+    let access_token = if let Some(access_token) = &db.access_token {
+        access_token
+    } else {
+        return Err(anyhow::anyhow!("failed to find access token in db"));
+    };
+    let (protected_key, ciphers) = rbw::actions::sync(&access_token)
+        .await
+        .context("failed to sync database from server")?;
     db.protected_key = Some(protected_key);
     db.ciphers = ciphers;
-    db.save_async(&email).await.unwrap();
+    db.save_async(&email)
+        .await
+        .context("failed to save database")?;
 
-    respond_ack(sock).await;
+    respond_ack(sock).await?;
+
+    Ok(())
 }
 
 pub async fn decrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     cipherstring: &str,
-) {
+) -> anyhow::Result<()> {
     let state = state.read().await;
-    let keys = state.priv_key.as_ref().unwrap();
-    let cipherstring =
-        rbw::cipherstring::CipherString::new(cipherstring).unwrap();
-    let plaintext =
-        String::from_utf8(cipherstring.decrypt(keys).unwrap()).unwrap();
+    let keys = if let Some(keys) = &state.priv_key {
+        keys
+    } else {
+        return Err(anyhow::anyhow!(
+            "failed to find decryption keys in in-memory state"
+        ));
+    };
+    let cipherstring = rbw::cipherstring::CipherString::new(cipherstring)
+        .context("failed to parse encrypted secret")?;
+    let plaintext = String::from_utf8(
+        cipherstring
+            .decrypt(&keys)
+            .context("failed to decrypt encrypted secret")?,
+    )
+    .context("failed to parse decrypted secret")?;
 
-    respond_decrypt(sock, plaintext).await;
+    respond_decrypt(sock, plaintext).await?;
+
+    Ok(())
 }
 
-async fn respond_ack(sock: &mut crate::sock::Sock) {
-    sock.send(&rbw::agent::Response::Ack).await;
+async fn respond_ack(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
+    sock.send(&rbw::agent::Response::Ack)
+        .await
+        .context("failed to send response")?;
+
+    Ok(())
 }
 
-async fn respond_decrypt(sock: &mut crate::sock::Sock, plaintext: String) {
+async fn respond_decrypt(
+    sock: &mut crate::sock::Sock,
+    plaintext: String,
+) -> anyhow::Result<()> {
     sock.send(&rbw::agent::Response::Decrypt { plaintext })
-        .await;
+        .await
+        .context("failed to send response")?;
+
+    Ok(())
 }
 
-async fn config_email() -> String {
-    let config = rbw::config::Config::load_async().await.unwrap();
-    config.email.unwrap()
+async fn config_email() -> anyhow::Result<String> {
+    let config = rbw::config::Config::load_async()
+        .await
+        .context("failed to load config")?;
+    if let Some(email) = config.email {
+        Ok(email)
+    } else {
+        Err(anyhow::anyhow!("failed to find email address in config"))
+    }
 }
 
-async fn config_base_url() -> String {
-    let config = rbw::config::Config::load_async().await.unwrap();
-    config.base_url()
+async fn config_base_url() -> anyhow::Result<String> {
+    let config = rbw::config::Config::load_async()
+        .await
+        .context("failed to load config")?;
+    Ok(config.base_url())
 }

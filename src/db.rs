@@ -45,6 +45,8 @@ impl Db {
     // XXX need to make this atomic
     pub fn save(&self, email: &str) -> Result<()> {
         let filename = Self::filename(email);
+        // unwrap is safe here because Self::filename is explicitly
+        // constructed as a filename in a directory
         std::fs::create_dir_all(filename.parent().unwrap())
             .context(crate::error::SaveDb)?;
         let mut fh =
@@ -61,6 +63,8 @@ impl Db {
     // XXX need to make this atomic
     pub async fn save_async(&self, email: &str) -> Result<()> {
         let filename = Self::filename(email);
+        // unwrap is safe here because Self::filename is explicitly
+        // constructed as a filename in a directory
         tokio::fs::create_dir_all(filename.parent().unwrap())
             .await
             .context(crate::error::SaveDbAsync)?;

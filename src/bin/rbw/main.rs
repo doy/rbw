@@ -1,3 +1,5 @@
+use anyhow::Context as _;
+
 mod actions;
 mod commands;
 mod sock;
@@ -54,27 +56,34 @@ fn main() {
         .subcommand(clap::SubCommand::with_name("stop-agent"))
         .get_matches();
 
-    match matches.subcommand() {
+    let res = match matches.subcommand() {
         ("config", Some(smatches)) => match smatches.subcommand() {
-            ("show", Some(_)) => commands::config_show(),
+            ("show", Some(_)) => {
+                commands::config_show().context("config show")
+            }
+            // these unwraps are fine because key and value are both marked
+            // .required(true)
             ("set", Some(ssmatches)) => commands::config_set(
                 ssmatches.value_of("key").unwrap(),
                 ssmatches.value_of("value").unwrap(),
-            ),
+            )
+            .context("config set"),
             _ => {
                 eprintln!("{}", smatches.usage());
                 std::process::exit(1);
             }
         },
-        ("login", Some(_)) => commands::login(),
-        ("unlock", Some(_)) => commands::unlock(),
-        ("sync", Some(_)) => commands::sync(),
-        ("list", Some(_)) => commands::list(),
+        ("login", Some(_)) => commands::login().context("login"),
+        ("unlock", Some(_)) => commands::unlock().context("unlock"),
+        ("sync", Some(_)) => commands::sync().context("sync"),
+        ("list", Some(_)) => commands::list().context("list"),
+        // this unwrap is safe because name is marked .required(true)
         ("get", Some(smatches)) => commands::get(
             smatches.value_of("name").unwrap(),
             smatches.value_of("user"),
-        ),
-        ("add", Some(_)) => commands::add(),
+        )
+        .context("get"),
+        ("add", Some(_)) => commands::add().context("add"),
         ("generate", Some(smatches)) => {
             let ty = if smatches.is_present("no-symbols") {
                 rbw::pwgen::Type::NoSymbols
@@ -87,21 +96,35 @@ fn main() {
             } else {
                 rbw::pwgen::Type::AllChars
             };
-            commands::generate(
-                smatches.value_of("name"),
-                smatches.value_of("user"),
-                smatches.value_of("len").unwrap().parse().unwrap(),
-                ty,
-            );
+            // this unwrap is fine because len is marked as .required(true)
+            let len = smatches.value_of("len").unwrap();
+            match len.parse() {
+                Ok(len) => commands::generate(
+                    smatches.value_of("name"),
+                    smatches.value_of("user"),
+                    len,
+                    ty,
+                )
+                .context("generate"),
+                Err(e) => Err(e.into()),
+            }
         }
-        ("edit", Some(_)) => commands::edit(),
-        ("remove", Some(_)) => commands::remove(),
-        ("lock", Some(_)) => commands::lock(),
-        ("purge", Some(_)) => commands::purge(),
-        ("stop-agent", Some(_)) => commands::stop_agent(),
+        ("edit", Some(_)) => commands::edit().context("edit"),
+        ("remove", Some(_)) => commands::remove().context("remove"),
+        ("lock", Some(_)) => commands::lock().context("lock"),
+        ("purge", Some(_)) => commands::purge().context("purge"),
+        ("stop-agent", Some(_)) => {
+            commands::stop_agent().context("stop-agent")
+        }
         _ => {
             eprintln!("{}", matches.usage());
             std::process::exit(1);
         }
+    }
+    .context("rbw");
+
+    if let Err(e) = res {
+        eprintln!("{:#}", e);
+        std::process::exit(1);
     }
 }

@@ -17,6 +17,8 @@ pub async fn getpin(
         opts
     };
     let mut child = opts.spawn().context(crate::error::Spawn)?;
+    // unwrap is safe because we specified stdin as piped in the command opts
+    // above
     let mut stdin = child.stdin.take().unwrap();
 
     stdin
@@ -39,6 +41,8 @@ pub async fn getpin(
 
     let mut buf = crate::locked::Vec::new();
     buf.extend(std::iter::repeat(0));
+    // unwrap is safe because we specified stdout as piped in the command opts
+    // above
     let len =
         read_password(buf.data_mut(), child.stdout.as_mut().unwrap()).await?;
     buf.truncate(len);

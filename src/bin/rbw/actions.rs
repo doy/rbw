@@ -1,60 +1,64 @@
-pub fn login() {
-    simple_action(rbw::agent::Action::Login, "login");
+pub fn login() -> anyhow::Result<()> {
+    simple_action(rbw::agent::Action::Login, "login")
 }
 
-pub fn unlock() {
-    simple_action(rbw::agent::Action::Unlock, "unlock");
+pub fn unlock() -> anyhow::Result<()> {
+    simple_action(rbw::agent::Action::Unlock, "unlock")
 }
 
-pub fn sync() {
-    simple_action(rbw::agent::Action::Sync, "sync");
+pub fn sync() -> anyhow::Result<()> {
+    simple_action(rbw::agent::Action::Sync, "sync")
 }
 
-pub fn lock() {
-    simple_action(rbw::agent::Action::Lock, "lock");
+pub fn lock() -> anyhow::Result<()> {
+    simple_action(rbw::agent::Action::Lock, "lock")
 }
 
-pub fn quit() {
-    let mut sock = crate::sock::Sock::connect();
+pub fn quit() -> anyhow::Result<()> {
+    let mut sock = crate::sock::Sock::connect()?;
     sock.send(&rbw::agent::Request {
         tty: std::env::var("TTY").ok(),
         action: rbw::agent::Action::Quit,
-    });
+    })?;
+    Ok(())
 }
 
-pub fn decrypt(cipherstring: &str) -> String {
-    let mut sock = crate::sock::Sock::connect();
+pub fn decrypt(cipherstring: &str) -> anyhow::Result<String> {
+    let mut sock = crate::sock::Sock::connect()?;
     sock.send(&rbw::agent::Request {
         tty: std::env::var("TTY").ok(),
         action: rbw::agent::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
         },
-    });
+    })?;
 
-    let res = sock.recv();
+    let res = sock.recv()?;
     match res {
-        rbw::agent::Response::Decrypt { plaintext } => plaintext,
+        rbw::agent::Response::Decrypt { plaintext } => Ok(plaintext),
         rbw::agent::Response::Error { error } => {
-            panic!("failed to decrypt: {}", error)
+            Err(anyhow::anyhow!("failed to decrypt: {}", error))
         }
-        _ => panic!("unexpected message: {:?}", res),
+        _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
     }
 }
 
-fn simple_action(action: rbw::agent::Action, desc: &str) {
-    let mut sock = crate::sock::Sock::connect();
+fn simple_action(
+    action: rbw::agent::Action,
+    desc: &str,
+) -> anyhow::Result<()> {
+    let mut sock = crate::sock::Sock::connect()?;
 
     sock.send(&rbw::agent::Request {
         tty: std::env::var("TTY").ok(),
         action,
-    });
+    })?;
 
-    let res = sock.recv();
+    let res = sock.recv()?;
     match res {
-        rbw::agent::Response::Ack => (),
+        rbw::agent::Response::Ack => Ok(()),
         rbw::agent::Response::Error { error } => {
-            panic!("failed to {}: {}", desc, error)
+            Err(anyhow::anyhow!("failed to {}: {}", desc, error))
         }
-        _ => panic!("unexpected message: {:?}", res),
+        _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
     }
 }

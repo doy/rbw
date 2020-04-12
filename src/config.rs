@@ -47,6 +47,8 @@ impl Config {
 
     pub fn save(&self) -> Result<()> {
         let filename = Self::filename();
+        // unwrap is safe here because Self::filename is explicitly
+        // constructed as a filename in a directory
         std::fs::create_dir_all(filename.parent().unwrap())
             .context(crate::error::SaveConfig)?;
         let mut fh = std::fs::File::create(filename)

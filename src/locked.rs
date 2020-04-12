@@ -8,6 +8,8 @@ pub struct Vec {
 impl Default for Vec {
     fn default() -> Self {
         let data = Box::new(arrayvec::ArrayVec::<_>::new());
+        // XXX it'd be nice to handle this better than .unwrap(), but it'd be
+        // a lot of effort
         let lock = region::lock(data.as_ptr(), data.capacity()).unwrap();
         Self { data, _lock: lock }
     }
