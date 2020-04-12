@@ -10,8 +10,15 @@ pub async fn login(
         .unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
-        let password =
-            rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
+        let url = config_base_url().await;
+        let url = reqwest::Url::parse(&url).unwrap();
+        let password = rbw::pinentry::getpin(
+            "Master Password",
+            &format!("Log in to {}", url.host_str().unwrap()),
+            tty,
+        )
+        .await
+        .unwrap();
         let (access_token, refresh_token, iterations, protected_key, keys) =
             rbw::actions::login(&email, &password).await.unwrap();
 
@@ -36,8 +43,13 @@ pub async fn unlock(
 
     if state.needs_unlock() {
         let email = config_email().await;
-        let password =
-            rbw::pinentry::getpin("prompt", "desc", tty).await.unwrap();
+        let password = rbw::pinentry::getpin(
+            "Master Password",
+            "Unlock the local database",
+            tty,
+        )
+        .await
+        .unwrap();
 
         let db = rbw::db::Db::load_async(&email)
             .await
@@ -113,4 +125,9 @@ async fn respond_decrypt(sock: &mut crate::sock::Sock, plaintext: String) {
 async fn config_email() -> String {
     let config = rbw::config::Config::load_async().await.unwrap();
     config.email.unwrap()
+}
+
+async fn config_base_url() -> String {
+    let config = rbw::config::Config::load_async().await.unwrap();
+    config.base_url()
 }
