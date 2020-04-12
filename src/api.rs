@@ -65,9 +65,9 @@ pub struct Cipher {
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Login {
     #[serde(rename = "Username")]
-    pub username: String,
+    pub username: Option<String>,
     #[serde(rename = "Password")]
-    pub password: String,
+    pub password: Option<String>,
 }
 
 #[derive(Debug)]

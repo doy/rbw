@@ -75,29 +75,48 @@ pub fn get(name: &str, user: Option<&str>) -> anyhow::Result<()> {
     let email = config_email()?;
     let db = rbw::db::Db::load(&email)
         .context("failed to load password database")?;
+    let desc = format!(
+        "{}{}",
+        user.map(|s| format!("{}@", s))
+            .unwrap_or_else(|| "".to_string()),
+        name
+    );
     for cipher in db.ciphers {
         let cipher_name = crate::actions::decrypt(&cipher.name)
             .context("failed to decrypt entry name")?;
         if name == cipher_name {
-            let cipher_user = crate::actions::decrypt(&cipher.login.username)
-                .context("failed to decrypt entry username")?;
             if let Some(user) = user {
-                if user == cipher_user {
-                    let pass =
-                        crate::actions::decrypt(&cipher.login.password)
-                            .context("failed to decrypt entry password")?;
-                    println!("{}", pass);
-                    return Ok(());
+                if let Some(encrypted_user) = &cipher.login.username {
+                    let cipher_user = crate::actions::decrypt(encrypted_user)
+                        .context("failed to decrypt entry username")?;
+                    if user == cipher_user {
+                        if let Some(encrypted_pass) = &cipher.login.password {
+                            let pass =
+                                crate::actions::decrypt(encrypted_pass)
+                                    .context(
+                                        "failed to decrypt entry password",
+                                    )?;
+                            println!("{}", pass);
+                        } else {
+                            eprintln!("no password found for entry {}", desc);
+                        }
+                        return Ok(());
+                    }
                 }
             } else {
-                let pass = crate::actions::decrypt(&cipher.login.password)
-                    .context("failed to decrypt entry password")?;
-                println!("{}", pass);
+                if let Some(encrypted_pass) = &cipher.login.password {
+                    let pass = crate::actions::decrypt(encrypted_pass)
+                        .context("failed to decrypt entry password")?;
+                    println!("{}", pass);
+                } else {
+                    eprintln!("no password found for entry {}", desc);
+                }
                 return Ok(());
             }
         }
     }
 
+    eprintln!("no entry found for {}", desc);
     Ok(())
 }
 
