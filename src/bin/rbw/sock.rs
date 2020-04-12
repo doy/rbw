@@ -4,13 +4,10 @@ use std::io::{BufRead as _, Write as _};
 pub struct Sock(std::os::unix::net::UnixStream);
 
 impl Sock {
-    pub fn connect() -> anyhow::Result<Self> {
-        Ok(Self(
-            std::os::unix::net::UnixStream::connect(
-                rbw::dirs::runtime_dir().join("socket"),
-            )
-            .context("failed to connect to rbw-agent")?,
-        ))
+    pub fn connect() -> std::io::Result<Self> {
+        Ok(Self(std::os::unix::net::UnixStream::connect(
+            rbw::dirs::runtime_dir().join("socket"),
+        )?))
     }
 
     pub fn send(&mut self, msg: &rbw::agent::Request) -> anyhow::Result<()> {

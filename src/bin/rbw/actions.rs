@@ -1,3 +1,5 @@
+use anyhow::Context as _;
+
 pub fn login() -> anyhow::Result<()> {
     simple_action(rbw::agent::Action::Login, "login")
 }
@@ -15,16 +17,27 @@ pub fn lock() -> anyhow::Result<()> {
 }
 
 pub fn quit() -> anyhow::Result<()> {
-    let mut sock = crate::sock::Sock::connect()?;
-    sock.send(&rbw::agent::Request {
-        tty: std::env::var("TTY").ok(),
-        action: rbw::agent::Action::Quit,
-    })?;
-    Ok(())
+    match crate::sock::Sock::connect() {
+        Ok(mut sock) => {
+            sock.send(&rbw::agent::Request {
+                tty: std::env::var("TTY").ok(),
+                action: rbw::agent::Action::Quit,
+            })?;
+            Ok(())
+        }
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                Ok(())
+            } else {
+                Err(e.into())
+            }
+        }
+    }
 }
 
 pub fn decrypt(cipherstring: &str) -> anyhow::Result<String> {
-    let mut sock = crate::sock::Sock::connect()?;
+    let mut sock = crate::sock::Sock::connect()
+        .context("failed to connect to rbw-agent")?;
     sock.send(&rbw::agent::Request {
         tty: std::env::var("TTY").ok(),
         action: rbw::agent::Action::Decrypt {
@@ -46,7 +59,8 @@ fn simple_action(
     action: rbw::agent::Action,
     desc: &str,
 ) -> anyhow::Result<()> {
-    let mut sock = crate::sock::Sock::connect()?;
+    let mut sock = crate::sock::Sock::connect()
+        .context("failed to connect to rbw-agent")?;
 
     sock.send(&rbw::agent::Request {
         tty: std::env::var("TTY").ok(),

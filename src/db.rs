@@ -83,7 +83,13 @@ impl Db {
 
     pub fn remove(email: &str) -> Result<()> {
         let filename = Self::filename(email);
-        std::fs::remove_file(filename).context(crate::error::RemoveDb)?;
+        let res = std::fs::remove_file(filename);
+        if let Err(e) = &res {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Ok(());
+            }
+        }
+        res.context(crate::error::RemoveDb)?;
         Ok(())
     }
 
