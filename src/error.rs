@@ -66,6 +66,12 @@ pub enum Error {
     #[snafu(display("failed to remove db: {}", source))]
     RemoveDb { source: std::io::Error },
 
+    #[snafu(display("api request returned error: {}", status))]
+    RequestFailed { status: u16 },
+
+    #[snafu(display("api request unauthorized"))]
+    RequestUnauthorized,
+
     #[snafu(display("error making api request: {}", source))]
     Reqwest { source: reqwest::Error },
 

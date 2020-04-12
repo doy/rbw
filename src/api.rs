@@ -14,7 +14,7 @@ struct PreloginRes {
 }
 
 #[derive(serde::Serialize, Debug)]
-struct ConnectReq {
+struct ConnectPasswordReq {
     grant_type: String,
     username: String,
     password: String,
@@ -30,8 +30,25 @@ struct ConnectReq {
     device_push_token: String,
 }
 
+#[derive(serde::Serialize, Debug)]
+struct ConnectRefreshTokenReq {
+    grant_type: String,
+    client_id: String,
+    refresh_token: String,
+}
+
 #[derive(serde::Deserialize, Debug)]
-struct ConnectRes {
+struct ConnectPasswordRes {
+    access_token: String,
+    expires_in: u32,
+    token_type: String,
+    refresh_token: String,
+    #[serde(rename = "Key")]
+    key: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct ConnectRefreshTokenRes {
     access_token: String,
     expires_in: u32,
     token_type: String,
@@ -105,7 +122,7 @@ impl Client {
         email: &str,
         master_password_hash: &crate::locked::PasswordHash,
     ) -> Result<(String, String, String)> {
-        let connect_req = ConnectReq {
+        let connect_req = ConnectPasswordReq {
             grant_type: "password".to_string(),
             username: email.to_string(),
             password: base64::encode(master_password_hash.hash()),
@@ -125,7 +142,7 @@ impl Client {
             .send()
             .await
             .context(crate::error::Reqwest)?;
-        let connect_res: ConnectRes =
+        let connect_res: ConnectPasswordRes =
             res.json().await.context(crate::error::Reqwest)?;
         Ok((
             connect_res.access_token,
@@ -145,9 +162,40 @@ impl Client {
             .send()
             .await
             .context(crate::error::Reqwest)?;
-        let sync_res: SyncRes =
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let sync_res: SyncRes =
+                    res.json().await.context(crate::error::Reqwest)?;
+                Ok((sync_res.profile.key, sync_res.ciphers))
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub async fn exchange_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<String> {
+        let connect_req = ConnectRefreshTokenReq {
+            grant_type: "refresh_token".to_string(),
+            client_id: "desktop".to_string(),
+            refresh_token: refresh_token.to_string(),
+        };
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .send()
+            .await
+            .context(crate::error::Reqwest)?;
+        let connect_res: ConnectRefreshTokenRes =
             res.json().await.context(crate::error::Reqwest)?;
-        Ok((sync_res.profile.key, sync_res.ciphers))
+        Ok(connect_res.access_token)
     }
 
     fn api_url(&self, path: &str) -> String {

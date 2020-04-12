@@ -11,7 +11,7 @@ pub mod cipherstring;
 pub mod config;
 pub mod db;
 pub mod dirs;
-mod error;
+pub mod error;
 pub mod identity;
 pub mod locked;
 pub mod pinentry;

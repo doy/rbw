@@ -51,3 +51,10 @@ pub async fn sync(
         crate::api::Client::new(&config.base_url(), &config.identity_url());
     client.sync(access_token).await
 }
+
+pub async fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
+    let config = crate::config::Config::load_async().await?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+    client.exchange_refresh_token(refresh_token).await
+}
