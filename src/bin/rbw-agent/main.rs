@@ -6,12 +6,14 @@ mod daemon;
 mod sock;
 
 async fn tokio_main(
-    startup_ack: crate::daemon::StartupAck,
+    startup_ack: Option<crate::daemon::StartupAck>,
 ) -> anyhow::Result<()> {
     let listener =
         crate::sock::listen().context("failed to listen on socket")?;
 
-    startup_ack.ack()?;
+    if let Some(startup_ack) = startup_ack {
+        startup_ack.ack()?;
+    }
 
     let mut agent = crate::agent::Agent::new()?;
     agent.run(listener).await?;
@@ -25,7 +27,17 @@ fn real_main() -> anyhow::Result<()> {
     )
     .init();
 
-    let startup_ack = daemon::daemonize().context("failed to daemonize")?;
+    let no_daemonize = if let Some(arg) = std::env::args().nth(1) {
+        arg == "--no-daemonize"
+    } else {
+        false
+    };
+
+    let startup_ack = if no_daemonize {
+        None
+    } else {
+        Some(daemon::daemonize().context("failed to daemonize")?)
+    };
 
     let (w, r) = std::sync::mpsc::channel();
     // can't use tokio::main because we need to daemonize before starting the
