@@ -66,8 +66,9 @@ impl Agent {
         &mut self,
         mut listener: tokio::net::UnixListener,
     ) -> anyhow::Result<()> {
+        // tokio only supports timeouts up to 2^36 milliseconds
         let mut forever = tokio::time::delay_for(
-            tokio::time::Duration::from_secs(999_999_999),
+            tokio::time::Duration::from_secs(60 * 60 * 24 * 365 * 2),
         );
         loop {
             let timeout = if let Some(timeout) = &mut self.timeout {
