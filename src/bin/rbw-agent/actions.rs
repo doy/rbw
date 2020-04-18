@@ -192,6 +192,28 @@ pub async fn decrypt(
     Ok(())
 }
 
+pub async fn encrypt(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    plaintext: &str,
+) -> anyhow::Result<()> {
+    let state = state.read().await;
+    let keys = if let Some(keys) = &state.priv_key {
+        keys
+    } else {
+        return Err(anyhow::anyhow!(
+            "failed to find encryption keys in in-memory state"
+        ));
+    };
+    let cipherstring =
+        rbw::cipherstring::CipherString::encrypt(keys, plaintext.as_bytes())
+            .context("failed to encrypt plaintext secret")?;
+
+    respond_encrypt(sock, cipherstring.to_string()).await?;
+
+    Ok(())
+}
+
 async fn respond_ack(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Ack)
         .await
@@ -205,6 +227,17 @@ async fn respond_decrypt(
     plaintext: String,
 ) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Decrypt { plaintext })
+        .await
+        .context("failed to send response")?;
+
+    Ok(())
+}
+
+async fn respond_encrypt(
+    sock: &mut crate::sock::Sock,
+    cipherstring: String,
+) -> anyhow::Result<()> {
+    sock.send(&rbw::protocol::Response::Encrypt { cipherstring })
         .await
         .context("failed to send response")?;
 

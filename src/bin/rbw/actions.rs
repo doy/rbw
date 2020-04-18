@@ -55,6 +55,26 @@ pub fn decrypt(cipherstring: &str) -> anyhow::Result<String> {
     }
 }
 
+pub fn encrypt(plaintext: &str) -> anyhow::Result<String> {
+    let mut sock = crate::sock::Sock::connect()
+        .context("failed to connect to rbw-agent")?;
+    sock.send(&rbw::protocol::Request {
+        tty: std::env::var("TTY").ok(),
+        action: rbw::protocol::Action::Encrypt {
+            plaintext: plaintext.to_string(),
+        },
+    })?;
+
+    let res = sock.recv()?;
+    match res {
+        rbw::protocol::Response::Encrypt { cipherstring } => Ok(cipherstring),
+        rbw::protocol::Response::Error { error } => {
+            Err(anyhow::anyhow!("failed to encrypt: {}", error))
+        }
+        _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
+    }
+}
+
 fn simple_action(
     action: rbw::protocol::Action,
     desc: &str,

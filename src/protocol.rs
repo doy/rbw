@@ -12,6 +12,7 @@ pub enum Action {
     Lock,
     Sync,
     Decrypt { cipherstring: String },
+    Encrypt { plaintext: String },
     // add
     // update
     // remove
@@ -24,4 +25,5 @@ pub enum Response {
     Ack,
     Error { error: String },
     Decrypt { plaintext: String },
+    Encrypt { cipherstring: String },
 }

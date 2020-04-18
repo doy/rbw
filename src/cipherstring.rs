@@ -2,6 +2,7 @@ use crate::prelude::*;
 
 use block_modes::BlockMode as _;
 use hmac::Mac as _;
+use rand::RngCore as _;
 
 pub struct CipherString {
     ty: u8,
@@ -48,6 +49,34 @@ impl CipherString {
             iv,
             ciphertext,
             mac,
+        })
+    }
+
+    pub fn encrypt(
+        keys: &crate::locked::Keys,
+        plaintext: &[u8],
+    ) -> Result<Self> {
+        let iv = random_iv();
+
+        let cipher = block_modes::Cbc::<
+            aes::Aes256,
+            block_modes::block_padding::Pkcs7,
+        >::new_var(keys.enc_key(), &iv)
+        .context(crate::error::CreateBlockMode)?;
+        let ciphertext = cipher.encrypt_vec(plaintext);
+
+        let mut digest =
+            hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
+                .map_err(|_| Error::InvalidMacKey)?;
+        digest.input(&iv);
+        digest.input(&ciphertext);
+        let mac = digest.result().code().to_vec();
+
+        Ok(Self {
+            ty: 2,
+            iv,
+            ciphertext,
+            mac: Some(mac),
         })
     }
 
@@ -102,6 +131,19 @@ impl CipherString {
     }
 }
 
+impl std::fmt::Display for CipherString {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let iv = base64::encode(&self.iv);
+        let ciphertext = base64::encode(&self.ciphertext);
+        if let Some(mac) = &self.mac {
+            let mac = base64::encode(&mac);
+            write!(f, "{}.{}|{}|{}", self.ty, iv, ciphertext, mac)
+        } else {
+            write!(f, "{}.{}|{}", self.ty, iv, ciphertext)
+        }
+    }
+}
+
 fn macs_equal(mac1: &[u8], mac2: &[u8], mac_key: &[u8]) -> Result<bool> {
     let mut digest = hmac::Hmac::<sha2::Sha256>::new_varkey(mac_key)
         .map_err(|_| Error::InvalidMacKey)?;
@@ -114,4 +156,11 @@ fn macs_equal(mac1: &[u8], mac2: &[u8], mac_key: &[u8]) -> Result<bool> {
     let hmac2 = digest.result().code();
 
     Ok(hmac1 == hmac2)
+}
+
+fn random_iv() -> Vec<u8> {
+    let mut iv = vec![0_u8; 16];
+    let mut rng = rand::thread_rng();
+    rng.fill_bytes(&mut iv);
+    iv
 }

@@ -142,6 +142,10 @@ async fn handle_request(
                 .await?;
             true
         }
+        rbw::protocol::Action::Encrypt { plaintext } => {
+            crate::actions::encrypt(sock, state.clone(), &plaintext).await?;
+            true
+        }
         rbw::protocol::Action::Quit => std::process::exit(0),
     };
 
