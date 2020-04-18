@@ -114,8 +114,9 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     let email = config_email()?;
     let mut db = rbw::db::Db::load(&email)?;
     // unwrap is safe here because the call to unlock above is guaranteed to
-    // populate it or error
-    let access_token = db.access_token.unwrap();
+    // populate these or error
+    let access_token = db.access_token.as_ref().unwrap();
+    let refresh_token = db.refresh_token.as_ref().unwrap();
 
     let name = crate::actions::encrypt(name)?;
 
@@ -153,21 +154,11 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         notes,
     };
 
-    let res = rbw::actions::add(&access_token, &cipher);
-    if let Err(e) = &res {
-        if let rbw::error::Error::RequestUnauthorized = e {
-            if let Some(refresh_token) = &db.refresh_token {
-                let access_token =
-                    rbw::actions::exchange_refresh_token(refresh_token)?;
-                db.access_token = Some(access_token.clone());
-                db.save(&email).context("failed to save database")?;
-                rbw::actions::add(&access_token, &cipher)?;
-            } else {
-                return Err(anyhow::anyhow!(
-                    "failed to find refresh token in db"
-                ));
-            }
-        }
+    if let Some(access_token) =
+        rbw::actions::add(&access_token, &refresh_token, &cipher)?
+    {
+        db.access_token = Some(access_token);
+        db.save(&email).context("failed to save database")?;
     }
 
     crate::actions::sync()?;
@@ -190,8 +181,9 @@ pub fn generate(
         let email = config_email()?;
         let mut db = rbw::db::Db::load(&email)?;
         // unwrap is safe here because the call to unlock above is guaranteed
-        // to populate it or error
-        let access_token = db.access_token.unwrap();
+        // to populate these or error
+        let access_token = db.access_token.as_ref().unwrap();
+        let refresh_token = db.refresh_token.as_ref().unwrap();
 
         let name = crate::actions::encrypt(name)?;
         let username = username
@@ -208,21 +200,11 @@ pub fn generate(
             notes: None,
         };
 
-        let res = rbw::actions::add(&access_token, &cipher);
-        if let Err(e) = &res {
-            if let rbw::error::Error::RequestUnauthorized = e {
-                if let Some(refresh_token) = &db.refresh_token {
-                    let access_token =
-                        rbw::actions::exchange_refresh_token(refresh_token)?;
-                    db.access_token = Some(access_token.clone());
-                    db.save(&email).context("failed to save database")?;
-                    rbw::actions::add(&access_token, &cipher)?;
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "failed to find refresh token in db"
-                    ));
-                }
-            }
+        if let Some(access_token) =
+            rbw::actions::add(&access_token, &refresh_token, &cipher)?
+        {
+            db.access_token = Some(access_token);
+            db.save(&email).context("failed to save database")?;
         }
 
         crate::actions::sync()?;

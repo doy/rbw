@@ -45,6 +45,23 @@ pub async fn unlock(
 
 pub async fn sync(
     access_token: &str,
+    refresh_token: &str,
+) -> Result<(Option<String>, String, Vec<crate::api::Cipher>)> {
+    let res = sync_once(access_token).await;
+    match res {
+        Ok((protected_key, ciphers)) => Ok((None, protected_key, ciphers)),
+        Err(crate::error::Error::RequestUnauthorized) => {
+            let access_token =
+                exchange_refresh_token_async(refresh_token).await?;
+            let (protected_key, ciphers) = sync_once(&access_token).await?;
+            Ok((Some(access_token), protected_key, ciphers))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+async fn sync_once(
+    access_token: &str,
 ) -> Result<(String, Vec<crate::api::Cipher>)> {
     let config = crate::config::Config::load_async().await?;
     let client =
@@ -52,7 +69,23 @@ pub async fn sync(
     client.sync(access_token).await
 }
 
-pub fn add(access_token: &str, cipher: &crate::api::Cipher) -> Result<()> {
+pub fn add(
+    access_token: &str,
+    refresh_token: &str,
+    cipher: &crate::api::Cipher,
+) -> Result<Option<String>> {
+    match add_once(access_token, cipher) {
+        Ok(()) => Ok(None),
+        Err(crate::error::Error::RequestUnauthorized) => {
+            let access_token = exchange_refresh_token(refresh_token)?;
+            add_once(&access_token, cipher)?;
+            Ok(Some(access_token))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn add_once(access_token: &str, cipher: &crate::api::Cipher) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
@@ -60,16 +93,14 @@ pub fn add(access_token: &str, cipher: &crate::api::Cipher) -> Result<()> {
     Ok(())
 }
 
-pub fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
+fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
     client.exchange_refresh_token(refresh_token)
 }
 
-pub async fn exchange_refresh_token_async(
-    refresh_token: &str,
-) -> Result<String> {
+async fn exchange_refresh_token_async(refresh_token: &str) -> Result<String> {
     let config = crate::config::Config::load_async().await?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());

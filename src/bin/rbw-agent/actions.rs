@@ -132,28 +132,18 @@ pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     } else {
         return Err(anyhow::anyhow!("failed to find access token in db"));
     };
-    let res = rbw::actions::sync(&access_token).await;
-    let res = if let Err(e) = &res {
-        if let rbw::error::Error::RequestUnauthorized = e {
-            if let Some(refresh_token) = &db.refresh_token {
-                let access_token =
-                    rbw::actions::exchange_refresh_token_async(refresh_token)
-                        .await?;
-                db.access_token = Some(access_token.clone());
-                rbw::actions::sync(&access_token).await
-            } else {
-                return Err(anyhow::anyhow!(
-                    "failed to find refresh token in db"
-                ));
-            }
-        } else {
-            res
-        }
+    let refresh_token = if let Some(refresh_token) = &db.refresh_token {
+        refresh_token.clone()
     } else {
-        res
+        return Err(anyhow::anyhow!("failed to find refresh token in db"));
     };
-    let (protected_key, ciphers) =
-        res.context("failed to sync database from server")?;
+    let (access_token, protected_key, ciphers) =
+        rbw::actions::sync(&access_token, &refresh_token)
+            .await
+            .context("failed to sync database from server")?;
+    if let Some(access_token) = access_token {
+        db.access_token = Some(access_token);
+    }
     db.protected_key = Some(protected_key);
     db.ciphers = ciphers;
     db.save_async(&email)
