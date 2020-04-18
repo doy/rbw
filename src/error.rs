@@ -34,6 +34,9 @@ pub enum Error {
     #[snafu(display("failed to create hkdf"))]
     HkdfFromPrk,
 
+    #[snafu(display("username or password incorrect"))]
+    IncorrectPassword,
+
     #[snafu(display("invalid base64: {}", source))]
     InvalidBase64 { source: base64::DecodeError },
 

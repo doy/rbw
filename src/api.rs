@@ -48,6 +48,18 @@ struct ConnectPasswordRes {
 }
 
 #[derive(serde::Deserialize, Debug)]
+struct ConnectErrorRes {
+    #[serde(rename = "ErrorModel")]
+    error_model: ConnectErrorResErrorModel,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct ConnectErrorResErrorModel {
+    #[serde(rename = "Message")]
+    message: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
 struct ConnectRefreshTokenRes {
     access_token: String,
     expires_in: u32,
@@ -246,13 +258,26 @@ impl Client {
             .send()
             .await
             .context(crate::error::Reqwest)?;
-        let connect_res: ConnectPasswordRes =
-            res.json().await.context(crate::error::Reqwest)?;
-        Ok((
-            connect_res.access_token,
-            connect_res.refresh_token,
-            connect_res.key,
-        ))
+        if let reqwest::StatusCode::OK = res.status() {
+            let connect_res: ConnectPasswordRes =
+                res.json().await.context(crate::error::Reqwest)?;
+            Ok((
+                connect_res.access_token,
+                connect_res.refresh_token,
+                connect_res.key,
+            ))
+        } else {
+            let code = res.status().as_u16();
+            let error_res: ConnectErrorRes =
+                res.json().await.context(crate::error::Reqwest)?;
+            if error_res.error_model.message
+                == "Username or password is incorrect. Try again"
+            {
+                Err(Error::IncorrectPassword)
+            } else {
+                Err(Error::RequestFailed { status: code })
+            }
+        }
     }
 
     pub async fn sync(

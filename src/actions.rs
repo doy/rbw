@@ -38,9 +38,12 @@ pub async fn unlock(
 
     let protected_key =
         crate::cipherstring::CipherString::new(protected_key)?;
-    let master_keys = protected_key.decrypt_locked(&identity.keys)?;
 
-    Ok(crate::locked::Keys::new(master_keys))
+    match protected_key.decrypt_locked(&identity.keys) {
+        Ok(master_keys) => Ok(crate::locked::Keys::new(master_keys)),
+        Err(Error::InvalidMac) => Err(Error::IncorrectPassword),
+        Err(e) => Err(e),
+    }
 }
 
 pub async fn sync(
