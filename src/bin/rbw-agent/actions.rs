@@ -137,7 +137,7 @@ pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
         if let rbw::error::Error::RequestUnauthorized = e {
             if let Some(refresh_token) = &db.refresh_token {
                 let access_token =
-                    rbw::actions::exchange_refresh_token(refresh_token)
+                    rbw::actions::exchange_refresh_token_async(refresh_token)
                         .await?;
                 db.access_token = Some(access_token.clone());
                 rbw::actions::sync(&access_token).await

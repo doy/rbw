@@ -1,5 +1,11 @@
 use anyhow::Context as _;
 
+const HELP: &str = r#"
+# The first line of this file will be the password, and the remainder of the
+# file (after any blank lines after the password) will be stored as a note.
+# Lines with leading # will be ignored.
+"#;
+
 pub fn config_show() -> anyhow::Result<()> {
     let config =
         rbw::config::Config::load().context("failed to load config")?;
@@ -120,10 +126,70 @@ pub fn get(name: &str, user: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn add() -> anyhow::Result<()> {
+pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     unlock()?;
 
-    todo!()
+    let email = config_email()?;
+    let mut db = rbw::db::Db::load(&email)?;
+    // unwrap is safe here because the call to unlock above is guaranteed to
+    // populate it or error
+    let access_token = db.access_token.unwrap();
+
+    let name = crate::actions::encrypt(name)?;
+
+    let username = username
+        .map(|username| crate::actions::encrypt(username))
+        .transpose()?;
+
+    let contents = rbw::edit::edit("", HELP)?;
+    let mut lines = contents.lines();
+
+    // XXX unwrap
+    let password = lines.next().unwrap();
+    let password = crate::actions::encrypt(password)?;
+
+    let mut note: String = lines
+        .skip_while(|line| *line == "")
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| format!("{}\n", line))
+        .collect();
+    while note.ends_with('\n') {
+        note.pop();
+    }
+    let note = if note == "" {
+        None
+    } else {
+        Some(crate::actions::encrypt(&note)?)
+    };
+
+    let cipher = rbw::api::Cipher {
+        name,
+        login: rbw::api::Login {
+            username,
+            password: Some(password),
+        },
+    };
+
+    let res = rbw::actions::add(&access_token, &cipher);
+    if let Err(e) = &res {
+        if let rbw::error::Error::RequestUnauthorized = e {
+            if let Some(refresh_token) = &db.refresh_token {
+                let access_token =
+                    rbw::actions::exchange_refresh_token(refresh_token)?;
+                db.access_token = Some(access_token.clone());
+                db.save(&email).context("failed to save database")?;
+                rbw::actions::add(&access_token, &cipher)?;
+            } else {
+                return Err(anyhow::anyhow!(
+                    "failed to find refresh token in db"
+                ));
+            }
+        }
+    }
+
+    crate::actions::sync()?;
+
+    Ok(())
 }
 
 pub fn generate(

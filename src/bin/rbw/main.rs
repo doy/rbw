@@ -27,7 +27,11 @@ fn main() {
                 .arg(clap::Arg::with_name("name").required(true))
                 .arg(clap::Arg::with_name("user")),
         )
-        .subcommand(clap::SubCommand::with_name("add"))
+        .subcommand(
+            clap::SubCommand::with_name("add")
+                .arg(clap::Arg::with_name("name").required(true))
+                .arg(clap::Arg::with_name("user").required(true)),
+        )
         .subcommand(
             clap::SubCommand::with_name("generate")
                 .arg(clap::Arg::with_name("len").required(true))
@@ -83,7 +87,12 @@ fn main() {
             smatches.value_of("user"),
         )
         .context("get"),
-        ("add", Some(_)) => commands::add().context("add"),
+        // this unwrap is safe because name is marked .required(true)
+        ("add", Some(smatches)) => commands::add(
+            smatches.value_of("name").unwrap(),
+            smatches.value_of("user"),
+        )
+        .context("add"),
         ("generate", Some(smatches)) => {
             let ty = if smatches.is_present("no-symbols") {
                 rbw::pwgen::Type::NoSymbols

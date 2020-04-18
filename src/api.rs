@@ -65,6 +65,79 @@ struct SyncRes {
     profile: Profile,
 }
 
+#[derive(serde::Serialize, Debug)]
+struct CiphersPostReq {
+    #[serde(rename = "type")]
+    ty: u32, // XXX what are the valid types?
+    #[serde(rename = "folderId")]
+    folder_id: Option<String>,
+    #[serde(rename = "organizationId")]
+    organization_id: Option<String>,
+    name: String,
+    notes: Option<String>,
+    favorite: bool,
+    login: CiphersPostReqLogin,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct CiphersPostReqLogin {
+    uri: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    totp: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct CiphersRes {
+    #[serde(rename = "FolderId")]
+    folder_id: Option<String>,
+    #[serde(rename = "Favorite")]
+    favorite: bool,
+    #[serde(rename = "Edit")]
+    edit: bool,
+    #[serde(rename = "Id")]
+    id: String,
+    #[serde(rename = "OrganizationId")]
+    organization_id: String,
+    #[serde(rename = "Type")]
+    ty: u32,
+    #[serde(rename = "Login")]
+    login: CiphersResLogin,
+    #[serde(rename = "Username")]
+    username: Option<String>,
+    #[serde(rename = "Password")]
+    password: Option<String>,
+    #[serde(rename = "Totp")]
+    totp: Option<String>,
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Notes")]
+    notes: Option<String>,
+    #[serde(rename = "Fields")]
+    fields: Option<()>, // XXX what type is this?
+    #[serde(rename = "Attachments")]
+    attachments: Option<()>, // XXX what type is this?
+    #[serde(rename = "OrganizationUseTotp")]
+    organization_use_totp: bool,
+    #[serde(rename = "RevisionDate")]
+    revision_date: String,
+    #[serde(rename = "Object")]
+    object: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct CiphersResLogin {
+    uris: Vec<CiphersResLoginUri>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct CiphersResLoginUri {
+    #[serde(rename = "Uri")]
+    uri: String,
+    #[serde(rename = "Match")]
+    mtch: Option<()>, // XXX what type is this?
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct Profile {
     #[serde(rename = "Key")]
@@ -177,7 +250,65 @@ impl Client {
         }
     }
 
-    pub async fn exchange_refresh_token(
+    pub fn add(
+        &self,
+        access_token: &str,
+        cipher: &Cipher,
+        // TODO: note
+    ) -> Result<()> {
+        let req = CiphersPostReq {
+            ty: 1,
+            folder_id: None,
+            organization_id: None,
+            name: cipher.name.clone(),
+            notes: None,
+            favorite: false,
+            login: CiphersPostReqLogin {
+                uri: None,
+                username: cipher.login.username.clone(),
+                password: cipher.login.password.clone(),
+                totp: None,
+            },
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(&self.api_url("/ciphers"))
+            .header("Authorization", format!("Bearer {}", access_token))
+            .json(&req)
+            .send()
+            .context(crate::error::Reqwest)?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn exchange_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<String> {
+        let connect_req = ConnectRefreshTokenReq {
+            grant_type: "refresh_token".to_string(),
+            client_id: "desktop".to_string(),
+            refresh_token: refresh_token.to_string(),
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(&self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .send()
+            .context(crate::error::Reqwest)?;
+        let connect_res: ConnectRefreshTokenRes =
+            res.json().context(crate::error::Reqwest)?;
+        Ok(connect_res.access_token)
+    }
+
+    pub async fn exchange_refresh_token_async(
         &self,
         refresh_token: &str,
     ) -> Result<String> {

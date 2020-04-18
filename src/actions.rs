@@ -52,9 +52,26 @@ pub async fn sync(
     client.sync(access_token).await
 }
 
-pub async fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
+pub fn add(access_token: &str, cipher: &crate::api::Cipher) -> Result<()> {
+    let config = crate::config::Config::load()?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+    client.add(access_token, cipher)?;
+    Ok(())
+}
+
+pub fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
+    let config = crate::config::Config::load()?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+    client.exchange_refresh_token(refresh_token)
+}
+
+pub async fn exchange_refresh_token_async(
+    refresh_token: &str,
+) -> Result<String> {
     let config = crate::config::Config::load_async().await?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.exchange_refresh_token(refresh_token).await
+    client.exchange_refresh_token_async(refresh_token).await
 }
