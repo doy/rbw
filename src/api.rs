@@ -87,6 +87,21 @@ struct CiphersPostReqLogin {
     totp: Option<String>,
 }
 
+#[derive(serde::Serialize, Debug)]
+struct CiphersPutReq {
+    #[serde(rename = "type")]
+    ty: u32, // XXX what are the valid types?
+    name: String,
+    notes: Option<String>,
+    login: CiphersPutReqLogin,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct CiphersPutReqLogin {
+    username: Option<String>,
+    password: Option<String>,
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct CiphersRes {
     #[serde(rename = "FolderId")]
@@ -308,6 +323,45 @@ impl Client {
             _ => Err(Error::RequestFailed {
                 status: res.status().as_u16(),
             }),
+        }
+    }
+
+    pub fn edit(
+        &self,
+        access_token: &str,
+        id: &str,
+        name: &str,
+        username: Option<&str>,
+        password: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<()> {
+        let req = CiphersPutReq {
+            ty: 1,
+            name: name.to_string(),
+            notes: notes.map(std::string::ToString::to_string),
+            login: CiphersPutReqLogin {
+                username: username.map(std::string::ToString::to_string),
+                password: password.map(std::string::ToString::to_string),
+            },
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .put(&self.api_url(&format!("/ciphers/{}", id)))
+            .header("Authorization", format!("Bearer {}", access_token))
+            .json(&req)
+            .send()
+            .context(crate::error::Reqwest)?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => {
+                let code = res.status().as_u16();
+                let text = res.text().unwrap();
+                eprintln!("error: {}", text);
+                Err(Error::RequestFailed { status: code })
+            }
         }
     }
 

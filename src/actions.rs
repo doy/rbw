@@ -102,6 +102,41 @@ fn add_once(
     Ok(())
 }
 
+pub fn edit(
+    access_token: &str,
+    refresh_token: &str,
+    id: &str,
+    name: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+    notes: Option<&str>,
+) -> Result<Option<String>> {
+    match edit_once(access_token, id, name, username, password, notes) {
+        Ok(()) => Ok(None),
+        Err(crate::error::Error::RequestUnauthorized) => {
+            let access_token = exchange_refresh_token(refresh_token)?;
+            edit_once(&access_token, id, name, username, password, notes)?;
+            Ok(Some(access_token))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn edit_once(
+    access_token: &str,
+    id: &str,
+    name: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+    notes: Option<&str>,
+) -> Result<()> {
+    let config = crate::config::Config::load()?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+    client.edit(access_token, id, name, username, password, notes)?;
+    Ok(())
+}
+
 pub fn remove(
     access_token: &str,
     refresh_token: &str,

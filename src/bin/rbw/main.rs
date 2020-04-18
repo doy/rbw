@@ -58,7 +58,11 @@ fn main() {
                     "diceware",
                 ])),
         )
-        .subcommand(clap::SubCommand::with_name("edit"))
+        .subcommand(
+            clap::SubCommand::with_name("edit")
+                .arg(clap::Arg::with_name("name").required(true))
+                .arg(clap::Arg::with_name("user")),
+        )
         .subcommand(
             clap::SubCommand::with_name("remove")
                 .arg(clap::Arg::with_name("name").required(true))
@@ -127,7 +131,12 @@ fn main() {
                 Err(e) => Err(e.into()),
             }
         }
-        ("edit", Some(_)) => commands::edit().context("edit"),
+        // this unwrap is safe because name is marked .required(true)
+        ("edit", Some(smatches)) => commands::edit(
+            smatches.value_of("name").unwrap(),
+            smatches.value_of("user"),
+        )
+        .context("edit"),
         // this unwrap is safe because name is marked .required(true)
         ("remove", Some(smatches)) => commands::remove(
             smatches.value_of("name").unwrap(),

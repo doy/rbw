@@ -98,9 +98,9 @@ pub fn get(name: &str, user: Option<&str>) -> anyhow::Result<()> {
         name
     );
 
-    let entry = find_entry(&db, name, user)
+    let (_, decrypted) = find_entry(&db, name, user)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
-    if let Some(password) = entry.password {
+    if let Some(password) = decrypted.password {
         println!("{}", password);
     } else {
         eprintln!("entry for '{}' had no password", desc);
@@ -126,32 +126,21 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         .transpose()?;
 
     let contents = rbw::edit::edit("", HELP)?;
-    let mut lines = contents.lines();
 
-    // XXX unwrap
-    let password = lines.next().unwrap();
-    let password = crate::actions::encrypt(password)?;
-
-    let mut notes: String = lines
-        .skip_while(|line| *line == "")
-        .filter(|line| !line.starts_with('#'))
-        .map(|line| format!("{}\n", line))
-        .collect();
-    while notes.ends_with('\n') {
-        notes.pop();
-    }
-    let notes = if notes == "" {
-        None
-    } else {
-        Some(crate::actions::encrypt(&notes)?)
-    };
+    let (password, notes) = parse_editor(&contents);
+    let password = password
+        .map(|password| crate::actions::encrypt(&password))
+        .transpose()?;
+    let notes = notes
+        .map(|notes| crate::actions::encrypt(&notes))
+        .transpose()?;
 
     if let Some(access_token) = rbw::actions::add(
         &access_token,
         &refresh_token,
         &name,
         username.as_deref(),
-        Some(&password),
+        password.as_deref(),
         notes.as_deref(),
     )? {
         db.access_token = Some(access_token);
@@ -206,10 +195,57 @@ pub fn generate(
     Ok(())
 }
 
-pub fn edit() -> anyhow::Result<()> {
+pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     unlock()?;
 
-    todo!()
+    let email = config_email()?;
+    let mut db = rbw::db::Db::load(&email)
+        .context("failed to load password database")?;
+    let access_token = db.access_token.as_ref().unwrap();
+    let refresh_token = db.refresh_token.as_ref().unwrap();
+
+    let desc = format!(
+        "{}{}",
+        username
+            .map(|s| format!("{}@", s))
+            .unwrap_or_else(|| "".to_string()),
+        name
+    );
+
+    let (entry, decrypted) = find_entry(&db, name, username)
+        .with_context(|| format!("couldn't find entry for '{}'", desc))?;
+
+    let mut contents =
+        format!("{}\n", decrypted.password.unwrap_or_else(String::new));
+    if let Some(notes) = decrypted.notes {
+        contents.push_str(&format!("\n{}\n", notes));
+    }
+
+    let contents = rbw::edit::edit(&contents, HELP)?;
+
+    let (password, notes) = parse_editor(&contents);
+    let password = password
+        .map(|password| crate::actions::encrypt(&password))
+        .transpose()?;
+    let notes = notes
+        .map(|notes| crate::actions::encrypt(&notes))
+        .transpose()?;
+
+    if let Some(access_token) = rbw::actions::edit(
+        &access_token,
+        &refresh_token,
+        &entry.id,
+        &entry.name,
+        entry.username.as_deref(),
+        password.as_deref(),
+        notes.as_deref(),
+    )? {
+        db.access_token = Some(access_token);
+        db.save(&email).context("failed to save database")?;
+    }
+
+    crate::actions::sync()?;
+    Ok(())
 }
 
 pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
@@ -229,7 +265,7 @@ pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         name
     );
 
-    let entry = find_entry(&db, name, username)
+    let (entry, _) = find_entry(&db, name, username)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
 
     if let Some(access_token) =
@@ -293,14 +329,16 @@ fn find_entry(
     db: &rbw::db::Db,
     name: &str,
     username: Option<&str>,
-) -> anyhow::Result<DecryptedCipher> {
-    let ciphers: anyhow::Result<Vec<DecryptedCipher>> = db
+) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
+    let ciphers: anyhow::Result<Vec<(rbw::db::Entry, DecryptedCipher)>> = db
         .entries
         .iter()
         .cloned()
-        .map(decrypt_cipher)
+        .map(|entry| {
+            decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
+        })
         .filter(|res| {
-            if let Ok(decrypted_cipher) = res {
+            if let Ok((_, decrypted_cipher)) = res {
                 name == decrypted_cipher.name
                     && if let Some(username) = username {
                         decrypted_cipher.username.as_deref() == Some(username)
@@ -319,8 +357,8 @@ fn find_entry(
     } else if ciphers.len() > 1 {
         let users: Vec<String> = ciphers
             .iter()
-            .map(|cipher| {
-                cipher
+            .map(|(_, decrypted)| {
+                decrypted
                     .username
                     .clone()
                     .unwrap_or_else(|| "(no login)".to_string())
@@ -377,6 +415,24 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         password,
         notes,
     })
+}
+
+fn parse_editor(contents: &str) -> (Option<String>, Option<String>) {
+    let mut lines = contents.lines();
+
+    let password = lines.next().map(std::string::ToString::to_string);
+
+    let mut notes: String = lines
+        .skip_while(|line| *line == "")
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| format!("{}\n", line))
+        .collect();
+    while notes.ends_with('\n') {
+        notes.pop();
+    }
+    let notes = if notes == "" { None } else { Some(notes) };
+
+    (password, notes)
 }
 
 fn config_email() -> anyhow::Result<String> {
