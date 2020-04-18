@@ -24,9 +24,23 @@ pub fn daemonize() -> anyhow::Result<StartupAck> {
     std::fs::create_dir_all(&runtime_dir)
         .context("failed to create runtime directory")?;
 
+    let data_dir = rbw::dirs::data_dir();
+    std::fs::create_dir_all(&data_dir)
+        .context("failed to create data directory")?;
+    let stdout = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(data_dir.join("agent.out"))?;
+    let stderr = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(data_dir.join("agent.err"))?;
+
     let (r, w) = nix::unistd::pipe()?;
     let res = daemonize::Daemonize::new()
         .pid_file(runtime_dir.join("pidfile"))
+        .stdout(stdout)
+        .stderr(stderr)
         .exit_action(move || {
             // unwraps are necessary because not really a good way to handle
             // errors here otherwise
