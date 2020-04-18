@@ -70,6 +70,12 @@ pub enum Error {
     #[snafu(display("failed to load db: {}", source))]
     LoadDbJson { source: serde_json::Error },
 
+    #[snafu(display("pinentry cancelled"))]
+    PinentryCancelled,
+
+    #[snafu(display("pinentry error: {}", error))]
+    PinentryErrorMessage { error: String },
+
     #[snafu(display("error reading pinentry output: {}", source))]
     PinentryReadOutput { source: tokio::io::Error },
 

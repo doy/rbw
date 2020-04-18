@@ -69,6 +69,33 @@ async fn read_password<
                 data.copy_within(2..nl, 0);
                 len = nl - 2;
                 break;
+            } else if data.starts_with(b"ERR ") {
+                let line: Vec<u8> = data.iter().take(nl).copied().collect();
+                let line = String::from_utf8(line).unwrap();
+                let mut split = line.splitn(3, ' ');
+                let _ = split.next(); // ERR
+                let code = split.next();
+                match code {
+                    Some("83886179") => {
+                        return Err(Error::PinentryCancelled);
+                    }
+                    Some(code) => {
+                        if let Some(error) = split.next() {
+                            return Err(Error::PinentryErrorMessage {
+                                error: error.to_string(),
+                            });
+                        } else {
+                            return Err(Error::PinentryErrorMessage {
+                                error: format!("unknown error ({})", code),
+                            });
+                        }
+                    }
+                    None => {
+                        return Err(Error::PinentryErrorMessage {
+                            error: "unknown error".to_string(),
+                        });
+                    }
+                }
             } else {
                 return Err(Error::FailedToParsePinentry {
                     out: String::from_utf8_lossy(data).to_string(),
