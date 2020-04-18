@@ -46,7 +46,7 @@ pub async fn unlock(
 pub async fn sync(
     access_token: &str,
     refresh_token: &str,
-) -> Result<(Option<String>, String, Vec<crate::api::Cipher>)> {
+) -> Result<(Option<String>, String, Vec<crate::db::Entry>)> {
     let res = sync_once(access_token).await;
     match res {
         Ok((protected_key, ciphers)) => Ok((None, protected_key, ciphers)),
@@ -62,7 +62,7 @@ pub async fn sync(
 
 async fn sync_once(
     access_token: &str,
-) -> Result<(String, Vec<crate::api::Cipher>)> {
+) -> Result<(String, Vec<crate::db::Entry>)> {
     let config = crate::config::Config::load_async().await?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
@@ -72,24 +72,33 @@ async fn sync_once(
 pub fn add(
     access_token: &str,
     refresh_token: &str,
-    cipher: &crate::api::Cipher,
+    name: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+    notes: Option<&str>,
 ) -> Result<Option<String>> {
-    match add_once(access_token, cipher) {
+    match add_once(access_token, name, username, password, notes) {
         Ok(()) => Ok(None),
         Err(crate::error::Error::RequestUnauthorized) => {
             let access_token = exchange_refresh_token(refresh_token)?;
-            add_once(&access_token, cipher)?;
+            add_once(&access_token, name, username, password, notes)?;
             Ok(Some(access_token))
         }
         Err(e) => Err(e),
     }
 }
 
-fn add_once(access_token: &str, cipher: &crate::api::Cipher) -> Result<()> {
+fn add_once(
+    access_token: &str,
+    name: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+    notes: Option<&str>,
+) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.add(access_token, cipher)?;
+    client.add(access_token, name, username, password, notes)?;
     Ok(())
 }
 

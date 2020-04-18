@@ -3,6 +3,14 @@ use crate::prelude::*;
 use std::io::{Read as _, Write as _};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct Entry {
+    pub name: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub notes: Option<String>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct Db {
     pub access_token: Option<String>,
@@ -11,7 +19,7 @@ pub struct Db {
     pub iterations: Option<u32>,
     pub protected_key: Option<String>,
 
-    pub ciphers: Vec<crate::api::Cipher>,
+    pub entries: Vec<Entry>,
 }
 
 impl Db {

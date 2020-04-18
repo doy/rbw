@@ -72,10 +72,10 @@ pub fn list() -> anyhow::Result<()> {
     let email = config_email()?;
     let db = rbw::db::Db::load(&email)
         .context("failed to load password database")?;
-    for cipher in db.ciphers {
+    for entry in db.entries {
         println!(
             "{}",
-            crate::actions::decrypt(&cipher.name)
+            crate::actions::decrypt(&entry.name)
                 .context("failed to decrypt entry name")?
         );
     }
@@ -145,18 +145,14 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         Some(crate::actions::encrypt(&notes)?)
     };
 
-    let cipher = rbw::api::Cipher {
-        name,
-        login: rbw::api::Login {
-            username,
-            password: Some(password),
-        },
-        notes,
-    };
-
-    if let Some(access_token) =
-        rbw::actions::add(&access_token, &refresh_token, &cipher)?
-    {
+    if let Some(access_token) = rbw::actions::add(
+        &access_token,
+        &refresh_token,
+        &name,
+        username.as_deref(),
+        Some(&password),
+        notes.as_deref(),
+    )? {
         db.access_token = Some(access_token);
         db.save(&email).context("failed to save database")?;
     }
@@ -191,18 +187,14 @@ pub fn generate(
             .transpose()?;
         let password = crate::actions::encrypt(&password)?;
 
-        let cipher = rbw::api::Cipher {
-            name,
-            login: rbw::api::Login {
-                username,
-                password: Some(password),
-            },
-            notes: None,
-        };
-
-        if let Some(access_token) =
-            rbw::actions::add(&access_token, &refresh_token, &cipher)?
-        {
+        if let Some(access_token) = rbw::actions::add(
+            &access_token,
+            &refresh_token,
+            &name,
+            username.as_deref(),
+            Some(&password),
+            None,
+        )? {
             db.access_token = Some(access_token);
             db.save(&email).context("failed to save database")?;
         }
@@ -276,7 +268,7 @@ fn find_entry(
     username: Option<&str>,
 ) -> anyhow::Result<DecryptedCipher> {
     let ciphers: anyhow::Result<Vec<DecryptedCipher>> = db
-        .ciphers
+        .entries
         .iter()
         .cloned()
         .map(decrypt_cipher)
@@ -314,24 +306,20 @@ fn find_entry(
     }
 }
 
-fn decrypt_cipher(
-    cipher: rbw::api::Cipher,
-) -> anyhow::Result<DecryptedCipher> {
+fn decrypt_cipher(entry: rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     Ok(DecryptedCipher {
-        name: crate::actions::decrypt(&cipher.name)?,
-        username: cipher
-            .login
+        name: crate::actions::decrypt(&entry.name)?,
+        username: entry
             .username
             .as_ref()
             .map(|username| crate::actions::decrypt(username))
             .transpose()?,
-        password: cipher
-            .login
+        password: entry
             .password
             .as_ref()
             .map(|password| crate::actions::decrypt(password))
             .transpose()?,
-        notes: cipher
+        notes: entry
             .notes
             .as_ref()
             .map(|notes| crate::actions::decrypt(notes))

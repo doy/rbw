@@ -60,7 +60,7 @@ struct ConnectRefreshTokenRes {
 #[derive(serde::Deserialize, Debug)]
 struct SyncRes {
     #[serde(rename = "Ciphers")]
-    ciphers: Vec<Cipher>,
+    ciphers: Vec<SyncResCipher>,
     #[serde(rename = "Profile")]
     profile: Profile,
 }
@@ -145,17 +145,30 @@ struct Profile {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct Cipher {
+struct SyncResCipher {
+    #[serde(rename = "Id")]
+    pub id: String,
     #[serde(rename = "Name")]
     pub name: String,
     #[serde(rename = "Login")]
-    pub login: Login,
+    pub login: SyncResLogin,
     #[serde(rename = "Notes")]
     pub notes: Option<String>,
 }
 
+impl SyncResCipher {
+    fn to_entry(&self) -> crate::db::Entry {
+        crate::db::Entry {
+            name: self.name.clone(),
+            username: self.login.username.clone(),
+            password: self.login.password.clone(),
+            notes: self.notes.clone(),
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct Login {
+struct SyncResLogin {
     #[serde(rename = "Username")]
     pub username: Option<String>,
     #[serde(rename = "Password")]
@@ -229,7 +242,7 @@ impl Client {
     pub async fn sync(
         &self,
         access_token: &str,
-    ) -> Result<(String, Vec<Cipher>)> {
+    ) -> Result<(String, Vec<crate::db::Entry>)> {
         let client = reqwest::Client::new();
         let res = client
             .get(&self.api_url("/sync"))
@@ -241,7 +254,12 @@ impl Client {
             reqwest::StatusCode::OK => {
                 let sync_res: SyncRes =
                     res.json().await.context(crate::error::Reqwest)?;
-                Ok((sync_res.profile.key, sync_res.ciphers))
+                let ciphers = sync_res
+                    .ciphers
+                    .iter()
+                    .map(SyncResCipher::to_entry)
+                    .collect();
+                Ok((sync_res.profile.key, ciphers))
             }
             reqwest::StatusCode::UNAUTHORIZED => {
                 Err(Error::RequestUnauthorized)
@@ -252,18 +270,25 @@ impl Client {
         }
     }
 
-    pub fn add(&self, access_token: &str, cipher: &Cipher) -> Result<()> {
+    pub fn add(
+        &self,
+        access_token: &str,
+        name: &str,
+        username: Option<&str>,
+        password: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<()> {
         let req = CiphersPostReq {
             ty: 1,
             folder_id: None,
             organization_id: None,
-            name: cipher.name.clone(),
-            notes: cipher.notes.clone(),
+            name: name.to_string(),
+            notes: notes.map(std::string::ToString::to_string),
             favorite: false,
             login: CiphersPostReqLogin {
                 uri: None,
-                username: cipher.login.username.clone(),
-                password: cipher.login.password.clone(),
+                username: username.map(std::string::ToString::to_string),
+                password: password.map(std::string::ToString::to_string),
                 totp: None,
             },
         };
