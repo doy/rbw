@@ -148,18 +148,18 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     let password = lines.next().unwrap();
     let password = crate::actions::encrypt(password)?;
 
-    let mut note: String = lines
+    let mut notes: String = lines
         .skip_while(|line| *line == "")
         .filter(|line| !line.starts_with('#'))
         .map(|line| format!("{}\n", line))
         .collect();
-    while note.ends_with('\n') {
-        note.pop();
+    while notes.ends_with('\n') {
+        notes.pop();
     }
-    let note = if note == "" {
+    let notes = if notes == "" {
         None
     } else {
-        Some(crate::actions::encrypt(&note)?)
+        Some(crate::actions::encrypt(&notes)?)
     };
 
     let cipher = rbw::api::Cipher {
@@ -168,6 +168,7 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
             username,
             password: Some(password),
         },
+        notes,
     };
 
     let res = rbw::actions::add(&access_token, &cipher);
@@ -222,6 +223,7 @@ pub fn generate(
                 username,
                 password: Some(password),
             },
+            notes: None,
         };
 
         let res = rbw::actions::add(&access_token, &cipher);

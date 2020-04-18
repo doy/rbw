@@ -150,6 +150,8 @@ pub struct Cipher {
     pub name: String,
     #[serde(rename = "Login")]
     pub login: Login,
+    #[serde(rename = "Notes")]
+    pub notes: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -250,18 +252,13 @@ impl Client {
         }
     }
 
-    pub fn add(
-        &self,
-        access_token: &str,
-        cipher: &Cipher,
-        // TODO: note
-    ) -> Result<()> {
+    pub fn add(&self, access_token: &str, cipher: &Cipher) -> Result<()> {
         let req = CiphersPostReq {
             ty: 1,
             folder_id: None,
             organization_id: None,
             name: cipher.name.clone(),
-            notes: None,
+            notes: cipher.notes.clone(),
             favorite: false,
             login: CiphersPostReqLogin {
                 uri: None,
