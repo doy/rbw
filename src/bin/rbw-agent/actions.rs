@@ -26,27 +26,58 @@ pub async fn login(
                 url_str
             ));
         };
-        let password = rbw::pinentry::getpin(
-            "Master Password",
-            &format!("Log in to {}", host),
-            tty,
-        )
-        .await
-        .context("failed to read password from pinentry")?;
-        let (access_token, refresh_token, iterations, protected_key, keys) =
-            rbw::actions::login(&email, &password)
-                .await
-                .context("failed to log in to bitwarden instance")?;
 
-        state.write().await.priv_key = Some(keys);
-
-        db.access_token = Some(access_token);
-        db.refresh_token = Some(refresh_token);
-        db.iterations = Some(iterations);
-        db.protected_key = Some(protected_key);
-        db.save_async(&email)
+        for i in 1_u8..=3 {
+            let err = if i > 1 {
+                Some(format!("Incorrect password (attempt {}/3)", i))
+            } else {
+                None
+            };
+            let password = rbw::pinentry::getpin(
+                "Master Password",
+                &format!("Log in to {}", host),
+                err.as_deref(),
+                tty,
+            )
             .await
-            .context("failed to save local database")?;
+            .context("failed to read password from pinentry")?;
+            let res = rbw::actions::login(&email, &password).await;
+            match res {
+                Ok((
+                    access_token,
+                    refresh_token,
+                    iterations,
+                    protected_key,
+                    keys,
+                )) => {
+                    state.write().await.priv_key = Some(keys);
+
+                    db.access_token = Some(access_token);
+                    db.refresh_token = Some(refresh_token);
+                    db.iterations = Some(iterations);
+                    db.protected_key = Some(protected_key);
+                    db.save_async(&email)
+                        .await
+                        .context("failed to save local database")?;
+
+                    break;
+                }
+                Err(rbw::error::Error::IncorrectPassword) => {
+                    if i == 3 {
+                        return Err(rbw::error::Error::IncorrectPassword)
+                            .context(
+                                "failed to log in to bitwarden instance",
+                            );
+                    } else {
+                        continue;
+                    }
+                }
+                Err(e) => {
+                    return Err(e)
+                        .context("failed to log in to bitwarden instance")
+                }
+            }
+        }
 
         sync(sock).await?;
     } else {
@@ -65,13 +96,6 @@ pub async fn unlock(
         let email = config_email()
             .await
             .context("failed to read email from config")?;
-        let password = rbw::pinentry::getpin(
-            "Master Password",
-            "Unlock the local database",
-            tty,
-        )
-        .await
-        .context("failed to read password from pinentry")?;
 
         let db = rbw::db::Db::load_async(&email)
             .await
@@ -91,16 +115,44 @@ pub async fn unlock(
                 "failed to find protected key in db"
             ));
         };
-        let keys = rbw::actions::unlock(
-            &email,
-            &password,
-            iterations,
-            &protected_key,
-        )
-        .await
-        .context("failed to unlock database")?;
 
-        state.write().await.priv_key = Some(keys);
+        for i in 1u8..=3 {
+            let err = if i > 1 {
+                Some(format!("Incorrect password (attempt {}/3)", i))
+            } else {
+                None
+            };
+            let password = rbw::pinentry::getpin(
+                "Master Password",
+                "Unlock the local database",
+                err.as_deref(),
+                tty,
+            )
+            .await
+            .context("failed to read password from pinentry")?;
+            let res = rbw::actions::unlock(
+                &email,
+                &password,
+                iterations,
+                &protected_key,
+            )
+            .await;
+            match res {
+                Ok(keys) => {
+                    state.write().await.priv_key = Some(keys);
+                    break;
+                }
+                Err(rbw::error::Error::IncorrectPassword) => {
+                    if i == 3 {
+                        return Err(rbw::error::Error::IncorrectPassword)
+                            .context("failed to unlock database");
+                    } else {
+                        continue;
+                    }
+                }
+                Err(e) => return Err(e).context("failed to unlock database"),
+            }
+        }
     }
 
     respond_ack(sock).await?;

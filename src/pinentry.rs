@@ -5,6 +5,7 @@ use tokio::io::AsyncWriteExt as _;
 pub async fn getpin(
     prompt: &str,
     desc: &str,
+    err: Option<&str>,
     tty: Option<&str>,
 ) -> Result<crate::locked::Password> {
     let mut opts = tokio::process::Command::new("pinentry");
@@ -33,6 +34,12 @@ pub async fn getpin(
         .write_all(format!("SETDESC {}\n", desc).as_bytes())
         .await
         .context(crate::error::WriteStdin)?;
+    if let Some(err) = err {
+        stdin
+            .write_all(format!("SETERROR {}\n", err).as_bytes())
+            .await
+            .context(crate::error::WriteStdin)?;
+    }
     stdin
         .write_all(b"GETPIN\n")
         .await
