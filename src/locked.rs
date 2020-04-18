@@ -39,6 +39,7 @@ impl Vec {
 
 impl Drop for Vec {
     fn drop(&mut self) {
+        self.extend(std::iter::repeat(0));
         self.data.as_mut().zeroize();
     }
 }
