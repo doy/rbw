@@ -102,6 +102,30 @@ fn add_once(
     Ok(())
 }
 
+pub fn remove(
+    access_token: &str,
+    refresh_token: &str,
+    id: &str,
+) -> Result<Option<String>> {
+    match remove_once(access_token, id) {
+        Ok(()) => Ok(None),
+        Err(crate::error::Error::RequestUnauthorized) => {
+            let access_token = exchange_refresh_token(refresh_token)?;
+            remove_once(&access_token, id)?;
+            Ok(Some(access_token))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn remove_once(access_token: &str, id: &str) -> Result<()> {
+    let config = crate::config::Config::load()?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+    client.remove(access_token, id)?;
+    Ok(())
+}
+
 fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
     let config = crate::config::Config::load()?;
     let client =

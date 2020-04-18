@@ -2,6 +2,7 @@ use anyhow::Context as _;
 
 #[derive(Debug, Clone)]
 struct DecryptedCipher {
+    id: String,
     name: String,
     username: Option<String>,
     password: Option<String>,
@@ -211,10 +212,36 @@ pub fn edit() -> anyhow::Result<()> {
     todo!()
 }
 
-pub fn remove() -> anyhow::Result<()> {
+pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     unlock()?;
 
-    todo!()
+    let email = config_email()?;
+    let mut db = rbw::db::Db::load(&email)
+        .context("failed to load password database")?;
+    let access_token = db.access_token.as_ref().unwrap();
+    let refresh_token = db.refresh_token.as_ref().unwrap();
+
+    let desc = format!(
+        "{}{}",
+        username
+            .map(|s| format!("{}@", s))
+            .unwrap_or_else(|| "".to_string()),
+        name
+    );
+
+    let entry = find_entry(&db, name, username)
+        .with_context(|| format!("couldn't find entry for '{}'", desc))?;
+
+    if let Some(access_token) =
+        rbw::actions::remove(&access_token, &refresh_token, &entry.id)?
+    {
+        db.access_token = Some(access_token);
+        db.save(&email).context("failed to save database")?;
+    }
+
+    crate::actions::sync()?;
+
+    Ok(())
 }
 
 pub fn lock() -> anyhow::Result<()> {
@@ -308,6 +335,7 @@ fn find_entry(
 
 fn decrypt_cipher(entry: rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     Ok(DecryptedCipher {
+        id: entry.id.clone(),
         name: crate::actions::decrypt(&entry.name)?,
         username: entry
             .username

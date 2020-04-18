@@ -159,6 +159,7 @@ struct SyncResCipher {
 impl SyncResCipher {
     fn to_entry(&self) -> crate::db::Entry {
         crate::db::Entry {
+            id: self.id.clone(),
             name: self.name.clone(),
             username: self.login.username.clone(),
             password: self.login.password.clone(),
@@ -297,6 +298,24 @@ impl Client {
             .post(&self.api_url("/ciphers"))
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&req)
+            .send()
+            .context(crate::error::Reqwest)?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn remove(&self, access_token: &str, id: &str) -> Result<()> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .delete(&self.api_url(&format!("/ciphers/{}", id)))
+            .header("Authorization", format!("Bearer {}", access_token))
             .send()
             .context(crate::error::Reqwest)?;
         match res.status() {

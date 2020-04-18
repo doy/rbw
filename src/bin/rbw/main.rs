@@ -30,7 +30,7 @@ fn main() {
         .subcommand(
             clap::SubCommand::with_name("add")
                 .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user").required(true)),
+                .arg(clap::Arg::with_name("user")),
         )
         .subcommand(
             clap::SubCommand::with_name("generate")
@@ -54,7 +54,11 @@ fn main() {
                 ])),
         )
         .subcommand(clap::SubCommand::with_name("edit"))
-        .subcommand(clap::SubCommand::with_name("remove"))
+        .subcommand(
+            clap::SubCommand::with_name("remove")
+                .arg(clap::Arg::with_name("name").required(true))
+                .arg(clap::Arg::with_name("user")),
+        )
         .subcommand(clap::SubCommand::with_name("lock"))
         .subcommand(clap::SubCommand::with_name("purge"))
         .subcommand(clap::SubCommand::with_name("stop-agent"))
@@ -119,7 +123,12 @@ fn main() {
             }
         }
         ("edit", Some(_)) => commands::edit().context("edit"),
-        ("remove", Some(_)) => commands::remove().context("remove"),
+        // this unwrap is safe because name is marked .required(true)
+        ("remove", Some(smatches)) => commands::remove(
+            smatches.value_of("name").unwrap(),
+            smatches.value_of("user"),
+        )
+        .context("remove"),
         ("lock", Some(_)) => commands::lock().context("lock"),
         ("purge", Some(_)) => commands::purge().context("purge"),
         ("stop-agent", Some(_)) => {
