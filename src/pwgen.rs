@@ -1,6 +1,5 @@
 use chbs::scheme::ToScheme as _;
 use rand::seq::SliceRandom as _;
-use zeroize::Zeroize as _;
 
 const SYMBOLS: &[u8] = b"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 const NUMBERS: &[u8] = b"0123456789";
@@ -17,17 +16,13 @@ pub enum Type {
     Diceware,
 }
 
-pub fn pwgen(ty: Type, len: usize) -> crate::locked::Vec {
+pub fn pwgen(ty: Type, len: usize) -> String {
     if ty == Type::Diceware {
-        let mut locked_pass = crate::locked::Vec::new();
         let mut config = chbs::config::BasicConfig::default();
         config.words = len;
         config.capitalize_first = chbs::probability::Probability::Never;
         config.capitalize_words = chbs::probability::Probability::Never;
-        let mut pass = config.to_scheme().generate();
-        locked_pass.extend(pass.as_bytes().iter().copied());
-        pass.zeroize();
-        return locked_pass;
+        return config.to_scheme().generate();
     }
 
     let alphabet = match ty {
@@ -58,7 +53,9 @@ pub fn pwgen(ty: Type, len: usize) -> crate::locked::Vec {
     };
 
     let mut rng = rand::thread_rng();
-    let mut pass = crate::locked::Vec::new();
+    let mut pass = vec![];
     pass.extend(alphabet.choose_multiple(&mut rng, len).copied());
-    pass
+    // unwrap is safe because the method of generating passwords guarantees
+    // valid utf8
+    String::from_utf8(pass).unwrap()
 }

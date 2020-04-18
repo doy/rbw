@@ -198,9 +198,8 @@ pub fn generate(
     len: usize,
     ty: rbw::pwgen::Type,
 ) -> anyhow::Result<()> {
-    let pw = rbw::pwgen::pwgen(ty, len);
-    // unwrap is safe because pwgen is guaranteed to always return valid utf8
-    println!("{}", std::str::from_utf8(pw.data()).unwrap());
+    let password = rbw::pwgen::pwgen(ty, len);
+    println!("{}", password);
 
     if name.is_some() && user.is_some() {
         unlock()?;
