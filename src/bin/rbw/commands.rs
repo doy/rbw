@@ -333,25 +333,49 @@ fn find_entry(
     }
 }
 
-fn decrypt_cipher(entry: rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
+fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
+    let username = entry
+        .username
+        .as_ref()
+        .map(|username| crate::actions::decrypt(username))
+        .transpose();
+    let username = match username {
+        Ok(username) => username,
+        Err(e) => {
+            log::warn!("failed to decrypt username: {}", e);
+            None
+        }
+    };
+    let password = entry
+        .password
+        .as_ref()
+        .map(|password| crate::actions::decrypt(password))
+        .transpose();
+    let password = match password {
+        Ok(password) => password,
+        Err(e) => {
+            log::warn!("failed to decrypt password: {}", e);
+            None
+        }
+    };
+    let notes = entry
+        .notes
+        .as_ref()
+        .map(|notes| crate::actions::decrypt(notes))
+        .transpose();
+    let notes = match notes {
+        Ok(notes) => notes,
+        Err(e) => {
+            log::warn!("failed to decrypt notes: {}", e);
+            None
+        }
+    };
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         name: crate::actions::decrypt(&entry.name)?,
-        username: entry
-            .username
-            .as_ref()
-            .map(|username| crate::actions::decrypt(username))
-            .transpose()?,
-        password: entry
-            .password
-            .as_ref()
-            .map(|password| crate::actions::decrypt(password))
-            .transpose()?,
-        notes: entry
-            .notes
-            .as_ref()
-            .map(|notes| crate::actions::decrypt(notes))
-            .transpose()?,
+        username,
+        password,
+        notes,
     })
 }
 
