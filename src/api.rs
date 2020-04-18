@@ -144,7 +144,7 @@ struct Profile {
     key: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Cipher {
     #[serde(rename = "Name")]
     pub name: String,
@@ -154,7 +154,7 @@ pub struct Cipher {
     pub notes: Option<String>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Login {
     #[serde(rename = "Username")]
     pub username: Option<String>,

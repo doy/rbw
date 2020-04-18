@@ -1,5 +1,13 @@
 use anyhow::Context as _;
 
+#[derive(Debug, Clone)]
+struct DecryptedCipher {
+    name: String,
+    username: Option<String>,
+    password: Option<String>,
+    notes: Option<String>,
+}
+
 const HELP: &str = r#"
 # The first line of this file will be the password, and the remainder of the
 # file (after any blank lines after the password) will be stored as a note.
@@ -81,48 +89,22 @@ pub fn get(name: &str, user: Option<&str>) -> anyhow::Result<()> {
     let email = config_email()?;
     let db = rbw::db::Db::load(&email)
         .context("failed to load password database")?;
+
     let desc = format!(
         "{}{}",
         user.map(|s| format!("{}@", s))
             .unwrap_or_else(|| "".to_string()),
         name
     );
-    for cipher in db.ciphers {
-        let cipher_name = crate::actions::decrypt(&cipher.name)
-            .context("failed to decrypt entry name")?;
-        if name == cipher_name {
-            if let Some(user) = user {
-                if let Some(encrypted_user) = &cipher.login.username {
-                    let cipher_user = crate::actions::decrypt(encrypted_user)
-                        .context("failed to decrypt entry username")?;
-                    if user == cipher_user {
-                        if let Some(encrypted_pass) = &cipher.login.password {
-                            let pass =
-                                crate::actions::decrypt(encrypted_pass)
-                                    .context(
-                                        "failed to decrypt entry password",
-                                    )?;
-                            println!("{}", pass);
-                        } else {
-                            eprintln!("no password found for entry {}", desc);
-                        }
-                        return Ok(());
-                    }
-                }
-            } else {
-                if let Some(encrypted_pass) = &cipher.login.password {
-                    let pass = crate::actions::decrypt(encrypted_pass)
-                        .context("failed to decrypt entry password")?;
-                    println!("{}", pass);
-                } else {
-                    eprintln!("no password found for entry {}", desc);
-                }
-                return Ok(());
-            }
-        }
+
+    let entry = find_entry(&db, name, user)
+        .with_context(|| format!("couldn't find entry for '{}'", desc))?;
+    if let Some(password) = entry.password {
+        println!("{}", password);
+    } else {
+        eprintln!("entry for '{}' had no password", desc);
     }
 
-    eprintln!("no entry found for {}", desc);
     Ok(())
 }
 
@@ -304,6 +286,75 @@ fn ensure_agent() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn find_entry(
+    db: &rbw::db::Db,
+    name: &str,
+    username: Option<&str>,
+) -> anyhow::Result<DecryptedCipher> {
+    let ciphers: anyhow::Result<Vec<DecryptedCipher>> = db
+        .ciphers
+        .iter()
+        .cloned()
+        .map(decrypt_cipher)
+        .filter(|res| {
+            if let Ok(decrypted_cipher) = res {
+                name == decrypted_cipher.name
+                    && if let Some(username) = username {
+                        decrypted_cipher.username.as_deref() == Some(username)
+                    } else {
+                        true
+                    }
+            } else {
+                true
+            }
+        })
+        .collect();
+    let ciphers = ciphers?;
+
+    if ciphers.is_empty() {
+        Err(anyhow::anyhow!("no entry found"))
+    } else if ciphers.len() > 1 {
+        let users: Vec<String> = ciphers
+            .iter()
+            .map(|cipher| {
+                cipher
+                    .username
+                    .clone()
+                    .unwrap_or_else(|| "(no login)".to_string())
+            })
+            .collect();
+        let users = users.join(", ");
+        Err(anyhow::anyhow!("multiple entries found: {}", users))
+    } else {
+        Ok(ciphers[0].clone())
+    }
+}
+
+fn decrypt_cipher(
+    cipher: rbw::api::Cipher,
+) -> anyhow::Result<DecryptedCipher> {
+    Ok(DecryptedCipher {
+        name: crate::actions::decrypt(&cipher.name)?,
+        username: cipher
+            .login
+            .username
+            .as_ref()
+            .map(|username| crate::actions::decrypt(username))
+            .transpose()?,
+        password: cipher
+            .login
+            .password
+            .as_ref()
+            .map(|password| crate::actions::decrypt(password))
+            .transpose()?,
+        notes: cipher
+            .notes
+            .as_ref()
+            .map(|notes| crate::actions::decrypt(notes))
+            .transpose()?,
+    })
 }
 
 fn config_email() -> anyhow::Result<String> {
