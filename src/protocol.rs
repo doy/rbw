@@ -13,9 +13,6 @@ pub enum Action {
     Sync,
     Decrypt { cipherstring: String },
     Encrypt { plaintext: String },
-    // add
-    // update
-    // remove
     Quit,
 }
 
