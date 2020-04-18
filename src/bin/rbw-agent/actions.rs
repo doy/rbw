@@ -137,7 +137,7 @@ pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     } else {
         return Err(anyhow::anyhow!("failed to find refresh token in db"));
     };
-    let (access_token, protected_key, entries) =
+    let (access_token, (protected_key, entries)) =
         rbw::actions::sync(&access_token, &refresh_token)
             .await
             .context("failed to sync database from server")?;

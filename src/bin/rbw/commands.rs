@@ -135,7 +135,7 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         .map(|notes| crate::actions::encrypt(&notes))
         .transpose()?;
 
-    if let Some(access_token) = rbw::actions::add(
+    if let (Some(access_token), ()) = rbw::actions::add(
         &access_token,
         &refresh_token,
         &name,
@@ -177,7 +177,7 @@ pub fn generate(
             .transpose()?;
         let password = crate::actions::encrypt(&password)?;
 
-        if let Some(access_token) = rbw::actions::add(
+        if let (Some(access_token), ()) = rbw::actions::add(
             &access_token,
             &refresh_token,
             &name,
@@ -231,7 +231,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         .map(|notes| crate::actions::encrypt(&notes))
         .transpose()?;
 
-    if let Some(access_token) = rbw::actions::edit(
+    if let (Some(access_token), ()) = rbw::actions::edit(
         &access_token,
         &refresh_token,
         &entry.id,
@@ -268,7 +268,7 @@ pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     let (entry, _) = find_entry(&db, name, username)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
 
-    if let Some(access_token) =
+    if let (Some(access_token), ()) =
         rbw::actions::remove(&access_token, &refresh_token, &entry.id)?
     {
         db.access_token = Some(access_token);

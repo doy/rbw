@@ -46,18 +46,16 @@ pub async fn unlock(
 pub async fn sync(
     access_token: &str,
     refresh_token: &str,
-) -> Result<(Option<String>, String, Vec<crate::db::Entry>)> {
-    let res = sync_once(access_token).await;
-    match res {
-        Ok((protected_key, ciphers)) => Ok((None, protected_key, ciphers)),
-        Err(crate::error::Error::RequestUnauthorized) => {
-            let access_token =
-                exchange_refresh_token_async(refresh_token).await?;
-            let (protected_key, ciphers) = sync_once(&access_token).await?;
-            Ok((Some(access_token), protected_key, ciphers))
-        }
-        Err(e) => Err(e),
-    }
+) -> Result<(Option<String>, (String, Vec<crate::db::Entry>))> {
+    with_exchange_refresh_token_async(
+        access_token,
+        refresh_token,
+        |access_token| {
+            let access_token = access_token.to_string();
+            Box::pin(async move { sync_once(&access_token).await })
+        },
+    )
+    .await
 }
 
 async fn sync_once(
@@ -76,16 +74,10 @@ pub fn add(
     username: Option<&str>,
     password: Option<&str>,
     notes: Option<&str>,
-) -> Result<Option<String>> {
-    match add_once(access_token, name, username, password, notes) {
-        Ok(()) => Ok(None),
-        Err(crate::error::Error::RequestUnauthorized) => {
-            let access_token = exchange_refresh_token(refresh_token)?;
-            add_once(&access_token, name, username, password, notes)?;
-            Ok(Some(access_token))
-        }
-        Err(e) => Err(e),
-    }
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        add_once(access_token, name, username, password, notes)
+    })
 }
 
 fn add_once(
@@ -110,16 +102,10 @@ pub fn edit(
     username: Option<&str>,
     password: Option<&str>,
     notes: Option<&str>,
-) -> Result<Option<String>> {
-    match edit_once(access_token, id, name, username, password, notes) {
-        Ok(()) => Ok(None),
-        Err(crate::error::Error::RequestUnauthorized) => {
-            let access_token = exchange_refresh_token(refresh_token)?;
-            edit_once(&access_token, id, name, username, password, notes)?;
-            Ok(Some(access_token))
-        }
-        Err(e) => Err(e),
-    }
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        edit_once(access_token, id, name, username, password, notes)
+    })
 }
 
 fn edit_once(
@@ -141,16 +127,10 @@ pub fn remove(
     access_token: &str,
     refresh_token: &str,
     id: &str,
-) -> Result<Option<String>> {
-    match remove_once(access_token, id) {
-        Ok(()) => Ok(None),
-        Err(crate::error::Error::RequestUnauthorized) => {
-            let access_token = exchange_refresh_token(refresh_token)?;
-            remove_once(&access_token, id)?;
-            Ok(Some(access_token))
-        }
-        Err(e) => Err(e),
-    }
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        remove_once(access_token, id)
+    })
 }
 
 fn remove_once(access_token: &str, id: &str) -> Result<()> {
@@ -159,6 +139,49 @@ fn remove_once(access_token: &str, id: &str) -> Result<()> {
         crate::api::Client::new(&config.base_url(), &config.identity_url());
     client.remove(access_token, id)?;
     Ok(())
+}
+
+fn with_exchange_refresh_token<F, T>(
+    access_token: &str,
+    refresh_token: &str,
+    f: F,
+) -> Result<(Option<String>, T)>
+where
+    F: Fn(&str) -> Result<T>,
+{
+    match f(access_token) {
+        Ok(t) => Ok((None, t)),
+        Err(crate::error::Error::RequestUnauthorized) => {
+            let access_token = exchange_refresh_token(refresh_token)?;
+            let t = f(&access_token)?;
+            Ok((Some(access_token), t))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+async fn with_exchange_refresh_token_async<F, T>(
+    access_token: &str,
+    refresh_token: &str,
+    f: F,
+) -> Result<(Option<String>, T)>
+where
+    F: Fn(
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send>,
+    >,
+{
+    match f(access_token).await {
+        Ok(t) => Ok((None, t)),
+        Err(crate::error::Error::RequestUnauthorized) => {
+            let access_token =
+                exchange_refresh_token_async(refresh_token).await?;
+            let t = f(&access_token).await?;
+            Ok((Some(access_token), t))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
