@@ -9,8 +9,18 @@ pub enum Error {
     #[snafu(display("failed to decrypt: {}", source))]
     Decrypt { source: block_modes::BlockModeError },
 
-    #[snafu(display("failed to parse pinentry output ({:?})", out,))]
+    #[snafu(display("failed to parse pinentry output ({:?})", out))]
     FailedToParsePinentry { out: String },
+
+    #[snafu(display(
+        "failed to run editor {}: {:?}",
+        editor.to_string_lossy(),
+        res
+    ))]
+    FailedToRunEditor {
+        editor: std::path::PathBuf,
+        res: std::process::ExitStatus,
+    },
 
     // no Error impl
     // #[snafu(display("failed to expand with hkdf: {}", source))]
@@ -29,6 +39,9 @@ pub enum Error {
 
     #[snafu(display("invalid cipherstring"))]
     InvalidCipherString,
+
+    #[snafu(display("invalid value for $EDITOR: {}", editor.to_string_lossy()))]
+    InvalidEditor { editor: std::ffi::OsString },
 
     #[snafu(display("invalid mac"))]
     InvalidMac,

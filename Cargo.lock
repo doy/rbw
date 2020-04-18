@@ -1157,6 +1157,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "snafu",
+ "tempfile",
  "tokio",
  "uuid",
  "zeroize",
