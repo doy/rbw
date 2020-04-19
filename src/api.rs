@@ -141,22 +141,15 @@ struct SyncResPasswordHistory {
 struct CiphersPostReq {
     #[serde(rename = "type")]
     ty: u32, // XXX what are the valid types?
-    #[serde(rename = "folderId")]
-    folder_id: Option<String>,
-    #[serde(rename = "organizationId")]
-    organization_id: Option<String>,
     name: String,
     notes: Option<String>,
-    favorite: bool,
     login: CiphersPostReqLogin,
 }
 
 #[derive(serde::Serialize, Debug)]
 struct CiphersPostReqLogin {
-    uri: Option<String>,
     username: Option<String>,
     password: Option<String>,
-    totp: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -302,16 +295,11 @@ impl Client {
     ) -> Result<()> {
         let req = CiphersPostReq {
             ty: 1,
-            folder_id: None,
-            organization_id: None,
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
-            favorite: false,
             login: CiphersPostReqLogin {
-                uri: None,
                 username: username.map(std::string::ToString::to_string),
                 password: password.map(std::string::ToString::to_string),
-                totp: None,
             },
         };
         let client = reqwest::blocking::Client::new();
