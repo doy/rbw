@@ -82,12 +82,17 @@ pub fn list() -> anyhow::Result<()> {
     let email = config_email()?;
     let db = rbw::db::Db::load(&email)
         .context("failed to load password database")?;
-    for entry in db.entries {
-        println!(
-            "{}",
-            crate::actions::decrypt(&entry.name)
-                .context("failed to decrypt entry name")?
-        );
+
+    let mut ciphers: Vec<DecryptedCipher> = db
+        .entries
+        .iter()
+        .cloned()
+        .map(|entry| decrypt_cipher(&entry))
+        .collect::<anyhow::Result<_>>()?;
+    ciphers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
+    for cipher in ciphers {
+        println!("{}", cipher.name);
     }
 
     Ok(())
