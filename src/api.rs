@@ -106,12 +106,22 @@ struct CiphersPutReq {
     name: String,
     notes: Option<String>,
     login: CiphersPutReqLogin,
+    #[serde(rename = "passwordHistory")]
+    password_history: Vec<CiphersPutReqHistory>,
 }
 
 #[derive(serde::Serialize, Debug)]
 struct CiphersPutReqLogin {
     username: Option<String>,
     password: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct CiphersPutReqHistory {
+    #[serde(rename = "LastUsedDate")]
+    last_used_date: String,
+    #[serde(rename = "Password")]
+    password: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -181,16 +191,30 @@ struct SyncResCipher {
     login: SyncResLogin,
     #[serde(rename = "Notes")]
     notes: Option<String>,
+    #[serde(rename = "PasswordHistory")]
+    password_history: Option<Vec<SyncResPasswordHistory>>,
 }
 
 impl SyncResCipher {
     fn to_entry(&self) -> crate::db::Entry {
+        let history = if let Some(history) = &self.password_history {
+            history
+                .iter()
+                .map(|entry| crate::db::HistoryEntry {
+                    last_used_date: entry.last_used_date.clone(),
+                    password: entry.password.clone(),
+                })
+                .collect()
+        } else {
+            vec![]
+        };
         crate::db::Entry {
             id: self.id.clone(),
             name: self.name.clone(),
             username: self.login.username.clone(),
             password: self.login.password.clone(),
             notes: self.notes.clone(),
+            history,
         }
     }
 }
@@ -201,6 +225,14 @@ struct SyncResLogin {
     username: Option<String>,
     #[serde(rename = "Password")]
     password: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct SyncResPasswordHistory {
+    #[serde(rename = "LastUsedDate")]
+    last_used_date: String,
+    #[serde(rename = "Password")]
+    password: String,
 }
 
 #[derive(Debug)]
@@ -359,6 +391,7 @@ impl Client {
         username: Option<&str>,
         password: Option<&str>,
         notes: Option<&str>,
+        history: &[crate::db::HistoryEntry],
     ) -> Result<()> {
         let req = CiphersPutReq {
             ty: 1,
@@ -368,6 +401,13 @@ impl Client {
                 username: username.map(std::string::ToString::to_string),
                 password: password.map(std::string::ToString::to_string),
             },
+            password_history: history
+                .iter()
+                .map(|entry| CiphersPutReqHistory {
+                    last_used_date: entry.last_used_date.clone(),
+                    password: entry.password.clone(),
+                })
+                .collect(),
         };
         let client = reqwest::blocking::Client::new();
         let res = client

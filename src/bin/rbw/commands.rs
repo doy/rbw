@@ -8,6 +8,14 @@ struct DecryptedCipher {
     username: Option<String>,
     password: Option<String>,
     notes: Option<String>,
+    history: Vec<DecryptedHistoryEntry>,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+struct DecryptedHistoryEntry {
+    last_used_date: String,
+    password: String,
 }
 
 const HELP: &str = r#"
@@ -231,6 +239,15 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     let notes = notes
         .map(|notes| crate::actions::encrypt(&notes))
         .transpose()?;
+    let mut history = entry.history.clone();
+    let new_history_entry = rbw::db::HistoryEntry {
+        last_used_date: format!(
+            "{}",
+            humantime::format_rfc3339(std::time::SystemTime::now())
+        ),
+        password: entry.password.unwrap_or_else(String::new),
+    };
+    history.insert(0, new_history_entry);
 
     if let (Some(access_token), ()) = rbw::actions::edit(
         &access_token,
@@ -240,6 +257,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         entry.username.as_deref(),
         password.as_deref(),
         notes.as_deref(),
+        &history,
     )? {
         db.access_token = Some(access_token);
         db.save(&email).context("failed to save database")?;
@@ -453,12 +471,23 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             None
         }
     };
+    let history = entry
+        .history
+        .iter()
+        .map(|entry| {
+            Ok(DecryptedHistoryEntry {
+                last_used_date: entry.last_used_date.clone(),
+                password: crate::actions::decrypt(&entry.password)?,
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         name: crate::actions::decrypt(&entry.name)?,
         username,
         password,
         notes,
+        history,
     })
 }
 
@@ -581,6 +610,7 @@ mod test {
                     .map(|_| "this is the encrypted username".to_string()),
                 password: None,
                 notes: None,
+                history: vec![],
             },
             DecryptedCipher {
                 id: "irrelevant".to_string(),
@@ -588,6 +618,7 @@ mod test {
                 username: username.map(std::string::ToString::to_string),
                 password: None,
                 notes: None,
+                history: vec![],
             },
         )
     }

@@ -5,6 +5,7 @@
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::similar_names)]
 #![allow(clippy::single_match)]
+#![allow(clippy::too_many_arguments)]
 
 pub mod actions;
 pub mod api;

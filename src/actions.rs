@@ -105,9 +105,10 @@ pub fn edit(
     username: Option<&str>,
     password: Option<&str>,
     notes: Option<&str>,
+    history: &[crate::db::HistoryEntry],
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        edit_once(access_token, id, name, username, password, notes)
+        edit_once(access_token, id, name, username, password, notes, history)
     })
 }
 
@@ -118,11 +119,20 @@ fn edit_once(
     username: Option<&str>,
     password: Option<&str>,
     notes: Option<&str>,
+    history: &[crate::db::HistoryEntry],
 ) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.edit(access_token, id, name, username, password, notes)?;
+    client.edit(
+        access_token,
+        id,
+        name,
+        username,
+        password,
+        notes,
+        history,
+    )?;
     Ok(())
 }
 

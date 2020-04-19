@@ -12,6 +12,15 @@ pub struct Entry {
     pub username: Option<String>,
     pub password: Option<String>,
     pub notes: Option<String>,
+    pub history: Vec<HistoryEntry>,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct HistoryEntry {
+    pub last_used_date: String,
+    pub password: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
