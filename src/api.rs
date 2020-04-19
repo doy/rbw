@@ -30,13 +30,6 @@ struct ConnectPasswordReq {
     device_push_token: String,
 }
 
-#[derive(serde::Serialize, Debug)]
-struct ConnectRefreshTokenReq {
-    grant_type: String,
-    client_id: String,
-    refresh_token: String,
-}
-
 #[derive(serde::Deserialize, Debug)]
 struct ConnectPasswordRes {
     access_token: String,
@@ -59,6 +52,13 @@ struct ConnectErrorResErrorModel {
     message: String,
 }
 
+#[derive(serde::Serialize, Debug)]
+struct ConnectRefreshTokenReq {
+    grant_type: String,
+    client_id: String,
+    refresh_token: String,
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct ConnectRefreshTokenRes {
     access_token: String,
@@ -74,7 +74,67 @@ struct SyncRes {
     #[serde(rename = "Ciphers")]
     ciphers: Vec<SyncResCipher>,
     #[serde(rename = "Profile")]
-    profile: Profile,
+    profile: SyncResProfile,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct SyncResCipher {
+    #[serde(rename = "Id")]
+    id: String,
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "Login")]
+    login: SyncResLogin,
+    #[serde(rename = "Notes")]
+    notes: Option<String>,
+    #[serde(rename = "PasswordHistory")]
+    password_history: Option<Vec<SyncResPasswordHistory>>,
+}
+
+impl SyncResCipher {
+    fn to_entry(&self) -> crate::db::Entry {
+        let history = if let Some(history) = &self.password_history {
+            history
+                .iter()
+                .map(|entry| crate::db::HistoryEntry {
+                    last_used_date: entry.last_used_date.clone(),
+                    password: entry.password.clone(),
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        crate::db::Entry {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            username: self.login.username.clone(),
+            password: self.login.password.clone(),
+            notes: self.notes.clone(),
+            history,
+        }
+    }
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SyncResProfile {
+    #[serde(rename = "Key")]
+    key: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct SyncResLogin {
+    #[serde(rename = "Username")]
+    username: Option<String>,
+    #[serde(rename = "Password")]
+    password: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct SyncResPasswordHistory {
+    #[serde(rename = "LastUsedDate")]
+    last_used_date: String,
+    #[serde(rename = "Password")]
+    password: String,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -118,117 +178,6 @@ struct CiphersPutReqLogin {
 
 #[derive(serde::Serialize, Debug)]
 struct CiphersPutReqHistory {
-    #[serde(rename = "LastUsedDate")]
-    last_used_date: String,
-    #[serde(rename = "Password")]
-    password: String,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct CiphersRes {
-    #[serde(rename = "FolderId")]
-    folder_id: Option<String>,
-    #[serde(rename = "Favorite")]
-    favorite: bool,
-    #[serde(rename = "Edit")]
-    edit: bool,
-    #[serde(rename = "Id")]
-    id: String,
-    #[serde(rename = "OrganizationId")]
-    organization_id: String,
-    #[serde(rename = "Type")]
-    ty: u32,
-    #[serde(rename = "Login")]
-    login: CiphersResLogin,
-    #[serde(rename = "Username")]
-    username: Option<String>,
-    #[serde(rename = "Password")]
-    password: Option<String>,
-    #[serde(rename = "Totp")]
-    totp: Option<String>,
-    #[serde(rename = "Name")]
-    name: String,
-    #[serde(rename = "Notes")]
-    notes: Option<String>,
-    #[serde(rename = "Fields")]
-    fields: Option<()>, // XXX what type is this?
-    #[serde(rename = "Attachments")]
-    attachments: Option<()>, // XXX what type is this?
-    #[serde(rename = "OrganizationUseTotp")]
-    organization_use_totp: bool,
-    #[serde(rename = "RevisionDate")]
-    revision_date: String,
-    #[serde(rename = "Object")]
-    object: String,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct CiphersResLogin {
-    uris: Vec<CiphersResLoginUri>,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct CiphersResLoginUri {
-    #[serde(rename = "Uri")]
-    uri: String,
-    #[serde(rename = "Match")]
-    mtch: Option<()>, // XXX what type is this?
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct Profile {
-    #[serde(rename = "Key")]
-    key: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct SyncResCipher {
-    #[serde(rename = "Id")]
-    id: String,
-    #[serde(rename = "Name")]
-    name: String,
-    #[serde(rename = "Login")]
-    login: SyncResLogin,
-    #[serde(rename = "Notes")]
-    notes: Option<String>,
-    #[serde(rename = "PasswordHistory")]
-    password_history: Option<Vec<SyncResPasswordHistory>>,
-}
-
-impl SyncResCipher {
-    fn to_entry(&self) -> crate::db::Entry {
-        let history = if let Some(history) = &self.password_history {
-            history
-                .iter()
-                .map(|entry| crate::db::HistoryEntry {
-                    last_used_date: entry.last_used_date.clone(),
-                    password: entry.password.clone(),
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-        crate::db::Entry {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            username: self.login.username.clone(),
-            password: self.login.password.clone(),
-            notes: self.notes.clone(),
-            history,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct SyncResLogin {
-    #[serde(rename = "Username")]
-    username: Option<String>,
-    #[serde(rename = "Password")]
-    password: Option<String>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct SyncResPasswordHistory {
     #[serde(rename = "LastUsedDate")]
     last_used_date: String,
     #[serde(rename = "Password")]
