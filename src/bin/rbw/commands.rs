@@ -1,6 +1,7 @@
 use anyhow::Context as _;
 
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
     id: String,
     name: String,
@@ -330,44 +331,88 @@ fn find_entry(
     name: &str,
     username: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    let ciphers: anyhow::Result<Vec<(rbw::db::Entry, DecryptedCipher)>> = db
+    let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
         .entries
         .iter()
         .cloned()
         .map(|entry| {
             decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
         })
-        .filter(|res| {
-            if let Ok((_, decrypted_cipher)) = res {
-                name == decrypted_cipher.name
+        .collect::<anyhow::Result<_>>()?;
+    find_entry_raw(&ciphers, name, username)
+}
+
+fn find_entry_raw(
+    entries: &[(rbw::db::Entry, DecryptedCipher)],
+    name: &str,
+    username: Option<&str>,
+) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
+    let exact_matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
+        .iter()
+        .cloned()
+        .filter(|(_, decrypted_cipher)| {
+            name == decrypted_cipher.name
+                && if let Some(username) = username {
+                    decrypted_cipher.username.as_deref() == Some(username)
+                } else {
+                    true
+                }
+        })
+        .collect();
+
+    if exact_matches.is_empty() {
+        let partial_matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
+            .iter()
+            .cloned()
+            .filter(|(_, decrypted_cipher)| {
+                decrypted_cipher.name.contains(name)
                     && if let Some(username) = username {
-                        decrypted_cipher.username.as_deref() == Some(username)
+                        if let Some(decrypted_username) =
+                            &decrypted_cipher.username
+                        {
+                            decrypted_username.contains(username)
+                        } else {
+                            false
+                        }
                     } else {
                         true
                     }
-            } else {
-                true
-            }
-        })
-        .collect();
-    let ciphers = ciphers?;
-
-    if ciphers.is_empty() {
-        Err(anyhow::anyhow!("no entry found"))
-    } else if ciphers.len() > 1 {
-        let users: Vec<String> = ciphers
-            .iter()
-            .map(|(_, decrypted)| {
-                decrypted
-                    .username
-                    .clone()
-                    .unwrap_or_else(|| "(no login)".to_string())
             })
             .collect();
-        let users = users.join(", ");
-        Err(anyhow::anyhow!("multiple entries found: {}", users))
+
+        if partial_matches.is_empty() {
+            Err(anyhow::anyhow!("no entry found"))
+        } else if partial_matches.len() > 1 {
+            let entries: Vec<String> = partial_matches
+                .iter()
+                .map(|(_, decrypted)| {
+                    if let Some(username) = &decrypted.username {
+                        format!("{}@{}", username, decrypted.name)
+                    } else {
+                        decrypted.name.clone()
+                    }
+                })
+                .collect();
+            let entries = entries.join(", ");
+            Err(anyhow::anyhow!("multiple entries found: {}", entries))
+        } else {
+            Ok(partial_matches[0].clone())
+        }
+    } else if exact_matches.len() > 1 {
+        let entries: Vec<String> = exact_matches
+            .iter()
+            .map(|(_, decrypted)| {
+                if let Some(username) = &decrypted.username {
+                    format!("{}@{}", username, decrypted.name)
+                } else {
+                    decrypted.name.clone()
+                }
+            })
+            .collect();
+        let entries = entries.join(", ");
+        Err(anyhow::anyhow!("multiple entries found: {}", entries))
     } else {
-        Ok(ciphers[0].clone())
+        Ok(exact_matches[0].clone())
     }
 }
 
@@ -441,5 +486,109 @@ fn config_email() -> anyhow::Result<String> {
         Ok(email)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_find_entry() {
+        let entries = &[
+            make_entry("github", Some("foo")),
+            make_entry("gitlab", Some("foo")),
+            make_entry("gitlab", Some("bar")),
+            make_entry("gitter", Some("baz")),
+            make_entry("git", Some("foo")),
+            make_entry("bitwarden", None),
+        ];
+
+        assert!(one_match(entries, "github", Some("foo"), 0), "foo@github");
+        assert!(one_match(entries, "github", None, 0), "github");
+        assert!(one_match(entries, "gitlab", Some("foo"), 1), "foo@gitlab");
+        assert!(one_match(entries, "git", Some("bar"), 2), "bar@git");
+        assert!(one_match(entries, "gitter", Some("ba"), 3), "ba@gitter");
+        assert!(one_match(entries, "git", Some("foo"), 4), "foo@git");
+        assert!(one_match(entries, "git", None, 4), "git");
+        assert!(one_match(entries, "bitwarden", None, 5), "bitwarden");
+
+        assert!(no_matches(entries, "gitlab", Some("baz")), "baz@gitlab");
+        assert!(
+            no_matches(entries, "bitbucket", Some("foo")),
+            "foo@bitbucket"
+        );
+
+        assert!(many_matches(entries, "gitlab", None), "gitlab");
+        assert!(many_matches(entries, "gi", Some("foo")), "foo@gi");
+        assert!(many_matches(entries, "git", Some("ba")), "ba@git");
+    }
+
+    fn one_match(
+        entries: &[(rbw::db::Entry, DecryptedCipher)],
+        name: &str,
+        username: Option<&str>,
+        idx: usize,
+    ) -> bool {
+        entries_eq(
+            &find_entry_raw(entries, name, username).unwrap(),
+            &entries[idx],
+        )
+    }
+
+    fn no_matches(
+        entries: &[(rbw::db::Entry, DecryptedCipher)],
+        name: &str,
+        username: Option<&str>,
+    ) -> bool {
+        let res = find_entry_raw(entries, name, username);
+        if let Err(e) = res {
+            format!("{}", e).contains("no entry found")
+        } else {
+            false
+        }
+    }
+
+    fn many_matches(
+        entries: &[(rbw::db::Entry, DecryptedCipher)],
+        name: &str,
+        username: Option<&str>,
+    ) -> bool {
+        let res = find_entry_raw(entries, name, username);
+        if let Err(e) = res {
+            format!("{}", e).contains("multiple entries found")
+        } else {
+            false
+        }
+    }
+
+    fn entries_eq(
+        a: &(rbw::db::Entry, DecryptedCipher),
+        b: &(rbw::db::Entry, DecryptedCipher),
+    ) -> bool {
+        a.0 == b.0 && a.1 == b.1
+    }
+
+    fn make_entry(
+        name: &str,
+        username: Option<&str>,
+    ) -> (rbw::db::Entry, DecryptedCipher) {
+        (
+            rbw::db::Entry {
+                id: "irrelevant".to_string(),
+                name: "this is the encrypted name".to_string(),
+                username: username
+                    .map(|_| "this is the encrypted username".to_string()),
+                password: None,
+                notes: None,
+            },
+            DecryptedCipher {
+                id: "irrelevant".to_string(),
+                name: name.to_string(),
+                username: username.map(std::string::ToString::to_string),
+                password: None,
+                notes: None,
+            },
+        )
     }
 }

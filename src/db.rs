@@ -3,7 +3,9 @@ use crate::prelude::*;
 use std::io::{Read as _, Write as _};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
 pub struct Entry {
     pub id: String,
     pub name: String,
