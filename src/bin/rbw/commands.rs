@@ -299,6 +299,30 @@ pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn history(name: &str, username: Option<&str>) -> anyhow::Result<()> {
+    unlock()?;
+
+    let email = config_email()?;
+    let db = rbw::db::Db::load(&email)
+        .context("failed to load password database")?;
+
+    let desc = format!(
+        "{}{}",
+        username
+            .map(|s| format!("{}@", s))
+            .unwrap_or_else(|| "".to_string()),
+        name
+    );
+
+    let (_, decrypted) = find_entry(&db, name, username)
+        .with_context(|| format!("couldn't find entry for '{}'", desc))?;
+    for history in decrypted.history {
+        println!("{}: {}", history.last_used_date, history.password);
+    }
+
+    Ok(())
+}
+
 pub fn lock() -> anyhow::Result<()> {
     ensure_agent()?;
     crate::actions::lock()?;

@@ -68,6 +68,11 @@ fn main() {
                 .arg(clap::Arg::with_name("name").required(true))
                 .arg(clap::Arg::with_name("user")),
         )
+        .subcommand(
+            clap::SubCommand::with_name("history")
+                .arg(clap::Arg::with_name("name").required(true))
+                .arg(clap::Arg::with_name("user")),
+        )
         .subcommand(clap::SubCommand::with_name("lock"))
         .subcommand(clap::SubCommand::with_name("purge"))
         .subcommand(clap::SubCommand::with_name("stop-agent"))
@@ -143,6 +148,12 @@ fn main() {
             smatches.value_of("user"),
         )
         .context("remove"),
+        // this unwrap is safe because name is marked .required(true)
+        ("history", Some(smatches)) => commands::history(
+            smatches.value_of("name").unwrap(),
+            smatches.value_of("user"),
+        )
+        .context("history"),
         ("lock", Some(_)) => commands::lock().context("lock"),
         ("purge", Some(_)) => commands::purge().context("purge"),
         ("stop-agent", Some(_)) => {
