@@ -174,13 +174,13 @@ struct Profile {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResCipher {
     #[serde(rename = "Id")]
-    pub id: String,
+    id: String,
     #[serde(rename = "Name")]
-    pub name: String,
+    name: String,
     #[serde(rename = "Login")]
-    pub login: SyncResLogin,
+    login: SyncResLogin,
     #[serde(rename = "Notes")]
-    pub notes: Option<String>,
+    notes: Option<String>,
 }
 
 impl SyncResCipher {
@@ -198,9 +198,9 @@ impl SyncResCipher {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResLogin {
     #[serde(rename = "Username")]
-    pub username: Option<String>,
+    username: Option<String>,
     #[serde(rename = "Password")]
-    pub password: Option<String>,
+    password: Option<String>,
 }
 
 #[derive(Debug)]
