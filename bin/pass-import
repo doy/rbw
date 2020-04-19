@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+EDITOR=$(mktemp)
+trap 'rm -f $EDITOR' EXIT
+cat > "$EDITOR" <<'EOF'
+#!/bin/sh
+cat > "$1"
+EOF
+chmod 700 "$EDITOR"
+export EDITOR
+
+for entry in $(pass git ls-files | grep '\.gpg$' | sed 's/\.gpg$//'); do
+    echo "$entry"
+    pw=$(pass show "$entry")
+
+    user="${entry##*/}"
+    name="${entry%/*}"
+    echo "$pw" | rbw add "$name" "$user"
+done
