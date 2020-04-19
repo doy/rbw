@@ -30,7 +30,8 @@ fn main() {
         .subcommand(
             clap::SubCommand::with_name("get")
                 .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user")),
+                .arg(clap::Arg::with_name("user"))
+                .arg(clap::Arg::with_name("full").long("full")),
         )
         .subcommand(
             clap::SubCommand::with_name("add")
@@ -103,6 +104,7 @@ fn main() {
         ("get", Some(smatches)) => commands::get(
             smatches.value_of("name").unwrap(),
             smatches.value_of("user"),
+            smatches.is_present("full"),
         )
         .context("get"),
         // this unwrap is safe because name is marked .required(true)

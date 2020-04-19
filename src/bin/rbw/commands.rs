@@ -98,7 +98,7 @@ pub fn list() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn get(name: &str, user: Option<&str>) -> anyhow::Result<()> {
+pub fn get(name: &str, user: Option<&str>, full: bool) -> anyhow::Result<()> {
     unlock()?;
 
     let email = config_email()?;
@@ -118,6 +118,12 @@ pub fn get(name: &str, user: Option<&str>) -> anyhow::Result<()> {
         println!("{}", password);
     } else {
         eprintln!("entry for '{}' had no password", desc);
+    }
+
+    if full {
+        if let Some(notes) = decrypted.notes {
+            println!("\n{}", notes);
+        }
     }
 
     Ok(())
