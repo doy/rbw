@@ -11,110 +11,252 @@ fn main() {
     .init();
 
     let matches = clap::App::new("rbw")
-        .about("unofficial bitwarden cli")
+        .about("Unofficial Bitwarden CLI")
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
         .subcommand(
             clap::SubCommand::with_name("config")
-                .subcommand(clap::SubCommand::with_name("show"))
+                .about("Get or set configuration options")
+                .subcommand(
+                    clap::SubCommand::with_name("show").about(
+                        "Show the values of all configuration settings",
+                    ),
+                )
                 .subcommand(
                     clap::SubCommand::with_name("set")
-                        .arg(clap::Arg::with_name("key").required(true))
-                        .arg(clap::Arg::with_name("value").required(true)),
+                        .about("Set a configuration option")
+                        .arg(
+                            clap::Arg::with_name("key")
+                                .required(true)
+                                .help("Configuration key to set"),
+                        )
+                        .arg(
+                            clap::Arg::with_name("value")
+                                .required(true)
+                                .help(
+                                "Value to set the configuration option to",
+                            ),
+                        ),
                 ),
         )
-        .subcommand(clap::SubCommand::with_name("login"))
-        .subcommand(clap::SubCommand::with_name("unlock"))
-        .subcommand(clap::SubCommand::with_name("sync"))
+        .subcommand(
+            clap::SubCommand::with_name("login")
+                .about("Log in to the Bitwarden server"),
+        )
+        .subcommand(
+            clap::SubCommand::with_name("unlock")
+                .about("Unlock the local Bitwarden database"),
+        )
+        .subcommand(
+            clap::SubCommand::with_name("sync")
+                .about("Update the local copy of the Bitwarden database"),
+        )
         .subcommand(
             clap::SubCommand::with_name("list")
+                .about("List all entries in the local Bitwarden database")
                 .arg(
                     clap::Arg::with_name("fields")
                         .long("fields")
                         .takes_value(true)
                         .use_delimiter(true)
-                        .multiple(true),
+                        .multiple(true)
+                        .help(
+                            "Fields to display. \
+                            Available options are id, name, user, folder. \
+                            Multiple fields will be separated by tabs.",
+                        ),
                 )
-                .alias("ls"),
+                .visible_alias("ls"),
         )
         .subcommand(
             clap::SubCommand::with_name("get")
-                .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user"))
-                .arg(clap::Arg::with_name("full").long("full")),
+                .about("Display the password for a given entry")
+                .arg(
+                    clap::Arg::with_name("name")
+                        .required(true)
+                        .help("Name of the entry to display"),
+                )
+                .arg(
+                    clap::Arg::with_name("user")
+                        .help("Username of the entry to display"),
+                )
+                .arg(
+                    clap::Arg::with_name("full").long("full").help(
+                        "Display the notes in addition to the password",
+                    ),
+                ),
         )
         .subcommand(
             clap::SubCommand::with_name("add")
-                .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user"))
+                .about("Add a new password to the database")
+                .long_about(
+                    "Add a new password to the database\n\n\
+                    This command will open a text editor to enter \
+                    the password and notes. The editor to use is determined \
+                    by the value of the $EDITOR environment variable. The \
+                    first line will be saved as the password and the \
+                    remainder will be saved as a note.",
+                )
+                .arg(
+                    clap::Arg::with_name("name")
+                        .required(true)
+                        .help("Name of the password entry"),
+                )
+                .arg(
+                    clap::Arg::with_name("user")
+                        .help("Username for the password entry"),
+                )
                 .arg(
                     clap::Arg::with_name("uri")
                         .long("uri")
                         .takes_value(true)
                         .multiple(true)
                         .number_of_values(1)
-                        .use_delimiter(false),
+                        .use_delimiter(false)
+                        .help("URI for the password entry"),
                 )
                 .arg(
                     clap::Arg::with_name("folder")
                         .long("folder")
-                        .takes_value(true),
+                        .takes_value(true)
+                        .help("Folder for the password entry"),
                 ),
         )
         .subcommand(
             clap::SubCommand::with_name("generate")
-                .arg(clap::Arg::with_name("len").required(true))
-                .arg(clap::Arg::with_name("name"))
-                .arg(clap::Arg::with_name("user"))
+                .about("Generate a new password")
+                .long_about(
+                    "Generate a new password\n\n\
+                    If given a password entry name, also save the generated \
+                    password to the database.",
+                )
+                .arg(
+                    clap::Arg::with_name("len")
+                        .required(true)
+                        .help("Length of the password to generate"),
+                )
+                .arg(
+                    clap::Arg::with_name("name")
+                        .help("Name of the password entry"),
+                )
+                .arg(
+                    clap::Arg::with_name("user")
+                        .help("Username for the password entry"),
+                )
                 .arg(
                     clap::Arg::with_name("uri")
                         .long("uri")
                         .takes_value(true)
                         .multiple(true)
                         .number_of_values(1)
-                        .use_delimiter(false),
+                        .use_delimiter(false)
+                        .help("URI for the password entry"),
                 )
                 .arg(
                     clap::Arg::with_name("folder")
                         .long("folder")
-                        .takes_value(true),
+                        .takes_value(true)
+                        .help("Folder for the password entry"),
                 )
-                .arg(clap::Arg::with_name("no-symbols").long("no-symbols"))
                 .arg(
-                    clap::Arg::with_name("only-numbers").long("only-numbers"),
+                    clap::Arg::with_name("no-symbols")
+                        .long("no-symbols")
+                        .help(
+                            "Generate a password with no special characters",
+                        ),
+                )
+                .arg(
+                    clap::Arg::with_name("only-numbers")
+                        .long("only-numbers")
+                        .help(
+                            "Generate a password consisting of only numbers",
+                        ),
                 )
                 .arg(
                     clap::Arg::with_name("nonconfusables")
-                        .long("nonconfusables"),
+                        .long("nonconfusables")
+                        .help(
+                            "Generate a password without visually similar \
+                            characters (useful for passwords intended to be \
+                            written down)",
+                        ),
                 )
-                .arg(clap::Arg::with_name("diceware").long("diceware"))
+                .arg(clap::Arg::with_name("diceware").long("diceware").help(
+                    "Generate a password of multiple dictionary \
+                    words chosen from the EFF word list. The len \
+                    parameter for this option will set the number \
+                    of words to generate, rather than characters.",
+                ))
                 .group(clap::ArgGroup::with_name("password-type").args(&[
                     "no-symbols",
                     "only-numbers",
                     "nonconfusables",
                     "diceware",
                 ]))
-                .alias("gen"),
+                .visible_alias("gen"),
         )
         .subcommand(
             clap::SubCommand::with_name("edit")
-                .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user")),
+                .about("Modify an existing password")
+                .long_about(
+                    "Modify an existing password\n\n\
+                    This command will open a text editor with the existing \
+                    password and notes of the given entry for editing. \
+                    The editor to use is determined  by the value of the \
+                    $EDITOR environment variable. The first line will be \
+                    saved as the password and the remainder will be saved \
+                    as a note.",
+                )
+                .arg(
+                    clap::Arg::with_name("name")
+                        .required(true)
+                        .help("Name of the password entry"),
+                )
+                .arg(
+                    clap::Arg::with_name("user")
+                        .help("Username for the password entry"),
+                ),
         )
         .subcommand(
             clap::SubCommand::with_name("remove")
-                .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user"))
-                .alias("rm"),
+                .about("Remove a given entry")
+                .arg(
+                    clap::Arg::with_name("name")
+                        .required(true)
+                        .help("Name of the password entry"),
+                )
+                .arg(
+                    clap::Arg::with_name("user")
+                        .help("Username for the password entry"),
+                )
+                .visible_alias("rm"),
         )
         .subcommand(
             clap::SubCommand::with_name("history")
-                .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user")),
+                .about("View the password history for a given entry")
+                .arg(
+                    clap::Arg::with_name("name")
+                        .required(true)
+                        .help("Name of the password entry"),
+                )
+                .arg(
+                    clap::Arg::with_name("user")
+                        .help("Username for the password entry"),
+                ),
         )
-        .subcommand(clap::SubCommand::with_name("lock"))
-        .subcommand(clap::SubCommand::with_name("purge"))
-        .subcommand(clap::SubCommand::with_name("stop-agent").alias("logout"))
+        .subcommand(
+            clap::SubCommand::with_name("lock")
+                .about("Lock the password database"),
+        )
+        .subcommand(
+            clap::SubCommand::with_name("purge")
+                .about("Remove the local copy of the password database"),
+        )
+        .subcommand(
+            clap::SubCommand::with_name("stop-agent")
+                .about("Terminate the background agent")
+                .visible_alias("logout"),
+        )
         .get_matches();
 
     let res = match matches.subcommand() {
