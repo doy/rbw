@@ -77,9 +77,10 @@ pub fn add(
     username: Option<&str>,
     password: Option<&str>,
     notes: Option<&str>,
+    uris: &[String],
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, name, username, password, notes)
+        add_once(access_token, name, username, password, notes, uris)
     })
 }
 
@@ -89,11 +90,12 @@ fn add_once(
     username: Option<&str>,
     password: Option<&str>,
     notes: Option<&str>,
+    uris: &[String],
 ) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.add(access_token, name, username, password, notes)?;
+    client.add(access_token, name, username, password, notes, uris)?;
     Ok(())
 }
 

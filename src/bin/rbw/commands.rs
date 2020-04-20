@@ -129,7 +129,11 @@ pub fn get(name: &str, user: Option<&str>, full: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
+pub fn add(
+    name: &str,
+    username: Option<&str>,
+    uris: Vec<&str>,
+) -> anyhow::Result<()> {
     unlock()?;
 
     let email = config_email()?;
@@ -154,6 +158,10 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     let notes = notes
         .map(|notes| crate::actions::encrypt(&notes))
         .transpose()?;
+    let uris: Vec<String> = uris
+        .iter()
+        .map(|uri| crate::actions::encrypt(&uri))
+        .collect::<anyhow::Result<_>>()?;
 
     if let (Some(access_token), ()) = rbw::actions::add(
         &access_token,
@@ -162,6 +170,7 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         username.as_deref(),
         password.as_deref(),
         notes.as_deref(),
+        &uris,
     )? {
         db.access_token = Some(access_token);
         db.save(&email).context("failed to save database")?;
@@ -175,6 +184,7 @@ pub fn add(name: &str, username: Option<&str>) -> anyhow::Result<()> {
 pub fn generate(
     name: Option<&str>,
     username: Option<&str>,
+    uris: Vec<&str>,
     len: usize,
     ty: rbw::pwgen::Type,
 ) -> anyhow::Result<()> {
@@ -196,6 +206,10 @@ pub fn generate(
             .map(|username| crate::actions::encrypt(username))
             .transpose()?;
         let password = crate::actions::encrypt(&password)?;
+        let uris: Vec<String> = uris
+            .iter()
+            .map(|uri| crate::actions::encrypt(&uri))
+            .collect::<anyhow::Result<_>>()?;
 
         if let (Some(access_token), ()) = rbw::actions::add(
             &access_token,
@@ -204,6 +218,7 @@ pub fn generate(
             username.as_deref(),
             Some(&password),
             None,
+            &uris,
         )? {
             db.access_token = Some(access_token);
             db.save(&email).context("failed to save database")?;

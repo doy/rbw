@@ -150,6 +150,12 @@ struct CiphersPostReq {
 struct CiphersPostReqLogin {
     username: Option<String>,
     password: Option<String>,
+    uris: Vec<CiphersPostReqLoginUri>,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct CiphersPostReqLoginUri {
+    uri: String,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -292,6 +298,7 @@ impl Client {
         username: Option<&str>,
         password: Option<&str>,
         notes: Option<&str>,
+        uris: &[String],
     ) -> Result<()> {
         let req = CiphersPostReq {
             ty: 1,
@@ -300,6 +307,10 @@ impl Client {
             login: CiphersPostReqLogin {
                 username: username.map(std::string::ToString::to_string),
                 password: password.map(std::string::ToString::to_string),
+                uris: uris
+                    .iter()
+                    .map(|s| CiphersPostReqLoginUri { uri: s.to_string() })
+                    .collect(),
             },
         };
         let client = reqwest::blocking::Client::new();

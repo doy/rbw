@@ -36,13 +36,29 @@ fn main() {
         .subcommand(
             clap::SubCommand::with_name("add")
                 .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user")),
+                .arg(clap::Arg::with_name("user"))
+                .arg(
+                    clap::Arg::with_name("uri")
+                        .long("uri")
+                        .takes_value(true)
+                        .multiple(true)
+                        .number_of_values(1)
+                        .use_delimiter(false),
+                ),
         )
         .subcommand(
             clap::SubCommand::with_name("generate")
                 .arg(clap::Arg::with_name("len").required(true))
                 .arg(clap::Arg::with_name("name"))
                 .arg(clap::Arg::with_name("user"))
+                .arg(
+                    clap::Arg::with_name("uri")
+                        .long("uri")
+                        .takes_value(true)
+                        .multiple(true)
+                        .number_of_values(1)
+                        .use_delimiter(false),
+                )
                 .arg(clap::Arg::with_name("no-symbols").long("no-symbols"))
                 .arg(
                     clap::Arg::with_name("only-numbers").long("only-numbers"),
@@ -111,6 +127,10 @@ fn main() {
         ("add", Some(smatches)) => commands::add(
             smatches.value_of("name").unwrap(),
             smatches.value_of("user"),
+            smatches
+                .values_of("uri")
+                .map(|it| it.collect())
+                .unwrap_or_else(|| vec![]),
         )
         .context("add"),
         ("generate", Some(smatches)) => {
@@ -131,6 +151,10 @@ fn main() {
                 Ok(len) => commands::generate(
                     smatches.value_of("name"),
                     smatches.value_of("user"),
+                    smatches
+                        .values_of("uri")
+                        .map(|it| it.collect())
+                        .unwrap_or_else(|| vec![]),
                     len,
                     ty,
                 )
