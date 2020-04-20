@@ -26,7 +26,15 @@ fn main() {
         .subcommand(clap::SubCommand::with_name("login"))
         .subcommand(clap::SubCommand::with_name("unlock"))
         .subcommand(clap::SubCommand::with_name("sync"))
-        .subcommand(clap::SubCommand::with_name("list"))
+        .subcommand(
+            clap::SubCommand::with_name("list").arg(
+                clap::Arg::with_name("fields")
+                    .long("fields")
+                    .takes_value(true)
+                    .use_delimiter(true)
+                    .multiple(true),
+            ),
+        )
         .subcommand(
             clap::SubCommand::with_name("get")
                 .arg(clap::Arg::with_name("name").required(true))
@@ -115,7 +123,13 @@ fn main() {
         ("login", Some(_)) => commands::login().context("login"),
         ("unlock", Some(_)) => commands::unlock().context("unlock"),
         ("sync", Some(_)) => commands::sync().context("sync"),
-        ("list", Some(_)) => commands::list().context("list"),
+        ("list", Some(smatches)) => commands::list(
+            &smatches
+                .values_of("fields")
+                .map(|it| it.collect())
+                .unwrap_or_else(|| vec!["name"]),
+        )
+        .context("list"),
         // this unwrap is safe because name is marked .required(true)
         ("get", Some(smatches)) => commands::get(
             smatches.value_of("name").unwrap(),

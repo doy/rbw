@@ -18,6 +18,25 @@ struct DecryptedHistoryEntry {
     password: String,
 }
 
+enum ListField {
+    Name,
+    Id,
+    User,
+}
+
+impl std::convert::TryFrom<&str> for ListField {
+    type Error = anyhow::Error;
+
+    fn try_from(s: &str) -> anyhow::Result<Self> {
+        Ok(match s {
+            "name" => Self::Name,
+            "id" => Self::Id,
+            "user" => Self::User,
+            _ => return Err(anyhow::anyhow!("unknown field {}", s)),
+        })
+    }
+}
+
 const HELP: &str = r#"
 # The first line of this file will be the password, and the remainder of the
 # file (after any blank lines after the password) will be stored as a note.
@@ -76,7 +95,13 @@ pub fn sync() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn list() -> anyhow::Result<()> {
+pub fn list(fields: &[&str]) -> anyhow::Result<()> {
+    let fields: Vec<ListField> = fields
+        .iter()
+        .copied()
+        .map(std::convert::TryFrom::try_from)
+        .collect::<anyhow::Result<_>>()?;
+
     unlock()?;
 
     let email = config_email()?;
@@ -92,7 +117,19 @@ pub fn list() -> anyhow::Result<()> {
     ciphers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     for cipher in ciphers {
-        println!("{}", cipher.name);
+        let values: Vec<String> = fields
+            .iter()
+            .map(|field| match field {
+                ListField::Name => cipher.name.clone(),
+                ListField::Id => cipher.id.clone(),
+                ListField::User => cipher
+                    .username
+                    .as_ref()
+                    .map(std::string::ToString::to_string)
+                    .unwrap_or_else(|| "".to_string()),
+            })
+            .collect();
+        println!("{}", values.join("\t"));
     }
 
     Ok(())
