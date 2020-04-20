@@ -75,12 +75,16 @@ struct SyncRes {
     ciphers: Vec<SyncResCipher>,
     #[serde(rename = "Profile")]
     profile: SyncResProfile,
+    #[serde(rename = "Folders")]
+    folders: Vec<SyncResFolder>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResCipher {
     #[serde(rename = "Id")]
     id: String,
+    #[serde(rename = "FolderId")]
+    folder_id: Option<String>,
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Login")]
@@ -93,7 +97,10 @@ struct SyncResCipher {
 
 impl SyncResCipher {
     // TODO: handle other kinds of entries other than login
-    fn to_entry(&self) -> Option<crate::db::Entry> {
+    fn to_entry(
+        &self,
+        folders: &[SyncResFolder],
+    ) -> Option<crate::db::Entry> {
         if let Some(login) = &self.login {
             let history = if let Some(history) = &self.password_history {
                 history
@@ -106,8 +113,20 @@ impl SyncResCipher {
             } else {
                 vec![]
             };
+            let folder = if let Some(folder_id) = &self.folder_id {
+                let mut folder_name = None;
+                for folder in folders {
+                    if &folder.id == folder_id {
+                        folder_name = Some(folder.name.clone());
+                    }
+                }
+                folder_name
+            } else {
+                None
+            };
             Some(crate::db::Entry {
                 id: self.id.clone(),
+                folder,
                 name: self.name.clone(),
                 username: login.username.clone(),
                 password: login.password.clone(),
@@ -124,6 +143,14 @@ impl SyncResCipher {
 struct SyncResProfile {
     #[serde(rename = "Key")]
     key: String,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+struct SyncResFolder {
+    #[serde(rename = "Id")]
+    id: String,
+    #[serde(rename = "Name")]
+    name: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -301,10 +328,11 @@ impl Client {
             reqwest::StatusCode::OK => {
                 let sync_res: SyncRes =
                     res.json().await.context(crate::error::Reqwest)?;
+                let folders = sync_res.folders.clone();
                 let ciphers = sync_res
                     .ciphers
                     .iter()
-                    .filter_map(SyncResCipher::to_entry)
+                    .filter_map(|cipher| cipher.to_entry(&folders))
                     .collect();
                 Ok((sync_res.profile.key, ciphers))
             }

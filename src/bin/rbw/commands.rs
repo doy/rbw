@@ -4,6 +4,7 @@ use anyhow::Context as _;
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
     id: String,
+    folder: Option<String>,
     name: String,
     username: Option<String>,
     password: Option<String>,
@@ -22,6 +23,7 @@ enum ListField {
     Name,
     Id,
     User,
+    Folder,
 }
 
 impl std::convert::TryFrom<&str> for ListField {
@@ -32,6 +34,7 @@ impl std::convert::TryFrom<&str> for ListField {
             "name" => Self::Name,
             "id" => Self::Id,
             "user" => Self::User,
+            "folder" => Self::Folder,
             _ => return Err(anyhow::anyhow!("unknown field {}", s)),
         })
     }
@@ -124,6 +127,11 @@ pub fn list(fields: &[&str]) -> anyhow::Result<()> {
                 ListField::Id => cipher.id.clone(),
                 ListField::User => cipher
                     .username
+                    .as_ref()
+                    .map(std::string::ToString::to_string)
+                    .unwrap_or_else(|| "".to_string()),
+                ListField::Folder => cipher
+                    .folder
                     .as_ref()
                     .map(std::string::ToString::to_string)
                     .unwrap_or_else(|| "".to_string()),
@@ -610,6 +618,18 @@ fn find_entry_raw(
 }
 
 fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
+    let folder = entry
+        .folder
+        .as_ref()
+        .map(|folder| crate::actions::decrypt(folder))
+        .transpose();
+    let folder = match folder {
+        Ok(folder) => folder,
+        Err(e) => {
+            log::warn!("failed to decrypt folder name: {}", e);
+            None
+        }
+    };
     let username = entry
         .username
         .as_ref()
@@ -658,6 +678,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .collect::<anyhow::Result<_>>()?;
     Ok(DecryptedCipher {
         id: entry.id.clone(),
+        folder,
         name: crate::actions::decrypt(&entry.name)?,
         username,
         password,
@@ -780,6 +801,7 @@ mod test {
         (
             rbw::db::Entry {
                 id: "irrelevant".to_string(),
+                folder: None,
                 name: "this is the encrypted name".to_string(),
                 username: username
                     .map(|_| "this is the encrypted username".to_string()),
@@ -789,6 +811,7 @@ mod test {
             },
             DecryptedCipher {
                 id: "irrelevant".to_string(),
+                folder: None,
                 name: name.to_string(),
                 username: username.map(std::string::ToString::to_string),
                 password: None,
