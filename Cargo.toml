@@ -4,6 +4,13 @@ version = "0.1.0"
 authors = ["Jesse Luehrs <doy@tozt.net>"]
 edition = "2018"
 
+description = "Unofficial Bitwarden CLI"
+repository = "https://git.tozt.net/rbw"
+readme = "README.md"
+keywords = ["bitwarden"]
+categories = ["command-line-utilities", "cryptography"]
+license = "MIT"
+
 [dependencies]
 aes = "0.3"
 anyhow = "1.0"
