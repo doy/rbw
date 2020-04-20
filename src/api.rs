@@ -84,7 +84,7 @@ struct SyncResCipher {
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Login")]
-    login: SyncResLogin,
+    login: Option<SyncResLogin>,
     #[serde(rename = "Notes")]
     notes: Option<String>,
     #[serde(rename = "PasswordHistory")]
@@ -92,25 +92,30 @@ struct SyncResCipher {
 }
 
 impl SyncResCipher {
-    fn to_entry(&self) -> crate::db::Entry {
-        let history = if let Some(history) = &self.password_history {
-            history
-                .iter()
-                .map(|entry| crate::db::HistoryEntry {
-                    last_used_date: entry.last_used_date.clone(),
-                    password: entry.password.clone(),
-                })
-                .collect()
+    // TODO: handle other kinds of entries other than login
+    fn to_entry(&self) -> Option<crate::db::Entry> {
+        if let Some(login) = &self.login {
+            let history = if let Some(history) = &self.password_history {
+                history
+                    .iter()
+                    .map(|entry| crate::db::HistoryEntry {
+                        last_used_date: entry.last_used_date.clone(),
+                        password: entry.password.clone(),
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+            Some(crate::db::Entry {
+                id: self.id.clone(),
+                name: self.name.clone(),
+                username: login.username.clone(),
+                password: login.password.clone(),
+                notes: self.notes.clone(),
+                history,
+            })
         } else {
-            vec![]
-        };
-        crate::db::Entry {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            username: self.login.username.clone(),
-            password: self.login.password.clone(),
-            notes: self.notes.clone(),
-            history,
+            None
         }
     }
 }
@@ -299,7 +304,7 @@ impl Client {
                 let ciphers = sync_res
                     .ciphers
                     .iter()
-                    .map(SyncResCipher::to_entry)
+                    .filter_map(SyncResCipher::to_entry)
                     .collect();
                 Ok((sync_res.profile.key, ciphers))
             }
