@@ -15,6 +15,17 @@ for entry in $(pass git ls-files | grep '\.gpg$' | sed 's/\.gpg$//'); do
     pw=$(pass show "$entry")
 
     user="${entry##*/}"
-    name="${entry%/*}"
-    echo "$pw" | rbw add "$name" "$user"
+    full_name="${entry%/*}"
+    if echo "$full_name" | grep -q /; then
+        name="${full_name##*/}"
+        folder="${full_name%/*}"
+    else
+        name="$full_name"
+        folder=""
+    fi
+    if echo "$name" | grep -q '\.'; then
+        echo "$pw" | rbw add --uri "$name" "$full_name" "$user"
+    else
+        echo "$pw" | rbw add "$full_name" "$user"
+    fi
 done
