@@ -24,8 +24,16 @@ for entry in $(pass git ls-files | grep '\.gpg$' | sed 's/\.gpg$//'); do
         folder=""
     fi
     if echo "$name" | grep -q '\.'; then
-        echo "$pw" | rbw add --uri "$name" "$full_name" "$user"
+        if [ -z "$folder" ]; then
+            echo "$pw" | rbw add --uri "$name" "$name" "$user"
+        else
+            echo "$pw" | rbw add --uri "$name" --folder "$folder" "$name" "$user"
+        fi
     else
-        echo "$pw" | rbw add "$full_name" "$user"
+        if [ -z "$folder" ]; then
+            echo "$pw" | rbw add "$name" "$user"
+        else
+            echo "$pw" | rbw add --folder "$folder" "$name" "$user"
+        fi
     fi
 done
