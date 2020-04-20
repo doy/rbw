@@ -436,15 +436,27 @@ fn find_entry(
     name: &str,
     username: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
-        .entries
-        .iter()
-        .cloned()
-        .map(|entry| {
-            decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
-        })
-        .collect::<anyhow::Result<_>>()?;
-    find_entry_raw(&ciphers, name, username)
+    match uuid::Uuid::parse_str(name) {
+        Ok(_) => {
+            for cipher in &db.entries {
+                if name == cipher.id {
+                    return Ok((cipher.clone(), decrypt_cipher(&cipher)?));
+                }
+            }
+            Err(anyhow::anyhow!("no entry found"))
+        }
+        Err(_) => {
+            let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
+                .entries
+                .iter()
+                .cloned()
+                .map(|entry| {
+                    decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            find_entry_raw(&ciphers, name, username)
+        }
+    }
 }
 
 fn find_entry_raw(
