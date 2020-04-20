@@ -27,13 +27,15 @@ fn main() {
         .subcommand(clap::SubCommand::with_name("unlock"))
         .subcommand(clap::SubCommand::with_name("sync"))
         .subcommand(
-            clap::SubCommand::with_name("list").arg(
-                clap::Arg::with_name("fields")
-                    .long("fields")
-                    .takes_value(true)
-                    .use_delimiter(true)
-                    .multiple(true),
-            ),
+            clap::SubCommand::with_name("list")
+                .arg(
+                    clap::Arg::with_name("fields")
+                        .long("fields")
+                        .takes_value(true)
+                        .use_delimiter(true)
+                        .multiple(true),
+                )
+                .alias("ls"),
         )
         .subcommand(
             clap::SubCommand::with_name("get")
@@ -81,7 +83,8 @@ fn main() {
                     "only-numbers",
                     "nonconfusables",
                     "diceware",
-                ])),
+                ]))
+                .alias("gen"),
         )
         .subcommand(
             clap::SubCommand::with_name("edit")
@@ -91,7 +94,8 @@ fn main() {
         .subcommand(
             clap::SubCommand::with_name("remove")
                 .arg(clap::Arg::with_name("name").required(true))
-                .arg(clap::Arg::with_name("user")),
+                .arg(clap::Arg::with_name("user"))
+                .alias("rm"),
         )
         .subcommand(
             clap::SubCommand::with_name("history")
@@ -100,7 +104,7 @@ fn main() {
         )
         .subcommand(clap::SubCommand::with_name("lock"))
         .subcommand(clap::SubCommand::with_name("purge"))
-        .subcommand(clap::SubCommand::with_name("stop-agent"))
+        .subcommand(clap::SubCommand::with_name("stop-agent").alias("logout"))
         .get_matches();
 
     let res = match matches.subcommand() {
