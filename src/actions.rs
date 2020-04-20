@@ -78,9 +78,18 @@ pub fn add(
     password: Option<&str>,
     notes: Option<&str>,
     uris: &[String],
+    folder_id: Option<&str>,
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, name, username, password, notes, uris)
+        add_once(
+            access_token,
+            name,
+            username,
+            password,
+            notes,
+            uris,
+            folder_id,
+        )
     })
 }
 
@@ -91,11 +100,20 @@ fn add_once(
     password: Option<&str>,
     notes: Option<&str>,
     uris: &[String],
+    folder_id: Option<&str>,
 ) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.add(access_token, name, username, password, notes, uris)?;
+    client.add(
+        access_token,
+        name,
+        username,
+        password,
+        notes,
+        uris,
+        folder_id.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -154,6 +172,39 @@ fn remove_once(access_token: &str, id: &str) -> Result<()> {
         crate::api::Client::new(&config.base_url(), &config.identity_url());
     client.remove(access_token, id)?;
     Ok(())
+}
+
+pub fn list_folders(
+    access_token: &str,
+    refresh_token: &str,
+) -> Result<(Option<String>, Vec<(String, String)>)> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        list_folders_once(access_token)
+    })
+}
+
+fn list_folders_once(access_token: &str) -> Result<Vec<(String, String)>> {
+    let config = crate::config::Config::load()?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+    client.folders(access_token)
+}
+
+pub fn create_folder(
+    access_token: &str,
+    refresh_token: &str,
+    name: &str,
+) -> Result<(Option<String>, String)> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        create_folder_once(access_token, name)
+    })
+}
+
+fn create_folder_once(access_token: &str, name: &str) -> Result<String> {
+    let config = crate::config::Config::load()?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+    client.create_folder(access_token, name)
 }
 
 fn with_exchange_refresh_token<F, T>(

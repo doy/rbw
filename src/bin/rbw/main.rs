@@ -54,6 +54,11 @@ fn main() {
                         .multiple(true)
                         .number_of_values(1)
                         .use_delimiter(false),
+                )
+                .arg(
+                    clap::Arg::with_name("folder")
+                        .long("folder")
+                        .takes_value(true),
                 ),
         )
         .subcommand(
@@ -68,6 +73,11 @@ fn main() {
                         .multiple(true)
                         .number_of_values(1)
                         .use_delimiter(false),
+                )
+                .arg(
+                    clap::Arg::with_name("folder")
+                        .long("folder")
+                        .takes_value(true),
                 )
                 .arg(clap::Arg::with_name("no-symbols").long("no-symbols"))
                 .arg(
@@ -149,6 +159,7 @@ fn main() {
                 .values_of("uri")
                 .map(|it| it.collect())
                 .unwrap_or_else(|| vec![]),
+            smatches.value_of("folder"),
         )
         .context("add"),
         ("generate", Some(smatches)) => {
@@ -173,6 +184,7 @@ fn main() {
                         .values_of("uri")
                         .map(|it| it.collect())
                         .unwrap_or_else(|| vec![]),
+                    smatches.value_of("folder"),
                     len,
                     ty,
                 )

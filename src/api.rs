@@ -141,6 +141,8 @@ struct SyncResPasswordHistory {
 struct CiphersPostReq {
     #[serde(rename = "type")]
     ty: u32, // XXX what are the valid types?
+    #[serde(rename = "folderId")]
+    folder_id: Option<String>,
     name: String,
     notes: Option<String>,
     login: CiphersPostReqLogin,
@@ -181,6 +183,25 @@ struct CiphersPutReqHistory {
     last_used_date: String,
     #[serde(rename = "Password")]
     password: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct FoldersRes {
+    #[serde(rename = "Data")]
+    data: Vec<FoldersResData>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct FoldersResData {
+    #[serde(rename = "Id")]
+    id: String,
+    #[serde(rename = "Name")]
+    name: String,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct FoldersPostReq {
+    name: String,
 }
 
 #[derive(Debug)]
@@ -299,9 +320,11 @@ impl Client {
         password: Option<&str>,
         notes: Option<&str>,
         uris: &[String],
+        folder_id: Option<&str>,
     ) -> Result<()> {
         let req = CiphersPostReq {
             ty: 1,
+            folder_id: folder_id.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
             login: CiphersPostReqLogin {
@@ -387,6 +410,65 @@ impl Client {
             .context(crate::error::Reqwest)?;
         match res.status() {
             reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn folders(
+        &self,
+        access_token: &str,
+    ) -> Result<Vec<(String, String)>> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&self.api_url("/folders"))
+            .header("Authorization", format!("Bearer {}", access_token))
+            .send()
+            .context(crate::error::Reqwest)?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let folders_res: FoldersRes =
+                    res.json().context(crate::error::Reqwest)?;
+                Ok(folders_res
+                    .data
+                    .iter()
+                    .map(|folder| (folder.id.clone(), folder.name.clone()))
+                    .collect())
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn create_folder(
+        &self,
+        access_token: &str,
+        name: &str,
+    ) -> Result<String> {
+        let req = FoldersPostReq {
+            name: name.to_string(),
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(&self.api_url("/folders"))
+            .header("Authorization", format!("Bearer {}", access_token))
+            .json(&req)
+            .send()
+            .context(crate::error::Reqwest)?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let folders_res: FoldersResData =
+                    res.json().context(crate::error::Reqwest)?;
+                Ok(folders_res.id)
+            }
             reqwest::StatusCode::UNAUTHORIZED => {
                 Err(Error::RequestUnauthorized)
             }

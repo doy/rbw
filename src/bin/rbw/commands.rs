@@ -170,6 +170,7 @@ pub fn add(
     name: &str,
     username: Option<&str>,
     uris: Vec<&str>,
+    folder: Option<&str>,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -177,7 +178,7 @@ pub fn add(
     let mut db = rbw::db::Db::load(&email)?;
     // unwrap is safe here because the call to unlock above is guaranteed to
     // populate these or error
-    let access_token = db.access_token.as_ref().unwrap();
+    let mut access_token = db.access_token.as_ref().unwrap().clone();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
     let name = crate::actions::encrypt(name)?;
@@ -200,6 +201,42 @@ pub fn add(
         .map(|uri| crate::actions::encrypt(&uri))
         .collect::<anyhow::Result<_>>()?;
 
+    let mut folder_id = None;
+    if let Some(folder_name) = folder {
+        let (new_access_token, folders) =
+            rbw::actions::list_folders(&access_token, &refresh_token)?;
+        if let Some(new_access_token) = new_access_token {
+            access_token = new_access_token.clone();
+            db.access_token = Some(new_access_token);
+            db.save(&email).context("failed to save database")?;
+        }
+
+        let folders: Vec<(String, String)> = folders
+            .iter()
+            .cloned()
+            .map(|(id, name)| Ok((id, crate::actions::decrypt(&name)?)))
+            .collect::<anyhow::Result<_>>()?;
+
+        for (id, name) in folders {
+            if name == folder_name {
+                folder_id = Some(id);
+            }
+        }
+        if folder_id.is_none() {
+            let (new_access_token, id) = rbw::actions::create_folder(
+                &access_token,
+                &refresh_token,
+                &crate::actions::encrypt(folder_name)?,
+            )?;
+            if let Some(new_access_token) = new_access_token {
+                access_token = new_access_token.clone();
+                db.access_token = Some(new_access_token);
+                db.save(&email).context("failed to save database")?;
+            }
+            folder_id = Some(id);
+        }
+    }
+
     if let (Some(access_token), ()) = rbw::actions::add(
         &access_token,
         &refresh_token,
@@ -208,6 +245,7 @@ pub fn add(
         password.as_deref(),
         notes.as_deref(),
         &uris,
+        folder_id.as_deref(),
     )? {
         db.access_token = Some(access_token);
         db.save(&email).context("failed to save database")?;
@@ -222,6 +260,7 @@ pub fn generate(
     name: Option<&str>,
     username: Option<&str>,
     uris: Vec<&str>,
+    folder: Option<&str>,
     len: usize,
     ty: rbw::pwgen::Type,
 ) -> anyhow::Result<()> {
@@ -235,7 +274,7 @@ pub fn generate(
         let mut db = rbw::db::Db::load(&email)?;
         // unwrap is safe here because the call to unlock above is guaranteed
         // to populate these or error
-        let access_token = db.access_token.as_ref().unwrap();
+        let mut access_token = db.access_token.as_ref().unwrap().clone();
         let refresh_token = db.refresh_token.as_ref().unwrap();
 
         let name = crate::actions::encrypt(name)?;
@@ -248,6 +287,42 @@ pub fn generate(
             .map(|uri| crate::actions::encrypt(&uri))
             .collect::<anyhow::Result<_>>()?;
 
+        let mut folder_id = None;
+        if let Some(folder_name) = folder {
+            let (new_access_token, folders) =
+                rbw::actions::list_folders(&access_token, &refresh_token)?;
+            if let Some(new_access_token) = new_access_token {
+                access_token = new_access_token.clone();
+                db.access_token = Some(new_access_token);
+                db.save(&email).context("failed to save database")?;
+            }
+
+            let folders: Vec<(String, String)> = folders
+                .iter()
+                .cloned()
+                .map(|(id, name)| Ok((id, crate::actions::decrypt(&name)?)))
+                .collect::<anyhow::Result<_>>()?;
+
+            for (id, name) in folders {
+                if name == folder_name {
+                    folder_id = Some(id);
+                }
+            }
+            if folder_id.is_none() {
+                let (new_access_token, id) = rbw::actions::create_folder(
+                    &access_token,
+                    &refresh_token,
+                    &crate::actions::encrypt(folder_name)?,
+                )?;
+                if let Some(new_access_token) = new_access_token {
+                    access_token = new_access_token.clone();
+                    db.access_token = Some(new_access_token);
+                    db.save(&email).context("failed to save database")?;
+                }
+                folder_id = Some(id);
+            }
+        }
+
         if let (Some(access_token), ()) = rbw::actions::add(
             &access_token,
             &refresh_token,
@@ -256,6 +331,7 @@ pub fn generate(
             Some(&password),
             None,
             &uris,
+            folder_id.as_deref(),
         )? {
             db.access_token = Some(access_token);
             db.save(&email).context("failed to save database")?;
