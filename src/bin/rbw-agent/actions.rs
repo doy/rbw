@@ -256,6 +256,16 @@ pub async fn encrypt(
     Ok(())
 }
 
+pub async fn version(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
+    sock.send(&rbw::protocol::Response::Version {
+        version: rbw::protocol::VERSION,
+    })
+    .await
+    .context("failed to send response")?;
+
+    Ok(())
+}
+
 async fn respond_ack(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Ack)
         .await

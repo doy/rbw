@@ -82,6 +82,24 @@ pub fn encrypt(plaintext: &str) -> anyhow::Result<String> {
     }
 }
 
+pub fn version() -> anyhow::Result<u32> {
+    let mut sock = crate::sock::Sock::connect()
+        .context("failed to connect to rbw-agent")?;
+    sock.send(&rbw::protocol::Request {
+        tty: std::env::var("TTY").ok(),
+        action: rbw::protocol::Action::Version,
+    })?;
+
+    let res = sock.recv()?;
+    match res {
+        rbw::protocol::Response::Version { version } => Ok(version),
+        rbw::protocol::Response::Error { error } => {
+            Err(anyhow::anyhow!("failed to get version: {}", error))
+        }
+        _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
+    }
+}
+
 fn simple_action(
     action: rbw::protocol::Action,
     desc: &str,

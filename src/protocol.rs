@@ -1,3 +1,5 @@
+pub const VERSION: u32 = 1;
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Request {
     pub tty: Option<String>,
@@ -14,6 +16,7 @@ pub enum Action {
     Decrypt { cipherstring: String },
     Encrypt { plaintext: String },
     Quit,
+    Version,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -23,4 +26,5 @@ pub enum Response {
     Error { error: String },
     Decrypt { plaintext: String },
     Encrypt { cipherstring: String },
+    Version { version: u32 },
 }

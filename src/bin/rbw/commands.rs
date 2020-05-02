@@ -493,6 +493,30 @@ pub fn stop_agent() -> anyhow::Result<()> {
 }
 
 fn ensure_agent() -> anyhow::Result<()> {
+    ensure_agent_once()?;
+    let version = crate::actions::version()?;
+    if version != rbw::protocol::VERSION {
+        log::debug!(
+            "client protocol version is {} but agent protocol version is {}",
+            rbw::protocol::VERSION,
+            version
+        );
+        crate::actions::quit()?;
+        ensure_agent_once()?;
+        let version = crate::actions::version()?;
+        if version != rbw::protocol::VERSION {
+            crate::actions::quit()?;
+            return Err(anyhow::anyhow!(
+                "incompatible protocol versions: client ({}), agent ({})",
+                rbw::protocol::VERSION,
+                version
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_agent_once() -> anyhow::Result<()> {
     let agent_path = std::env::var("RBW_AGENT");
     let agent_path = agent_path
         .as_ref()

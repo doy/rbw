@@ -156,6 +156,10 @@ async fn handle_request(
             true
         }
         rbw::protocol::Action::Quit => std::process::exit(0),
+        rbw::protocol::Action::Version => {
+            crate::actions::version(sock).await?;
+            true
+        }
     };
 
     if set_timeout {
