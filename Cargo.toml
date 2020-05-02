@@ -10,6 +10,7 @@ readme = "README.md"
 keywords = ["bitwarden"]
 categories = ["command-line-utilities", "cryptography"]
 license = "MIT"
+license-file = "LICENSE"
 
 [dependencies]
 aes = "0.3"
