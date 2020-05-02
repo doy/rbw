@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use std::io::Read as _;
 
 pub fn login() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Login, "login")
@@ -19,10 +20,16 @@ pub fn lock() -> anyhow::Result<()> {
 pub fn quit() -> anyhow::Result<()> {
     match crate::sock::Sock::connect() {
         Ok(mut sock) => {
+            let runtime_dir = rbw::dirs::runtime_dir();
+            let pidfile = runtime_dir.join("pidfile");
+            let mut pid = String::new();
+            std::fs::File::open(pidfile)?.read_to_string(&mut pid)?;
+            let pid = nix::unistd::Pid::from_raw(pid.parse()?);
             sock.send(&rbw::protocol::Request {
                 tty: std::env::var("TTY").ok(),
                 action: rbw::protocol::Action::Quit,
             })?;
+            wait_for_exit(pid)?;
             Ok(())
         }
         Err(e) => {
@@ -95,4 +102,14 @@ fn simple_action(
         }
         _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
     }
+}
+
+fn wait_for_exit(pid: nix::unistd::Pid) -> anyhow::Result<()> {
+    loop {
+        if nix::sys::signal::kill(pid, None).is_err() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    Ok(())
 }
