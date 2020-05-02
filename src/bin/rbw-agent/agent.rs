@@ -118,6 +118,15 @@ async fn handle_request(
         .recv()
         .await
         .context("failed to receive incoming message")?;
+    let req = match req {
+        Ok(msg) => msg,
+        Err(error) => {
+            sock.send(&rbw::protocol::Response::Error { error })
+                .await
+                .context("failed to send response")?;
+            return Ok(());
+        }
+    };
     let set_timeout = match &req.action {
         rbw::protocol::Action::Login => {
             crate::actions::login(sock, state.clone(), req.tty.as_deref())

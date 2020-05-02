@@ -26,14 +26,19 @@ impl Sock {
         Ok(())
     }
 
-    pub async fn recv(&mut self) -> anyhow::Result<rbw::protocol::Request> {
+    pub async fn recv(
+        &mut self,
+    ) -> anyhow::Result<std::result::Result<rbw::protocol::Request, String>>
+    {
         let Self(sock) = self;
         let mut buf = tokio::io::BufStream::new(sock);
         let mut line = String::new();
         buf.read_line(&mut line)
             .await
             .context("failed to read message from socket")?;
-        Ok(serde_json::from_str(&line).context("failed to parse message")?)
+        Ok(serde_json::from_str(&line).map_err(|e| {
+            format!("failed to parse message '{}': {}", line, e)
+        }))
     }
 }
 
