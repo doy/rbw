@@ -494,18 +494,22 @@ pub fn stop_agent() -> anyhow::Result<()> {
 
 fn ensure_agent() -> anyhow::Result<()> {
     ensure_agent_once()?;
-    let version = crate::actions::version()?;
+    let version = version_or_quit()?;
     if version != rbw::protocol::VERSION {
         log::debug!(
             "client protocol version is {} but agent protocol version is {}",
             rbw::protocol::VERSION,
             version
         );
-        crate::actions::quit()?;
-        ensure_agent_once()?;
-        let version = crate::actions::version()?;
-        if version != rbw::protocol::VERSION {
+        if version != 0 {
             crate::actions::quit()?;
+        }
+        ensure_agent_once()?;
+        let version = version_or_quit()?;
+        if version != rbw::protocol::VERSION {
+            if version != 0 {
+                crate::actions::quit()?;
+            }
             return Err(anyhow::anyhow!(
                 "incompatible protocol versions: client ({}), agent ({})",
                 rbw::protocol::VERSION,
@@ -537,6 +541,17 @@ fn ensure_agent_once() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn version_or_quit() -> anyhow::Result<u32> {
+    Ok(match crate::actions::version() {
+        Ok(version) => version,
+        Err(e) => {
+            log::warn!("{}", e);
+            crate::actions::quit()?;
+            0
+        }
+    })
 }
 
 fn find_entry(
