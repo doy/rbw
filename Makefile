@@ -54,9 +54,11 @@ publish-crates-io: test
 	@cargo publish
 .PHONY: publish-crates-io
 
+# force shell instead of exec to work around
+# https://savannah.gnu.org/bugs/?57962 since i have ~/.bin/git as a directory
 publish-git-tags: test
-	@git tag $(VERSION)
-	@git push --tags
+	@:; git tag $(VERSION)
+	@:; git push --tags
 .PHONY: publish-git-tags
 
 publish-deb: test pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig release-dir-deb
