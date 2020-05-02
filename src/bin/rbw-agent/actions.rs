@@ -211,9 +211,10 @@ pub async fn decrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     cipherstring: &str,
+    org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.read().await;
-    let keys = if let Some(keys) = &state.priv_key {
+    let keys = if let Some(keys) = state.key(org_id) {
         keys
     } else {
         return Err(anyhow::anyhow!(
@@ -238,9 +239,10 @@ pub async fn encrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     plaintext: &str,
+    org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.read().await;
-    let keys = if let Some(keys) = &state.priv_key {
+    let keys = if let Some(keys) = state.key(org_id) {
         keys
     } else {
         return Err(anyhow::anyhow!(

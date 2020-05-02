@@ -42,13 +42,17 @@ pub fn quit() -> anyhow::Result<()> {
     }
 }
 
-pub fn decrypt(cipherstring: &str) -> anyhow::Result<String> {
+pub fn decrypt(
+    cipherstring: &str,
+    org_id: Option<&str>,
+) -> anyhow::Result<String> {
     let mut sock = crate::sock::Sock::connect()
         .context("failed to connect to rbw-agent")?;
     sock.send(&rbw::protocol::Request {
         tty: std::env::var("TTY").ok(),
         action: rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
+            org_id: org_id.map(std::string::ToString::to_string),
         },
     })?;
 
@@ -62,13 +66,17 @@ pub fn decrypt(cipherstring: &str) -> anyhow::Result<String> {
     }
 }
 
-pub fn encrypt(plaintext: &str) -> anyhow::Result<String> {
+pub fn encrypt(
+    plaintext: &str,
+    org_id: Option<&str>,
+) -> anyhow::Result<String> {
     let mut sock = crate::sock::Sock::connect()
         .context("failed to connect to rbw-agent")?;
     sock.send(&rbw::protocol::Request {
         tty: std::env::var("TTY").ok(),
         action: rbw::protocol::Action::Encrypt {
             plaintext: plaintext.to_string(),
+            org_id: org_id.map(std::string::ToString::to_string),
         },
     })?;
 

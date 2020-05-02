@@ -9,10 +9,18 @@ pub enum TimeoutEvent {
 
 pub struct State {
     pub priv_key: Option<rbw::locked::Keys>,
+    pub org_keys: std::collections::HashMap<String, rbw::locked::Keys>,
     pub timeout_chan: tokio::sync::mpsc::UnboundedSender<TimeoutEvent>,
 }
 
 impl State {
+    pub fn key(&self, org_id: Option<&str>) -> Option<&rbw::locked::Keys> {
+        match org_id {
+            Some(id) => self.org_keys.get(id),
+            None => self.priv_key.as_ref(),
+        }
+    }
+
     pub fn needs_unlock(&self) -> bool {
         self.priv_key.is_none()
     }
@@ -24,6 +32,7 @@ impl State {
 
     pub fn clear(&mut self) {
         self.priv_key = None;
+        self.org_keys = Default::default();
         // no real better option to unwrap here
         self.timeout_chan.send(TimeoutEvent::Clear).unwrap();
     }
@@ -49,6 +58,7 @@ impl Agent {
             timeout_chan: r,
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
                 priv_key: None,
+                org_keys: Default::default(),
                 timeout_chan: w,
             })),
         })
@@ -146,13 +156,27 @@ async fn handle_request(
             crate::actions::sync(sock).await?;
             false
         }
-        rbw::protocol::Action::Decrypt { cipherstring } => {
-            crate::actions::decrypt(sock, state.clone(), &cipherstring)
-                .await?;
+        rbw::protocol::Action::Decrypt {
+            cipherstring,
+            org_id,
+        } => {
+            crate::actions::decrypt(
+                sock,
+                state.clone(),
+                &cipherstring,
+                org_id.as_deref(),
+            )
+            .await?;
             true
         }
-        rbw::protocol::Action::Encrypt { plaintext } => {
-            crate::actions::encrypt(sock, state.clone(), &plaintext).await?;
+        rbw::protocol::Action::Encrypt { plaintext, org_id } => {
+            crate::actions::encrypt(
+                sock,
+                state.clone(),
+                &plaintext,
+                org_id.as_deref(),
+            )
+            .await?;
             true
         }
         rbw::protocol::Action::Quit => std::process::exit(0),

@@ -189,24 +189,24 @@ pub fn add(
     let mut access_token = db.access_token.as_ref().unwrap().clone();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
-    let name = crate::actions::encrypt(name)?;
+    let name = crate::actions::encrypt(name, None)?;
 
     let username = username
-        .map(|username| crate::actions::encrypt(username))
+        .map(|username| crate::actions::encrypt(username, None))
         .transpose()?;
 
     let contents = rbw::edit::edit("", HELP)?;
 
     let (password, notes) = parse_editor(&contents);
     let password = password
-        .map(|password| crate::actions::encrypt(&password))
+        .map(|password| crate::actions::encrypt(&password, None))
         .transpose()?;
     let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes))
+        .map(|notes| crate::actions::encrypt(&notes, None))
         .transpose()?;
     let uris: Vec<String> = uris
         .iter()
-        .map(|uri| crate::actions::encrypt(&uri))
+        .map(|uri| crate::actions::encrypt(&uri, None))
         .collect::<anyhow::Result<_>>()?;
 
     let mut folder_id = None;
@@ -222,7 +222,7 @@ pub fn add(
         let folders: Vec<(String, String)> = folders
             .iter()
             .cloned()
-            .map(|(id, name)| Ok((id, crate::actions::decrypt(&name)?)))
+            .map(|(id, name)| Ok((id, crate::actions::decrypt(&name, None)?)))
             .collect::<anyhow::Result<_>>()?;
 
         for (id, name) in folders {
@@ -234,7 +234,7 @@ pub fn add(
             let (new_access_token, id) = rbw::actions::create_folder(
                 &access_token,
                 &refresh_token,
-                &crate::actions::encrypt(folder_name)?,
+                &crate::actions::encrypt(folder_name, None)?,
             )?;
             if let Some(new_access_token) = new_access_token {
                 access_token = new_access_token.clone();
@@ -285,14 +285,14 @@ pub fn generate(
         let mut access_token = db.access_token.as_ref().unwrap().clone();
         let refresh_token = db.refresh_token.as_ref().unwrap();
 
-        let name = crate::actions::encrypt(name)?;
+        let name = crate::actions::encrypt(name, None)?;
         let username = username
-            .map(|username| crate::actions::encrypt(username))
+            .map(|username| crate::actions::encrypt(username, None))
             .transpose()?;
-        let password = crate::actions::encrypt(&password)?;
+        let password = crate::actions::encrypt(&password, None)?;
         let uris: Vec<String> = uris
             .iter()
-            .map(|uri| crate::actions::encrypt(&uri))
+            .map(|uri| crate::actions::encrypt(&uri, None))
             .collect::<anyhow::Result<_>>()?;
 
         let mut folder_id = None;
@@ -308,7 +308,9 @@ pub fn generate(
             let folders: Vec<(String, String)> = folders
                 .iter()
                 .cloned()
-                .map(|(id, name)| Ok((id, crate::actions::decrypt(&name)?)))
+                .map(|(id, name)| {
+                    Ok((id, crate::actions::decrypt(&name, None)?))
+                })
                 .collect::<anyhow::Result<_>>()?;
 
             for (id, name) in folders {
@@ -320,7 +322,7 @@ pub fn generate(
                 let (new_access_token, id) = rbw::actions::create_folder(
                     &access_token,
                     &refresh_token,
-                    &crate::actions::encrypt(folder_name)?,
+                    &crate::actions::encrypt(folder_name, None)?,
                 )?;
                 if let Some(new_access_token) = new_access_token {
                     access_token = new_access_token.clone();
@@ -381,10 +383,10 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
 
     let (password, notes) = parse_editor(&contents);
     let password = password
-        .map(|password| crate::actions::encrypt(&password))
+        .map(|password| crate::actions::encrypt(&password, None))
         .transpose()?;
     let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes))
+        .map(|notes| crate::actions::encrypt(&notes, None))
         .transpose()?;
     let mut history = entry.history.clone();
     let new_history_entry = rbw::db::HistoryEntry {
@@ -660,7 +662,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder))
+        .map(|folder| crate::actions::decrypt(folder, None))
         .transpose();
     let folder = match folder {
         Ok(folder) => folder,
@@ -672,7 +674,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let username = entry
         .username
         .as_ref()
-        .map(|username| crate::actions::decrypt(username))
+        .map(|username| crate::actions::decrypt(username, None))
         .transpose();
     let username = match username {
         Ok(username) => username,
@@ -684,7 +686,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let password = entry
         .password
         .as_ref()
-        .map(|password| crate::actions::decrypt(password))
+        .map(|password| crate::actions::decrypt(password, None))
         .transpose();
     let password = match password {
         Ok(password) => password,
@@ -696,7 +698,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let notes = entry
         .notes
         .as_ref()
-        .map(|notes| crate::actions::decrypt(notes))
+        .map(|notes| crate::actions::decrypt(notes, None))
         .transpose();
     let notes = match notes {
         Ok(notes) => notes,
@@ -711,14 +713,14 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .map(|entry| {
             Ok(DecryptedHistoryEntry {
                 last_used_date: entry.last_used_date.clone(),
-                password: crate::actions::decrypt(&entry.password)?,
+                password: crate::actions::decrypt(&entry.password, None)?,
             })
         })
         .collect::<anyhow::Result<_>>()?;
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         folder,
-        name: crate::actions::decrypt(&entry.name)?,
+        name: crate::actions::decrypt(&entry.name, None)?,
         username,
         password,
         notes,

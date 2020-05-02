@@ -1,4 +1,4 @@
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Request {
@@ -13,8 +13,14 @@ pub enum Action {
     Unlock,
     Lock,
     Sync,
-    Decrypt { cipherstring: String },
-    Encrypt { plaintext: String },
+    Decrypt {
+        cipherstring: String,
+        org_id: Option<String>,
+    },
+    Encrypt {
+        plaintext: String,
+        org_id: Option<String>,
+    },
     Quit,
     Version,
 }
