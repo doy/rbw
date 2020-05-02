@@ -3,12 +3,15 @@ VERSION = $(shell cargo metadata --no-deps --format-version 1 | jq '.packages[0]
 
 DEB_PACKAGE = $(NAME)_$(VERSION)_amd64.deb
 
-all:
-	@cargo build
+all: build
 .PHONY: all
 
+build:
+	@cargo build --all-targets
+.PHONY: build
+
 release:
-	@cargo build --release
+	@cargo build --release --all-targets
 .PHONY: release
 
 test:
