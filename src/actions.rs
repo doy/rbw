@@ -49,7 +49,15 @@ pub async fn unlock(
 pub async fn sync(
     access_token: &str,
     refresh_token: &str,
-) -> Result<(Option<String>, (String, String, Vec<crate::db::Entry>))> {
+) -> Result<(
+    Option<String>,
+    (
+        String,
+        String,
+        std::collections::HashMap<String, String>,
+        Vec<crate::db::Entry>,
+    ),
+)> {
     with_exchange_refresh_token_async(
         access_token,
         refresh_token,
@@ -63,7 +71,12 @@ pub async fn sync(
 
 async fn sync_once(
     access_token: &str,
-) -> Result<(String, String, Vec<crate::db::Entry>)> {
+) -> Result<(
+    String,
+    String,
+    std::collections::HashMap<String, String>,
+    Vec<crate::db::Entry>,
+)> {
     let config = crate::config::Config::load_async().await?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());

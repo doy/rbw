@@ -148,6 +148,16 @@ struct SyncResProfile {
     key: String,
     #[serde(rename = "PrivateKey")]
     private_key: String,
+    #[serde(rename = "Organizations")]
+    organizations: Vec<SyncResProfileOrganization>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SyncResProfileOrganization {
+    #[serde(rename = "Id")]
+    id: String,
+    #[serde(rename = "Key")]
+    key: String,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -321,7 +331,12 @@ impl Client {
     pub async fn sync(
         &self,
         access_token: &str,
-    ) -> Result<(String, String, Vec<crate::db::Entry>)> {
+    ) -> Result<(
+        String,
+        String,
+        std::collections::HashMap<String, String>,
+        Vec<crate::db::Entry>,
+    )> {
         let client = reqwest::Client::new();
         let res = client
             .get(&self.api_url("/sync"))
@@ -339,9 +354,16 @@ impl Client {
                     .iter()
                     .filter_map(|cipher| cipher.to_entry(&folders))
                     .collect();
+                let org_keys = sync_res
+                    .profile
+                    .organizations
+                    .iter()
+                    .map(|org| (org.id.clone(), org.key.clone()))
+                    .collect();
                 Ok((
                     sync_res.profile.key,
                     sync_res.profile.private_key,
+                    org_keys,
                     ciphers,
                 ))
             }

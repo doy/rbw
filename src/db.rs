@@ -33,6 +33,7 @@ pub struct Db {
     pub iterations: Option<u32>,
     pub protected_key: Option<String>,
     pub protected_private_key: Option<String>,
+    pub protected_org_keys: std::collections::HashMap<String, String>,
 
     pub entries: Vec<Entry>,
 }
