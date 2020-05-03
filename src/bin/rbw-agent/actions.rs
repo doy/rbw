@@ -45,15 +45,49 @@ pub async fn login(
                     refresh_token,
                     iterations,
                     protected_key,
-                    keys,
+                    _,
                 )) => {
-                    state.write().await.priv_key = Some(keys);
-
                     db.access_token = Some(access_token);
                     db.refresh_token = Some(refresh_token);
                     db.iterations = Some(iterations);
-                    db.protected_key = Some(protected_key);
+                    db.protected_key = Some(protected_key.clone());
                     save_db(&db).await?;
+
+                    sync(sock, false).await?;
+                    db = load_db().await?;
+
+                    let protected_private_key =
+                        if let Some(protected_private_key) =
+                            db.protected_private_key
+                        {
+                            protected_private_key
+                        } else {
+                            return Err(anyhow::anyhow!(
+                                "failed to find protected private key in db"
+                            ));
+                        };
+
+                    let res = rbw::actions::unlock(
+                        &email,
+                        &password,
+                        iterations,
+                        &protected_key,
+                        &protected_private_key,
+                        &db.protected_org_keys,
+                    )
+                    .await;
+
+                    match res {
+                        Ok((keys, org_keys)) => {
+                            let mut state = state.write().await;
+                            state.priv_key = Some(keys);
+                            state.org_keys = Some(org_keys);
+                        }
+                        Err(e) => {
+                            return Err(e)
+                                .context("failed to unlock database")
+                        }
+                    }
 
                     break;
                 }
@@ -73,11 +107,9 @@ pub async fn login(
                 }
             }
         }
-
-        sync(sock).await?;
-    } else {
-        respond_ack(sock).await?;
     }
+
+    respond_ack(sock).await?;
 
     Ok(())
 }
@@ -142,7 +174,7 @@ pub async fn unlock(
                 Ok((keys, org_keys)) => {
                     let mut state = state.write().await;
                     state.priv_key = Some(keys);
-                    state.org_keys = org_keys;
+                    state.org_keys = Some(org_keys);
                     break;
                 }
                 Err(rbw::error::Error::IncorrectPassword) => {
@@ -174,7 +206,10 @@ pub async fn lock(
     Ok(())
 }
 
-pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
+pub async fn sync(
+    sock: &mut crate::sock::Sock,
+    ack: bool,
+) -> anyhow::Result<()> {
     let mut db = load_db().await?;
 
     let access_token = if let Some(access_token) = &db.access_token {
@@ -202,7 +237,9 @@ pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     db.entries = entries;
     save_db(&db).await?;
 
-    respond_ack(sock).await?;
+    if ack {
+        respond_ack(sock).await?;
+    }
 
     Ok(())
 }

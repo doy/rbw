@@ -9,20 +9,21 @@ pub enum TimeoutEvent {
 
 pub struct State {
     pub priv_key: Option<rbw::locked::Keys>,
-    pub org_keys: std::collections::HashMap<String, rbw::locked::Keys>,
+    pub org_keys:
+        Option<std::collections::HashMap<String, rbw::locked::Keys>>,
     pub timeout_chan: tokio::sync::mpsc::UnboundedSender<TimeoutEvent>,
 }
 
 impl State {
     pub fn key(&self, org_id: Option<&str>) -> Option<&rbw::locked::Keys> {
         match org_id {
-            Some(id) => self.org_keys.get(id),
+            Some(id) => self.org_keys.as_ref().and_then(|h| h.get(id)),
             None => self.priv_key.as_ref(),
         }
     }
 
     pub fn needs_unlock(&self) -> bool {
-        self.priv_key.is_none()
+        self.priv_key.is_none() || self.org_keys.is_none()
     }
 
     pub fn set_timeout(&mut self) {
@@ -153,7 +154,7 @@ async fn handle_request(
             false
         }
         rbw::protocol::Action::Sync => {
-            crate::actions::sync(sock).await?;
+            crate::actions::sync(sock, true).await?;
             false
         }
         rbw::protocol::Action::Decrypt {
