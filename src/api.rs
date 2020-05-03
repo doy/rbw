@@ -456,12 +456,9 @@ impl Client {
             reqwest::StatusCode::UNAUTHORIZED => {
                 Err(Error::RequestUnauthorized)
             }
-            _ => {
-                let code = res.status().as_u16();
-                let text = res.text().unwrap();
-                eprintln!("error: {}", text);
-                Err(Error::RequestFailed { status: code })
-            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
         }
     }
 
