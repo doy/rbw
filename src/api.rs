@@ -90,7 +90,13 @@ struct SyncResCipher {
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Login")]
-    login: Option<SyncResLogin>,
+    login: Option<CipherLogin>,
+    #[serde(rename = "Card")]
+    card: Option<CipherCard>,
+    #[serde(rename = "Identity")]
+    identity: Option<CipherIdentity>,
+    #[serde(rename = "SecureNote")]
+    secure_note: Option<CipherSecureNote>,
     #[serde(rename = "Notes")]
     notes: Option<String>,
     #[serde(rename = "PasswordHistory")]
@@ -98,47 +104,80 @@ struct SyncResCipher {
 }
 
 impl SyncResCipher {
-    // TODO: handle other kinds of entries other than login
     fn to_entry(
         &self,
         folders: &[SyncResFolder],
     ) -> Option<crate::db::Entry> {
-        if let Some(login) = &self.login {
-            let history = if let Some(history) = &self.password_history {
-                history
-                    .iter()
-                    .map(|entry| crate::db::HistoryEntry {
-                        last_used_date: entry.last_used_date.clone(),
-                        password: entry.password.clone(),
-                    })
-                    .collect()
-            } else {
-                vec![]
-            };
-            let folder = if let Some(folder_id) = &self.folder_id {
-                let mut folder_name = None;
-                for folder in folders {
-                    if &folder.id == folder_id {
-                        folder_name = Some(folder.name.clone());
-                    }
+        let history = if let Some(history) = &self.password_history {
+            history
+                .iter()
+                .map(|entry| crate::db::HistoryEntry {
+                    last_used_date: entry.last_used_date.clone(),
+                    password: entry.password.clone(),
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        let folder = if let Some(folder_id) = &self.folder_id {
+            let mut folder_name = None;
+            for folder in folders {
+                if &folder.id == folder_id {
+                    folder_name = Some(folder.name.clone());
                 }
-                folder_name
-            } else {
-                None
-            };
-            Some(crate::db::Entry {
-                id: self.id.clone(),
-                org_id: self.organization_id.clone(),
-                folder,
-                name: self.name.clone(),
-                username: login.username.clone(),
-                password: login.password.clone(),
-                notes: self.notes.clone(),
-                history,
-            })
+            }
+            folder_name
         } else {
             None
-        }
+        };
+        let data = if let Some(login) = &self.login {
+            crate::db::EntryData::Login {
+                username: login.username.clone(),
+                password: login.password.clone(),
+            }
+        } else if let Some(card) = &self.card {
+            crate::db::EntryData::Card {
+                cardholder_name: card.cardholder_name.clone(),
+                number: card.number.clone(),
+                brand: card.brand.clone(),
+                exp_month: card.exp_month.clone(),
+                exp_year: card.exp_year.clone(),
+                code: card.code.clone(),
+            }
+        } else if let Some(identity) = &self.identity {
+            crate::db::EntryData::Identity {
+                title: identity.title.clone(),
+                first_name: identity.first_name.clone(),
+                middle_name: identity.middle_name.clone(),
+                last_name: identity.last_name.clone(),
+                address1: identity.address1.clone(),
+                address2: identity.address2.clone(),
+                address3: identity.address3.clone(),
+                city: identity.city.clone(),
+                state: identity.state.clone(),
+                postal_code: identity.postal_code.clone(),
+                country: identity.country.clone(),
+                phone: identity.phone.clone(),
+                email: identity.email.clone(),
+                ssn: identity.ssn.clone(),
+                license_number: identity.license_number.clone(),
+                passport_number: identity.passport_number.clone(),
+                username: identity.username.clone(),
+            }
+        } else if let Some(_secure_note) = &self.secure_note {
+            crate::db::EntryData::SecureNote
+        } else {
+            return None;
+        };
+        Some(crate::db::Entry {
+            id: self.id.clone(),
+            org_id: self.organization_id.clone(),
+            folder,
+            name: self.name.clone(),
+            data,
+            notes: self.notes.clone(),
+            history,
+        })
     }
 }
 
@@ -169,12 +208,77 @@ struct SyncResFolder {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct SyncResLogin {
+struct CipherLogin {
     #[serde(rename = "Username")]
     username: Option<String>,
     #[serde(rename = "Password")]
     password: Option<String>,
+    uris: Option<Vec<CipherLoginUri>>,
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct CipherLoginUri {
+    uri: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct CipherCard {
+    #[serde(rename = "CardholderName")]
+    cardholder_name: Option<String>,
+    #[serde(rename = "Number")]
+    number: Option<String>,
+    #[serde(rename = "Brand")]
+    brand: Option<String>,
+    #[serde(rename = "ExpMonth")]
+    exp_month: Option<String>,
+    #[serde(rename = "ExpYear")]
+    exp_year: Option<String>,
+    #[serde(rename = "Code")]
+    code: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct CipherIdentity {
+    #[serde(rename = "Title")]
+    title: Option<String>,
+    #[serde(rename = "FirstName")]
+    first_name: Option<String>,
+    #[serde(rename = "MiddleName")]
+    middle_name: Option<String>,
+    #[serde(rename = "LastName")]
+    last_name: Option<String>,
+    #[serde(rename = "Address1")]
+    address1: Option<String>,
+    #[serde(rename = "Address2")]
+    address2: Option<String>,
+    #[serde(rename = "Address3")]
+    address3: Option<String>,
+    #[serde(rename = "City")]
+    city: Option<String>,
+    #[serde(rename = "State")]
+    state: Option<String>,
+    #[serde(rename = "PostalCode")]
+    postal_code: Option<String>,
+    #[serde(rename = "Country")]
+    country: Option<String>,
+    #[serde(rename = "Phone")]
+    phone: Option<String>,
+    #[serde(rename = "Email")]
+    email: Option<String>,
+    #[serde(rename = "SSN")]
+    ssn: Option<String>,
+    #[serde(rename = "LicenseNumber")]
+    license_number: Option<String>,
+    #[serde(rename = "PassportNumber")]
+    passport_number: Option<String>,
+    #[serde(rename = "Username")]
+    username: Option<String>,
+}
+
+// this is just a name and some notes, both of which are already on the cipher
+// object
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct CipherSecureNote {}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResPasswordHistory {
@@ -192,19 +296,11 @@ struct CiphersPostReq {
     folder_id: Option<String>,
     name: String,
     notes: Option<String>,
-    login: CiphersPostReqLogin,
-}
-
-#[derive(serde::Serialize, Debug)]
-struct CiphersPostReqLogin {
-    username: Option<String>,
-    password: Option<String>,
-    uris: Vec<CiphersPostReqLoginUri>,
-}
-
-#[derive(serde::Serialize, Debug)]
-struct CiphersPostReqLoginUri {
-    uri: String,
+    login: Option<CipherLogin>,
+    card: Option<CipherCard>,
+    identity: Option<CipherIdentity>,
+    #[serde(rename = "secureNote")]
+    secure_note: Option<CipherSecureNote>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -213,7 +309,11 @@ struct CiphersPutReq {
     ty: u32, // XXX what are the valid types?
     name: String,
     notes: Option<String>,
-    login: CiphersPutReqLogin,
+    login: Option<CipherLogin>,
+    card: Option<CipherCard>,
+    identity: Option<CipherIdentity>,
+    #[serde(rename = "secureNote")]
+    secure_note: Option<CipherSecureNote>,
     #[serde(rename = "passwordHistory")]
     password_history: Vec<CiphersPutReqHistory>,
 }
@@ -380,26 +480,98 @@ impl Client {
         &self,
         access_token: &str,
         name: &str,
-        username: Option<&str>,
-        password: Option<&str>,
+        data: &crate::db::EntryData,
         notes: Option<&str>,
         uris: &[String],
         folder_id: Option<&str>,
     ) -> Result<()> {
-        let req = CiphersPostReq {
+        let mut req = CiphersPostReq {
             ty: 1,
             folder_id: folder_id.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
-            login: CiphersPostReqLogin {
-                username: username.map(std::string::ToString::to_string),
-                password: password.map(std::string::ToString::to_string),
-                uris: uris
-                    .iter()
-                    .map(|s| CiphersPostReqLoginUri { uri: s.to_string() })
-                    .collect(),
-            },
+            login: None,
+            card: None,
+            identity: None,
+            secure_note: None,
         };
+        match data {
+            crate::db::EntryData::Login { username, password } => {
+                let uris = if uris.is_empty() {
+                    None
+                } else {
+                    Some(
+                        uris.iter()
+                            .map(|s| CipherLoginUri { uri: s.to_string() })
+                            .collect(),
+                    )
+                };
+                req.login = Some(CipherLogin {
+                    username: username.clone(),
+                    password: password.clone(),
+                    uris,
+                })
+            }
+            crate::db::EntryData::Card {
+                cardholder_name,
+                number,
+                brand,
+                exp_month,
+                exp_year,
+                code,
+            } => {
+                req.card = Some(CipherCard {
+                    cardholder_name: cardholder_name.clone(),
+                    number: number.clone(),
+                    brand: brand.clone(),
+                    exp_month: exp_month.clone(),
+                    exp_year: exp_year.clone(),
+                    code: code.clone(),
+                });
+            }
+            crate::db::EntryData::Identity {
+                title,
+                first_name,
+                middle_name,
+                last_name,
+                address1,
+                address2,
+                address3,
+                city,
+                state,
+                postal_code,
+                country,
+                phone,
+                email,
+                ssn,
+                license_number,
+                passport_number,
+                username,
+            } => {
+                req.identity = Some(CipherIdentity {
+                    title: title.clone(),
+                    first_name: first_name.clone(),
+                    middle_name: middle_name.clone(),
+                    last_name: last_name.clone(),
+                    address1: address1.clone(),
+                    address2: address2.clone(),
+                    address3: address3.clone(),
+                    city: city.clone(),
+                    state: state.clone(),
+                    postal_code: postal_code.clone(),
+                    country: country.clone(),
+                    phone: phone.clone(),
+                    email: email.clone(),
+                    ssn: ssn.clone(),
+                    license_number: license_number.clone(),
+                    passport_number: passport_number.clone(),
+                    username: username.clone(),
+                });
+            }
+            crate::db::EntryData::SecureNote {} => {
+                req.secure_note = Some(CipherSecureNote {});
+            }
+        }
         let client = reqwest::blocking::Client::new();
         let res = client
             .post(&self.api_url("/ciphers"))
@@ -423,19 +595,18 @@ impl Client {
         access_token: &str,
         id: &str,
         name: &str,
-        username: Option<&str>,
-        password: Option<&str>,
+        data: &crate::db::EntryData,
         notes: Option<&str>,
         history: &[crate::db::HistoryEntry],
     ) -> Result<()> {
-        let req = CiphersPutReq {
+        let mut req = CiphersPutReq {
             ty: 1,
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
-            login: CiphersPutReqLogin {
-                username: username.map(std::string::ToString::to_string),
-                password: password.map(std::string::ToString::to_string),
-            },
+            login: None,
+            card: None,
+            identity: None,
+            secure_note: None,
             password_history: history
                 .iter()
                 .map(|entry| CiphersPutReqHistory {
@@ -444,6 +615,74 @@ impl Client {
                 })
                 .collect(),
         };
+        match data {
+            crate::db::EntryData::Login { username, password } => {
+                req.login = Some(CipherLogin {
+                    username: username.clone(),
+                    password: password.clone(),
+                    uris: None,
+                });
+            }
+            crate::db::EntryData::Card {
+                cardholder_name,
+                number,
+                brand,
+                exp_month,
+                exp_year,
+                code,
+            } => {
+                req.card = Some(CipherCard {
+                    cardholder_name: cardholder_name.clone(),
+                    number: number.clone(),
+                    brand: brand.clone(),
+                    exp_month: exp_month.clone(),
+                    exp_year: exp_year.clone(),
+                    code: code.clone(),
+                });
+            }
+            crate::db::EntryData::Identity {
+                title,
+                first_name,
+                middle_name,
+                last_name,
+                address1,
+                address2,
+                address3,
+                city,
+                state,
+                postal_code,
+                country,
+                phone,
+                email,
+                ssn,
+                license_number,
+                passport_number,
+                username,
+            } => {
+                req.identity = Some(CipherIdentity {
+                    title: title.clone(),
+                    first_name: first_name.clone(),
+                    middle_name: middle_name.clone(),
+                    last_name: last_name.clone(),
+                    address1: address1.clone(),
+                    address2: address2.clone(),
+                    address3: address3.clone(),
+                    city: city.clone(),
+                    state: state.clone(),
+                    postal_code: postal_code.clone(),
+                    country: country.clone(),
+                    phone: phone.clone(),
+                    email: email.clone(),
+                    ssn: ssn.clone(),
+                    license_number: license_number.clone(),
+                    passport_number: passport_number.clone(),
+                    username: username.clone(),
+                });
+            }
+            crate::db::EntryData::SecureNote {} => {
+                req.secure_note = Some(CipherSecureNote {});
+            }
+        }
         let client = reqwest::blocking::Client::new();
         let res = client
             .put(&self.api_url(&format!("/ciphers/{}", id)))

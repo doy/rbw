@@ -113,30 +113,20 @@ pub fn add(
     access_token: &str,
     refresh_token: &str,
     name: &str,
-    username: Option<&str>,
-    password: Option<&str>,
+    data: &crate::db::EntryData,
     notes: Option<&str>,
     uris: &[String],
     folder_id: Option<&str>,
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(
-            access_token,
-            name,
-            username,
-            password,
-            notes,
-            uris,
-            folder_id,
-        )
+        add_once(access_token, name, data, notes, uris, folder_id)
     })
 }
 
 fn add_once(
     access_token: &str,
     name: &str,
-    username: Option<&str>,
-    password: Option<&str>,
+    data: &crate::db::EntryData,
     notes: Option<&str>,
     uris: &[String],
     folder_id: Option<&str>,
@@ -147,8 +137,7 @@ fn add_once(
     client.add(
         access_token,
         name,
-        username,
-        password,
+        data,
         notes,
         uris,
         folder_id.as_deref(),
@@ -161,13 +150,12 @@ pub fn edit(
     refresh_token: &str,
     id: &str,
     name: &str,
-    username: Option<&str>,
-    password: Option<&str>,
+    data: &crate::db::EntryData,
     notes: Option<&str>,
     history: &[crate::db::HistoryEntry],
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        edit_once(access_token, id, name, username, password, notes, history)
+        edit_once(access_token, id, name, data, notes, history)
     })
 }
 
@@ -175,23 +163,14 @@ fn edit_once(
     access_token: &str,
     id: &str,
     name: &str,
-    username: Option<&str>,
-    password: Option<&str>,
+    data: &crate::db::EntryData,
     notes: Option<&str>,
     history: &[crate::db::HistoryEntry],
 ) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.edit(
-        access_token,
-        id,
-        name,
-        username,
-        password,
-        notes,
-        history,
-    )?;
+    client.edit(access_token, id, name, data, notes, history)?;
     Ok(())
 }
 

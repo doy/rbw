@@ -1,11 +1,13 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+#![allow(clippy::large_enum_variant)]
 #![allow(clippy::missing_const_for_fn)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::similar_names)]
 #![allow(clippy::single_match)]
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
 
 pub mod actions;

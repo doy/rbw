@@ -1,3 +1,5 @@
+#![allow(clippy::large_enum_variant)]
+
 use anyhow::Context as _;
 
 mod actions;

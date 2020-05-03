@@ -11,10 +11,47 @@ pub struct Entry {
     pub org_id: Option<String>,
     pub folder: Option<String>,
     pub name: String,
-    pub username: Option<String>,
-    pub password: Option<String>,
+    pub data: EntryData,
     pub notes: Option<String>,
     pub history: Vec<HistoryEntry>,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub enum EntryData {
+    Login {
+        username: Option<String>,
+        password: Option<String>,
+    },
+    Card {
+        cardholder_name: Option<String>,
+        number: Option<String>,
+        brand: Option<String>,
+        exp_month: Option<String>,
+        exp_year: Option<String>,
+        code: Option<String>,
+    },
+    Identity {
+        title: Option<String>,
+        first_name: Option<String>,
+        middle_name: Option<String>,
+        last_name: Option<String>,
+        address1: Option<String>,
+        address2: Option<String>,
+        address3: Option<String>,
+        city: Option<String>,
+        state: Option<String>,
+        postal_code: Option<String>,
+        country: Option<String>,
+        phone: Option<String>,
+        email: Option<String>,
+        ssn: Option<String>,
+        license_number: Option<String>,
+        passport_number: Option<String>,
+        username: Option<String>,
+    },
+    SecureNote,
 }
 
 #[derive(

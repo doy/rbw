@@ -6,10 +6,263 @@ struct DecryptedCipher {
     id: String,
     folder: Option<String>,
     name: String,
-    username: Option<String>,
-    password: Option<String>,
+    data: DecryptedData,
     notes: Option<String>,
     history: Vec<DecryptedHistoryEntry>,
+}
+
+impl DecryptedCipher {
+    fn display_short(&self, desc: &str) -> bool {
+        match &self.data {
+            DecryptedData::Login { password, .. } => {
+                if let Some(password) = password {
+                    println!("{}", password);
+                    true
+                } else {
+                    eprintln!("entry for '{}' had no password", desc);
+                    false
+                }
+            }
+            DecryptedData::Card { number, .. } => {
+                if let Some(number) = number {
+                    println!("{}", number);
+                    true
+                } else {
+                    eprintln!("entry for '{}' had no card number", desc);
+                    false
+                }
+            }
+            DecryptedData::Identity {
+                title,
+                first_name,
+                middle_name,
+                last_name,
+                ..
+            } => {
+                let names: Vec<_> =
+                    [title, first_name, middle_name, last_name]
+                        .iter()
+                        .copied()
+                        .cloned()
+                        .filter_map(|x| x)
+                        .collect();
+                if names.is_empty() {
+                    eprintln!("entry for '{}' had no name", desc);
+                    false
+                } else {
+                    println!("{}", names.join(" "));
+                    true
+                }
+            }
+            DecryptedData::SecureNote {} => {
+                if let Some(notes) = &self.notes {
+                    println!("{}", notes);
+                    true
+                } else {
+                    eprintln!("entry for '{}' had no notes", desc);
+                    false
+                }
+            }
+        }
+    }
+
+    fn display_long(&self, desc: &str) {
+        match &self.data {
+            DecryptedData::Login { .. } => {
+                let displayed = self.display_short(desc);
+
+                if let Some(notes) = &self.notes {
+                    if displayed {
+                        println!();
+                    }
+                    println!("{}", notes);
+                }
+            }
+            DecryptedData::Card {
+                cardholder_name,
+                brand,
+                exp_month,
+                exp_year,
+                code,
+                ..
+            } => {
+                let mut displayed = self.display_short(desc);
+
+                if let (Some(exp_month), Some(exp_year)) =
+                    (exp_month, exp_year)
+                {
+                    println!("Expiration: {}/{}", exp_month, exp_year);
+                    displayed = true;
+                }
+                displayed |= self.display_field("CVV", code.as_deref());
+                displayed |=
+                    self.display_field("Name", cardholder_name.as_deref());
+                displayed |= self.display_field("Brand", brand.as_deref());
+
+                if let Some(notes) = &self.notes {
+                    if displayed {
+                        println!();
+                    }
+                    println!("{}", notes);
+                }
+            }
+            DecryptedData::Identity {
+                address1,
+                address2,
+                address3,
+                city,
+                state,
+                postal_code,
+                country,
+                phone,
+                email,
+                ssn,
+                license_number,
+                passport_number,
+                username,
+                ..
+            } => {
+                let mut displayed = self.display_short(desc);
+
+                displayed |=
+                    self.display_field("Address", address1.as_deref());
+                displayed |=
+                    self.display_field("Address", address2.as_deref());
+                displayed |=
+                    self.display_field("Address", address3.as_deref());
+                displayed |= self.display_field("City", city.as_deref());
+                displayed |= self.display_field("State", state.as_deref());
+                displayed |=
+                    self.display_field("Postcode", postal_code.as_deref());
+                displayed |=
+                    self.display_field("Country", country.as_deref());
+                displayed |= self.display_field("Phone", phone.as_deref());
+                displayed |= self.display_field("Email", email.as_deref());
+                displayed |= self.display_field("SSN", ssn.as_deref());
+                displayed |=
+                    self.display_field("License", license_number.as_deref());
+                displayed |= self
+                    .display_field("Passport", passport_number.as_deref());
+                displayed |=
+                    self.display_field("Username", username.as_deref());
+
+                if let Some(notes) = &self.notes {
+                    if displayed {
+                        println!();
+                    }
+                    println!("{}", notes);
+                }
+            }
+            DecryptedData::SecureNote {} => {
+                self.display_short(desc);
+            }
+        }
+    }
+
+    fn display_field(&self, name: &str, field: Option<&str>) -> bool {
+        if let Some(field) = field {
+            println!("{}: {}", name, field);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn display_name(&self) -> String {
+        match &self.data {
+            DecryptedData::Login { username, .. } => {
+                if let Some(username) = username {
+                    format!("{}@{}", username, self.name)
+                } else {
+                    self.name.clone()
+                }
+            }
+            _ => self.name.clone(),
+        }
+    }
+
+    fn exact_match(&self, name: &str, username: Option<&str>) -> bool {
+        if name != self.name {
+            return false;
+        }
+
+        if let Some(given_username) = username {
+            match &self.data {
+                DecryptedData::Login { username, .. } => {
+                    if let Some(found_username) = username {
+                        return given_username == found_username;
+                    }
+                    return false;
+                }
+                _ => {
+                    // not sure what else to do here, but open to suggestions
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    fn partial_match(&self, name: &str, username: Option<&str>) -> bool {
+        if !self.name.contains(name) {
+            return false;
+        }
+
+        if let Some(given_username) = username {
+            match &self.data {
+                DecryptedData::Login { username, .. } => {
+                    if let Some(found_username) = username {
+                        return found_username.contains(given_username);
+                    }
+                    return false;
+                }
+                _ => {
+                    // not sure what else to do here, but open to suggestions
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+enum DecryptedData {
+    Login {
+        username: Option<String>,
+        password: Option<String>,
+    },
+    Card {
+        cardholder_name: Option<String>,
+        number: Option<String>,
+        brand: Option<String>,
+        exp_month: Option<String>,
+        exp_year: Option<String>,
+        code: Option<String>,
+    },
+    Identity {
+        title: Option<String>,
+        first_name: Option<String>,
+        middle_name: Option<String>,
+        last_name: Option<String>,
+        address1: Option<String>,
+        address2: Option<String>,
+        address3: Option<String>,
+        city: Option<String>,
+        state: Option<String>,
+        postal_code: Option<String>,
+        country: Option<String>,
+        phone: Option<String>,
+        email: Option<String>,
+        ssn: Option<String>,
+        license_number: Option<String>,
+        passport_number: Option<String>,
+        username: Option<String>,
+    },
+    SecureNote,
 }
 
 #[derive(Debug, Clone)]
@@ -139,11 +392,13 @@ pub fn list(fields: &[&str]) -> anyhow::Result<()> {
             .map(|field| match field {
                 ListField::Name => cipher.name.clone(),
                 ListField::Id => cipher.id.clone(),
-                ListField::User => cipher
-                    .username
-                    .as_ref()
-                    .map(std::string::ToString::to_string)
-                    .unwrap_or_else(|| "".to_string()),
+                ListField::User => match &cipher.data {
+                    DecryptedData::Login { username, .. } => username
+                        .as_ref()
+                        .map(std::string::ToString::to_string)
+                        .unwrap_or_else(|| "".to_string()),
+                    _ => "".to_string(),
+                },
                 ListField::Folder => cipher
                     .folder
                     .as_ref()
@@ -171,16 +426,10 @@ pub fn get(name: &str, user: Option<&str>, full: bool) -> anyhow::Result<()> {
 
     let (_, decrypted) = find_entry(&db, name, user)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
-    if let Some(password) = decrypted.password {
-        println!("{}", password);
-    } else {
-        eprintln!("entry for '{}' had no password", desc);
-    }
-
     if full {
-        if let Some(notes) = decrypted.notes {
-            println!("\n{}", notes);
-        }
+        decrypted.display_long(&desc);
+    } else {
+        decrypted.display_short(&desc);
     }
 
     Ok(())
@@ -260,8 +509,7 @@ pub fn add(
         &access_token,
         &refresh_token,
         &name,
-        username.as_deref(),
-        password.as_deref(),
+        &rbw::db::EntryData::Login { username, password },
         notes.as_deref(),
         &uris,
         folder_id.as_deref(),
@@ -347,8 +595,10 @@ pub fn generate(
             &access_token,
             &refresh_token,
             &name,
-            username.as_deref(),
-            Some(&password),
+            &rbw::db::EntryData::Login {
+                username,
+                password: Some(password),
+            },
             None,
             &uris,
             folder_id.as_deref(),
@@ -381,38 +631,57 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     let (entry, decrypted) = find_entry(&db, name, username)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
 
-    let mut contents =
-        format!("{}\n", decrypted.password.unwrap_or_else(String::new));
-    if let Some(notes) = decrypted.notes {
-        contents.push_str(&format!("\n{}\n", notes));
-    }
+    let (data, notes, history) = match &decrypted.data {
+        DecryptedData::Login { password, .. } => {
+            let mut contents =
+                format!("{}\n", password.as_deref().unwrap_or(""));
+            if let Some(notes) = decrypted.notes {
+                contents.push_str(&format!("\n{}\n", notes));
+            }
 
-    let contents = rbw::edit::edit(&contents, HELP)?;
+            let contents = rbw::edit::edit(&contents, HELP)?;
 
-    let (password, notes) = parse_editor(&contents);
-    let password = password
-        .map(|password| crate::actions::encrypt(&password, None))
-        .transpose()?;
-    let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes, None))
-        .transpose()?;
-    let mut history = entry.history.clone();
-    let new_history_entry = rbw::db::HistoryEntry {
-        last_used_date: format!(
-            "{}",
-            humantime::format_rfc3339(std::time::SystemTime::now())
-        ),
-        password: entry.password.unwrap_or_else(String::new),
+            let (password, notes) = parse_editor(&contents);
+            let password = password
+                .map(|password| crate::actions::encrypt(&password, None))
+                .transpose()?;
+            let notes = notes
+                .map(|notes| crate::actions::encrypt(&notes, None))
+                .transpose()?;
+            let mut history = entry.history.clone();
+            let (entry_username, entry_password) = match &entry.data {
+                rbw::db::EntryData::Login { username, password } => {
+                    (username, password)
+                }
+                _ => unreachable!(),
+            };
+            let new_history_entry = rbw::db::HistoryEntry {
+                last_used_date: format!(
+                    "{}",
+                    humantime::format_rfc3339(std::time::SystemTime::now())
+                ),
+                password: entry_password.clone().unwrap_or_else(String::new),
+            };
+            history.insert(0, new_history_entry);
+            let data = rbw::db::EntryData::Login {
+                username: entry_username.clone(),
+                password,
+            };
+            (data, notes, history)
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "modifications are only supported for login entries"
+            ));
+        }
     };
-    history.insert(0, new_history_entry);
 
     if let (Some(access_token), ()) = rbw::actions::edit(
         &access_token,
         &refresh_token,
         &entry.id,
         &entry.name,
-        entry.username.as_deref(),
-        password.as_deref(),
+        &data,
         notes.as_deref(),
         &history,
     )? {
@@ -596,12 +865,7 @@ fn find_entry_raw(
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
-            name == decrypted_cipher.name
-                && if let Some(username) = username {
-                    decrypted_cipher.username.as_deref() == Some(username)
-                } else {
-                    true
-                }
+            decrypted_cipher.exact_match(name, username)
         })
         .collect();
 
@@ -610,18 +874,7 @@ fn find_entry_raw(
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.name.contains(name)
-                    && if let Some(username) = username {
-                        if let Some(decrypted_username) =
-                            &decrypted_cipher.username
-                        {
-                            decrypted_username.contains(username)
-                        } else {
-                            false
-                        }
-                    } else {
-                        true
-                    }
+                decrypted_cipher.partial_match(name, username)
             })
             .collect();
 
@@ -630,13 +883,7 @@ fn find_entry_raw(
         } else if partial_matches.len() > 1 {
             let entries: Vec<String> = partial_matches
                 .iter()
-                .map(|(_, decrypted)| {
-                    if let Some(username) = &decrypted.username {
-                        format!("{}@{}", username, decrypted.name)
-                    } else {
-                        decrypted.name.clone()
-                    }
-                })
+                .map(|(_, decrypted)| decrypted.display_name())
                 .collect();
             let entries = entries.join(", ");
             Err(anyhow::anyhow!("multiple entries found: {}", entries))
@@ -646,18 +893,30 @@ fn find_entry_raw(
     } else if exact_matches.len() > 1 {
         let entries: Vec<String> = exact_matches
             .iter()
-            .map(|(_, decrypted)| {
-                if let Some(username) = &decrypted.username {
-                    format!("{}@{}", username, decrypted.name)
-                } else {
-                    decrypted.name.clone()
-                }
-            })
+            .map(|(_, decrypted)| decrypted.display_name())
             .collect();
         let entries = entries.join(", ");
         Err(anyhow::anyhow!("multiple entries found: {}", entries))
     } else {
         Ok(exact_matches[0].clone())
+    }
+}
+
+fn decrypt_field(
+    name: &str,
+    field: Option<&str>,
+    org_id: Option<&str>,
+) -> Option<String> {
+    let field = field
+        .as_ref()
+        .map(|field| crate::actions::decrypt(field, org_id))
+        .transpose();
+    match field {
+        Ok(field) => field,
+        Err(e) => {
+            log::warn!("failed to decrypt {}: {}", name, e);
+            None
+        }
     }
 }
 
@@ -673,34 +932,6 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         Ok(folder) => folder,
         Err(e) => {
             log::warn!("failed to decrypt folder name: {}", e);
-            None
-        }
-    };
-    let username = entry
-        .username
-        .as_ref()
-        .map(|username| {
-            crate::actions::decrypt(username, entry.org_id.as_deref())
-        })
-        .transpose();
-    let username = match username {
-        Ok(username) => username,
-        Err(e) => {
-            log::warn!("failed to decrypt username: {}", e);
-            None
-        }
-    };
-    let password = entry
-        .password
-        .as_ref()
-        .map(|password| {
-            crate::actions::decrypt(password, entry.org_id.as_deref())
-        })
-        .transpose();
-    let password = match password {
-        Ok(password) => password,
-        Err(e) => {
-            log::warn!("failed to decrypt password: {}", e);
             None
         }
     };
@@ -729,12 +960,174 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             })
         })
         .collect::<anyhow::Result<_>>()?;
+
+    let data = match &entry.data {
+        rbw::db::EntryData::Login { username, password } => {
+            DecryptedData::Login {
+                username: decrypt_field(
+                    "username",
+                    username.as_deref(),
+                    entry.org_id.as_deref(),
+                ),
+                password: decrypt_field(
+                    "password",
+                    password.as_deref(),
+                    entry.org_id.as_deref(),
+                ),
+            }
+        }
+        rbw::db::EntryData::Card {
+            cardholder_name,
+            number,
+            brand,
+            exp_month,
+            exp_year,
+            code,
+        } => DecryptedData::Card {
+            cardholder_name: decrypt_field(
+                "cardholder_name",
+                cardholder_name.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            number: decrypt_field(
+                "number",
+                number.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            brand: decrypt_field(
+                "brand",
+                brand.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            exp_month: decrypt_field(
+                "exp_month",
+                exp_month.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            exp_year: decrypt_field(
+                "exp_year",
+                exp_year.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            code: decrypt_field(
+                "code",
+                code.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+        },
+        rbw::db::EntryData::Identity {
+            title,
+            first_name,
+            middle_name,
+            last_name,
+            address1,
+            address2,
+            address3,
+            city,
+            state,
+            postal_code,
+            country,
+            phone,
+            email,
+            ssn,
+            license_number,
+            passport_number,
+            username,
+        } => DecryptedData::Identity {
+            title: decrypt_field(
+                "title",
+                title.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            first_name: decrypt_field(
+                "first_name",
+                first_name.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            middle_name: decrypt_field(
+                "middle_name",
+                middle_name.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            last_name: decrypt_field(
+                "last_name",
+                last_name.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            address1: decrypt_field(
+                "address1",
+                address1.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            address2: decrypt_field(
+                "address2",
+                address2.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            address3: decrypt_field(
+                "address3",
+                address3.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            city: decrypt_field(
+                "city",
+                city.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            state: decrypt_field(
+                "state",
+                state.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            postal_code: decrypt_field(
+                "postal_code",
+                postal_code.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            country: decrypt_field(
+                "country",
+                country.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            phone: decrypt_field(
+                "phone",
+                phone.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            email: decrypt_field(
+                "email",
+                email.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            ssn: decrypt_field(
+                "ssn",
+                ssn.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            license_number: decrypt_field(
+                "license_number",
+                license_number.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            passport_number: decrypt_field(
+                "passport_number",
+                passport_number.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            username: decrypt_field(
+                "username",
+                username.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+        },
+        rbw::db::EntryData::SecureNote {} => DecryptedData::SecureNote {},
+    };
+
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         folder,
         name: crate::actions::decrypt(&entry.name, entry.org_id.as_deref())?,
-        username,
-        password,
+        data,
         notes,
         history,
     })
@@ -878,9 +1271,12 @@ mod test {
                 org_id: None,
                 folder: None,
                 name: "this is the encrypted name".to_string(),
-                username: username
-                    .map(|_| "this is the encrypted username".to_string()),
-                password: None,
+                data: rbw::db::EntryData::Login {
+                    username: username.map(|_| {
+                        "this is the encrypted username".to_string()
+                    }),
+                    password: None,
+                },
                 notes: None,
                 history: vec![],
             },
@@ -888,8 +1284,10 @@ mod test {
                 id: "irrelevant".to_string(),
                 folder: None,
                 name: name.to_string(),
-                username: username.map(std::string::ToString::to_string),
-                password: None,
+                data: DecryptedData::Login {
+                    username: username.map(std::string::ToString::to_string),
+                    password: None,
+                },
                 notes: None,
                 history: vec![],
             },

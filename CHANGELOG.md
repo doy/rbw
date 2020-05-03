@@ -8,6 +8,8 @@
   bitwarden servers with `rbw config set base_url` without needing to
   redownload the password database each time.
 * `rbw config unset` to reset configuration items back to the default
+* `rbw list` and `rbw get` now support card, identity, and secure note entry
+  types
 
 ### Fixed
 
