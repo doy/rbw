@@ -89,3 +89,17 @@ impl PasswordHash {
         self.hash.data()
     }
 }
+
+pub struct PrivateKey {
+    private_key: Vec,
+}
+
+impl PrivateKey {
+    pub fn new(private_key: Vec) -> Self {
+        Self { private_key }
+    }
+
+    pub fn private_key(&self) -> &[u8] {
+        self.private_key.data()
+    }
+}

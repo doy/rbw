@@ -115,6 +115,14 @@ pub async fn unlock(
                 "failed to find protected key in db"
             ));
         };
+        let protected_private_key =
+            if let Some(protected_private_key) = db.protected_private_key {
+                protected_private_key
+            } else {
+                return Err(anyhow::anyhow!(
+                    "failed to find protected private key in db"
+                ));
+            };
 
         for i in 1u8..=3 {
             let err = if i > 1 {
@@ -135,11 +143,15 @@ pub async fn unlock(
                 &password,
                 iterations,
                 &protected_key,
+                &protected_private_key,
+                &db.protected_org_keys,
             )
             .await;
             match res {
-                Ok(keys) => {
-                    state.write().await.priv_key = Some(keys);
+                Ok((keys, org_keys)) => {
+                    let mut state = state.write().await;
+                    state.priv_key = Some(keys);
+                    state.org_keys = org_keys;
                     break;
                 }
                 Err(rbw::error::Error::IncorrectPassword) => {

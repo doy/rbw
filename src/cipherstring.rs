@@ -10,6 +10,10 @@ pub enum CipherString {
         ciphertext: Vec<u8>,
         mac: Option<Vec<u8>>,
     },
+    Asymmetric {
+        // ty: 4 (RSA_2048_OAEP_SHA1)
+        ciphertext: Vec<u8>,
+    },
 }
 
 impl CipherString {
@@ -52,6 +56,11 @@ impl CipherString {
                     ciphertext,
                     mac,
                 })
+            }
+            4 => {
+                let ciphertext = base64::decode(contents)
+                    .context(crate::error::InvalidBase64)?;
+                Ok(Self::Asymmetric { ciphertext })
             }
             _ => Err(Error::InvalidCipherString),
         }
@@ -106,6 +115,7 @@ impl CipherString {
                     .decrypt_vec(ciphertext)
                     .context(crate::error::Decrypt)
             }
+            _ => Err(Error::InvalidCipherString),
         }
     }
 
@@ -132,6 +142,40 @@ impl CipherString {
                     .context(crate::error::Decrypt)?;
                 Ok(res)
             }
+            _ => Err(Error::InvalidCipherString),
+        }
+    }
+
+    pub fn decrypt_locked_asymmetric(
+        &self,
+        private_key: &crate::locked::PrivateKey,
+    ) -> Result<crate::locked::Vec> {
+        match self {
+            Self::Asymmetric { ciphertext } => {
+                // ring doesn't currently support asymmetric encryption (only
+                // signatures). see
+                // https://github.com/briansmith/ring/issues/691
+                let pkey = openssl::pkey::PKey::private_key_from_pkcs8(
+                    private_key.private_key(),
+                )
+                .unwrap(); // XXX
+                let rsa = pkey.rsa().unwrap(); // XXX
+
+                let mut res = crate::locked::Vec::new();
+                res.extend(std::iter::repeat(0).take(rsa.size() as usize));
+
+                let bytes = rsa
+                    .private_decrypt(
+                        ciphertext,
+                        res.data_mut(),
+                        openssl::rsa::Padding::PKCS1_OAEP,
+                    )
+                    .unwrap(); // XXX
+                res.truncate(bytes);
+
+                Ok(res)
+            }
+            _ => Err(Error::InvalidCipherString),
         }
     }
 }
@@ -182,6 +226,10 @@ impl std::fmt::Display for CipherString {
                 } else {
                     write!(f, "2.{}|{}", iv, ciphertext)
                 }
+            }
+            Self::Asymmetric { ciphertext } => {
+                let ciphertext = base64::encode(&ciphertext);
+                write!(f, "4.{}", ciphertext)
             }
         }
     }

@@ -32,18 +32,44 @@ pub async fn unlock(
     password: &crate::locked::Password,
     iterations: u32,
     protected_key: &str,
-) -> Result<crate::locked::Keys> {
+    protected_private_key: &str,
+    protected_org_keys: &std::collections::HashMap<String, String>,
+) -> Result<(
+    crate::locked::Keys,
+    std::collections::HashMap<String, crate::locked::Keys>,
+)> {
     let identity =
         crate::identity::Identity::new(email, password, iterations)?;
 
     let protected_key =
         crate::cipherstring::CipherString::new(protected_key)?;
+    let key = match protected_key.decrypt_locked_symmetric(&identity.keys) {
+        Ok(master_keys) => crate::locked::Keys::new(master_keys),
+        Err(Error::InvalidMac) => return Err(Error::IncorrectPassword),
+        Err(e) => return Err(e),
+    };
 
-    match protected_key.decrypt_locked_symmetric(&identity.keys) {
-        Ok(master_keys) => Ok(crate::locked::Keys::new(master_keys)),
-        Err(Error::InvalidMac) => Err(Error::IncorrectPassword),
-        Err(e) => Err(e),
+    let protected_private_key =
+        crate::cipherstring::CipherString::new(protected_private_key)?;
+    let private_key =
+        match protected_private_key.decrypt_locked_symmetric(&key) {
+            Ok(private_key) => crate::locked::PrivateKey::new(private_key),
+            Err(e) => return Err(e),
+        };
+
+    let mut org_keys = std::collections::HashMap::new();
+    for (org_id, protected_org_key) in protected_org_keys {
+        let protected_org_key =
+            crate::cipherstring::CipherString::new(protected_org_key)?;
+        let org_key =
+            match protected_org_key.decrypt_locked_asymmetric(&private_key) {
+                Ok(org_key) => crate::locked::Keys::new(org_key),
+                Err(e) => return Err(e),
+            };
+        org_keys.insert(org_id.to_string(), org_key);
     }
+
+    Ok((key, org_keys))
 }
 
 pub async fn sync(
