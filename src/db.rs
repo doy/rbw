@@ -44,7 +44,7 @@ impl Db {
     }
 
     pub fn load(email: &str) -> Result<Self> {
-        let mut fh = std::fs::File::open(Self::filename(email))
+        let mut fh = std::fs::File::open(crate::dirs::db_file(email))
             .context(crate::error::LoadDb)?;
         let mut json = String::new();
         fh.read_to_string(&mut json).context(crate::error::LoadDb)?;
@@ -54,7 +54,7 @@ impl Db {
     }
 
     pub async fn load_async(email: &str) -> Result<Self> {
-        let mut fh = tokio::fs::File::open(Self::filename(email))
+        let mut fh = tokio::fs::File::open(crate::dirs::db_file(email))
             .await
             .context(crate::error::LoadDbAsync)?;
         let mut json = String::new();
@@ -68,7 +68,7 @@ impl Db {
 
     // XXX need to make this atomic
     pub fn save(&self, email: &str) -> Result<()> {
-        let filename = Self::filename(email);
+        let filename = crate::dirs::db_file(email);
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
         std::fs::create_dir_all(filename.parent().unwrap())
@@ -86,7 +86,7 @@ impl Db {
 
     // XXX need to make this atomic
     pub async fn save_async(&self, email: &str) -> Result<()> {
-        let filename = Self::filename(email);
+        let filename = crate::dirs::db_file(email);
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
         tokio::fs::create_dir_all(filename.parent().unwrap())
@@ -106,7 +106,7 @@ impl Db {
     }
 
     pub fn remove(email: &str) -> Result<()> {
-        let filename = Self::filename(email);
+        let filename = crate::dirs::db_file(email);
         let res = std::fs::remove_file(filename);
         if let Err(e) = &res {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -122,9 +122,5 @@ impl Db {
             || self.refresh_token.is_none()
             || self.iterations.is_none()
             || self.protected_key.is_none()
-    }
-
-    fn filename(email: &str) -> std::path::PathBuf {
-        crate::dirs::cache_dir().join(format!("{}.json", email))
     }
 }

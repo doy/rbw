@@ -43,11 +43,7 @@ impl Sock {
 }
 
 pub fn listen() -> anyhow::Result<tokio::net::UnixListener> {
-    let runtime_dir = rbw::dirs::runtime_dir();
-    std::fs::create_dir_all(&runtime_dir)
-        .context("failed to create runtime dir")?;
-
-    let path = runtime_dir.join("socket");
+    let path = rbw::dirs::socket_file();
     // if the socket already doesn't exist, that's fine
     let _ = std::fs::remove_file(&path);
     let sock = tokio::net::UnixListener::bind(&path)

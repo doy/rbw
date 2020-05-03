@@ -6,6 +6,9 @@ pub enum Error {
         source: block_modes::InvalidKeyIvLength,
     },
 
+    #[snafu(display("failed to create directory: {}", source))]
+    CreateDirectory { source: std::io::Error },
+
     #[snafu(display("failed to decrypt: {}", source))]
     Decrypt { source: block_modes::BlockModeError },
 

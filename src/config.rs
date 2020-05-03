@@ -22,7 +22,7 @@ impl Config {
     }
 
     pub fn load() -> Result<Self> {
-        let mut fh = std::fs::File::open(Self::filename())
+        let mut fh = std::fs::File::open(crate::dirs::config_file())
             .context(crate::error::LoadConfig)?;
         let mut json = String::new();
         fh.read_to_string(&mut json)
@@ -33,7 +33,7 @@ impl Config {
     }
 
     pub async fn load_async() -> Result<Self> {
-        let mut fh = tokio::fs::File::open(Self::filename())
+        let mut fh = tokio::fs::File::open(crate::dirs::config_file())
             .await
             .context(crate::error::LoadConfigAsync)?;
         let mut json = String::new();
@@ -46,7 +46,7 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<()> {
-        let filename = Self::filename();
+        let filename = crate::dirs::config_file();
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
         std::fs::create_dir_all(filename.parent().unwrap())
@@ -76,9 +76,5 @@ impl Config {
                 |url| format!("{}/identity", url),
             )
         })
-    }
-
-    fn filename() -> std::path::PathBuf {
-        crate::dirs::config_dir().join("config.json")
     }
 }

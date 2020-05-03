@@ -6,7 +6,7 @@ pub struct Sock(std::os::unix::net::UnixStream);
 impl Sock {
     pub fn connect() -> std::io::Result<Self> {
         Ok(Self(std::os::unix::net::UnixStream::connect(
-            rbw::dirs::runtime_dir().join("socket"),
+            rbw::dirs::socket_file(),
         )?))
     }
 

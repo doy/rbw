@@ -1,5 +1,3 @@
-use anyhow::Context as _;
-
 pub struct StartupAck {
     writer: std::os::unix::io::RawFd,
 }
@@ -20,25 +18,20 @@ impl Drop for StartupAck {
 }
 
 pub fn daemonize() -> anyhow::Result<StartupAck> {
-    let runtime_dir = rbw::dirs::runtime_dir();
-    std::fs::create_dir_all(&runtime_dir)
-        .context("failed to create runtime directory")?;
+    rbw::dirs::make_all()?;
 
-    let data_dir = rbw::dirs::data_dir();
-    std::fs::create_dir_all(&data_dir)
-        .context("failed to create data directory")?;
     let stdout = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open(data_dir.join("agent.out"))?;
+        .open(rbw::dirs::agent_stdout_file())?;
     let stderr = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open(data_dir.join("agent.err"))?;
+        .open(rbw::dirs::agent_stderr_file())?;
 
     let (r, w) = nix::unistd::pipe()?;
     let res = daemonize::Daemonize::new()
-        .pid_file(runtime_dir.join("pidfile"))
+        .pid_file(rbw::dirs::pid_file())
         .stdout(stdout)
         .stderr(stderr)
         .exit_action(move || {

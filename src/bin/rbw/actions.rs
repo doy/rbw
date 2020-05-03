@@ -20,8 +20,7 @@ pub fn lock() -> anyhow::Result<()> {
 pub fn quit() -> anyhow::Result<()> {
     match crate::sock::Sock::connect() {
         Ok(mut sock) => {
-            let runtime_dir = rbw::dirs::runtime_dir();
-            let pidfile = runtime_dir.join("pidfile");
+            let pidfile = rbw::dirs::pid_file();
             let mut pid = String::new();
             std::fs::File::open(pidfile)?.read_to_string(&mut pid)?;
             let pid = nix::unistd::Pid::from_raw(pid.parse()?);
