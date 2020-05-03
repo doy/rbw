@@ -43,8 +43,8 @@ impl Db {
         Self::default()
     }
 
-    pub fn load(email: &str) -> Result<Self> {
-        let mut fh = std::fs::File::open(crate::dirs::db_file(email))
+    pub fn load(server: &str, email: &str) -> Result<Self> {
+        let mut fh = std::fs::File::open(crate::dirs::db_file(server, email))
             .context(crate::error::LoadDb)?;
         let mut json = String::new();
         fh.read_to_string(&mut json).context(crate::error::LoadDb)?;
@@ -53,10 +53,11 @@ impl Db {
         Ok(slf)
     }
 
-    pub async fn load_async(email: &str) -> Result<Self> {
-        let mut fh = tokio::fs::File::open(crate::dirs::db_file(email))
-            .await
-            .context(crate::error::LoadDbAsync)?;
+    pub async fn load_async(server: &str, email: &str) -> Result<Self> {
+        let mut fh =
+            tokio::fs::File::open(crate::dirs::db_file(server, email))
+                .await
+                .context(crate::error::LoadDbAsync)?;
         let mut json = String::new();
         fh.read_to_string(&mut json)
             .await
@@ -67,8 +68,8 @@ impl Db {
     }
 
     // XXX need to make this atomic
-    pub fn save(&self, email: &str) -> Result<()> {
-        let filename = crate::dirs::db_file(email);
+    pub fn save(&self, server: &str, email: &str) -> Result<()> {
+        let filename = crate::dirs::db_file(server, email);
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
         std::fs::create_dir_all(filename.parent().unwrap())
@@ -85,8 +86,8 @@ impl Db {
     }
 
     // XXX need to make this atomic
-    pub async fn save_async(&self, email: &str) -> Result<()> {
-        let filename = crate::dirs::db_file(email);
+    pub async fn save_async(&self, server: &str, email: &str) -> Result<()> {
+        let filename = crate::dirs::db_file(server, email);
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
         tokio::fs::create_dir_all(filename.parent().unwrap())
@@ -105,8 +106,8 @@ impl Db {
         Ok(())
     }
 
-    pub fn remove(email: &str) -> Result<()> {
-        let filename = crate::dirs::db_file(email);
+    pub fn remove(server: &str, email: &str) -> Result<()> {
+        let filename = crate::dirs::db_file(server, email);
         let res = std::fs::remove_file(filename);
         if let Err(e) = &res {
             if e.kind() == std::io::ErrorKind::NotFound {

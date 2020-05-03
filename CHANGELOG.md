@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+* Multi-server support - you can now switch between multiple different
+  bitwarden servers with `rbw config set base_url` without needing to
+  redownload the password database each time.
+
 ### Fixed
 
 * `rbw` is now able to decrypt secrets from organizations you are a member of.

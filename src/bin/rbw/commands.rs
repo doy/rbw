@@ -107,10 +107,7 @@ pub fn list(fields: &[&str]) -> anyhow::Result<()> {
 
     unlock()?;
 
-    let email = config_email()?;
-    let db = rbw::db::Db::load(&email)
-        .context("failed to load password database")?;
-
+    let db = load_db()?;
     let mut ciphers: Vec<DecryptedCipher> = db
         .entries
         .iter()
@@ -146,9 +143,7 @@ pub fn list(fields: &[&str]) -> anyhow::Result<()> {
 pub fn get(name: &str, user: Option<&str>, full: bool) -> anyhow::Result<()> {
     unlock()?;
 
-    let email = config_email()?;
-    let db = rbw::db::Db::load(&email)
-        .context("failed to load password database")?;
+    let db = load_db()?;
 
     let desc = format!(
         "{}{}",
@@ -182,8 +177,7 @@ pub fn add(
 ) -> anyhow::Result<()> {
     unlock()?;
 
-    let email = config_email()?;
-    let mut db = rbw::db::Db::load(&email)?;
+    let mut db = load_db()?;
     // unwrap is safe here because the call to unlock above is guaranteed to
     // populate these or error
     let mut access_token = db.access_token.as_ref().unwrap().clone();
@@ -216,7 +210,7 @@ pub fn add(
         if let Some(new_access_token) = new_access_token {
             access_token = new_access_token.clone();
             db.access_token = Some(new_access_token);
-            db.save(&email).context("failed to save database")?;
+            save_db(&db)?;
         }
 
         let folders: Vec<(String, String)> = folders
@@ -239,7 +233,7 @@ pub fn add(
             if let Some(new_access_token) = new_access_token {
                 access_token = new_access_token.clone();
                 db.access_token = Some(new_access_token);
-                db.save(&email).context("failed to save database")?;
+                save_db(&db)?;
             }
             folder_id = Some(id);
         }
@@ -256,7 +250,7 @@ pub fn add(
         folder_id.as_deref(),
     )? {
         db.access_token = Some(access_token);
-        db.save(&email).context("failed to save database")?;
+        save_db(&db)?;
     }
 
     crate::actions::sync()?;
@@ -278,8 +272,7 @@ pub fn generate(
     if let Some(name) = name {
         unlock()?;
 
-        let email = config_email()?;
-        let mut db = rbw::db::Db::load(&email)?;
+        let mut db = load_db()?;
         // unwrap is safe here because the call to unlock above is guaranteed
         // to populate these or error
         let mut access_token = db.access_token.as_ref().unwrap().clone();
@@ -302,7 +295,7 @@ pub fn generate(
             if let Some(new_access_token) = new_access_token {
                 access_token = new_access_token.clone();
                 db.access_token = Some(new_access_token);
-                db.save(&email).context("failed to save database")?;
+                save_db(&db)?;
             }
 
             let folders: Vec<(String, String)> = folders
@@ -327,7 +320,7 @@ pub fn generate(
                 if let Some(new_access_token) = new_access_token {
                     access_token = new_access_token.clone();
                     db.access_token = Some(new_access_token);
-                    db.save(&email).context("failed to save database")?;
+                    save_db(&db)?;
                 }
                 folder_id = Some(id);
             }
@@ -344,7 +337,7 @@ pub fn generate(
             folder_id.as_deref(),
         )? {
             db.access_token = Some(access_token);
-            db.save(&email).context("failed to save database")?;
+            save_db(&db)?;
         }
 
         crate::actions::sync()?;
@@ -356,9 +349,7 @@ pub fn generate(
 pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     unlock()?;
 
-    let email = config_email()?;
-    let mut db = rbw::db::Db::load(&email)
-        .context("failed to load password database")?;
+    let mut db = load_db()?;
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
@@ -409,7 +400,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         &history,
     )? {
         db.access_token = Some(access_token);
-        db.save(&email).context("failed to save database")?;
+        save_db(&db)?;
     }
 
     crate::actions::sync()?;
@@ -419,9 +410,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
 pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     unlock()?;
 
-    let email = config_email()?;
-    let mut db = rbw::db::Db::load(&email)
-        .context("failed to load password database")?;
+    let mut db = load_db()?;
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
@@ -440,7 +429,7 @@ pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         rbw::actions::remove(&access_token, &refresh_token, &entry.id)?
     {
         db.access_token = Some(access_token);
-        db.save(&email).context("failed to save database")?;
+        save_db(&db)?;
     }
 
     crate::actions::sync()?;
@@ -451,9 +440,7 @@ pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
 pub fn history(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     unlock()?;
 
-    let email = config_email()?;
-    let db = rbw::db::Db::load(&email)
-        .context("failed to load password database")?;
+    let db = load_db()?;
 
     let desc = format!(
         "{}{}",
@@ -482,8 +469,7 @@ pub fn lock() -> anyhow::Result<()> {
 pub fn purge() -> anyhow::Result<()> {
     stop_agent()?;
 
-    let email = config_email()?;
-    rbw::db::Db::remove(&email).context("failed to remove database")?;
+    remove_db()?;
 
     Ok(())
 }
@@ -755,10 +741,31 @@ fn parse_editor(contents: &str) -> (Option<String>, Option<String>) {
     (password, notes)
 }
 
-fn config_email() -> anyhow::Result<String> {
+fn load_db() -> anyhow::Result<rbw::db::Db> {
     let config = rbw::config::Config::load()?;
-    if let Some(email) = config.email {
-        Ok(email)
+    if let Some(email) = &config.email {
+        rbw::db::Db::load(&config.server_name(), &email)
+            .context("failed to load password database")
+    } else {
+        Err(anyhow::anyhow!("failed to find email address in config"))
+    }
+}
+
+fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
+    let config = rbw::config::Config::load()?;
+    if let Some(email) = &config.email {
+        db.save(&config.server_name(), &email)
+            .context("failed to save password database")
+    } else {
+        Err(anyhow::anyhow!("failed to find email address in config"))
+    }
+}
+
+fn remove_db() -> anyhow::Result<()> {
+    let config = rbw::config::Config::load()?;
+    if let Some(email) = &config.email {
+        rbw::db::Db::remove(&config.server_name(), &email)
+            .context("failed to remove password database")
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }

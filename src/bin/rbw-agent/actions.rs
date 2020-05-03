@@ -5,12 +5,7 @@ pub async fn login(
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     tty: Option<&str>,
 ) -> anyhow::Result<()> {
-    let email = config_email()
-        .await
-        .context("failed to read email from config")?;
-    let mut db = rbw::db::Db::load_async(&email)
-        .await
-        .unwrap_or_else(|_| rbw::db::Db::new());
+    let mut db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
         let url_str = config_base_url()
@@ -26,6 +21,8 @@ pub async fn login(
                 url_str
             ));
         };
+
+        let email = config_email().await?;
 
         for i in 1_u8..=3 {
             let err = if i > 1 {
@@ -56,9 +53,7 @@ pub async fn login(
                     db.refresh_token = Some(refresh_token);
                     db.iterations = Some(iterations);
                     db.protected_key = Some(protected_key);
-                    db.save_async(&email)
-                        .await
-                        .context("failed to save local database")?;
+                    save_db(&db).await?;
 
                     break;
                 }
@@ -93,13 +88,7 @@ pub async fn unlock(
     tty: Option<&str>,
 ) -> anyhow::Result<()> {
     if state.read().await.needs_unlock() {
-        let email = config_email()
-            .await
-            .context("failed to read email from config")?;
-
-        let db = rbw::db::Db::load_async(&email)
-            .await
-            .context("failed to load local database")?;
+        let db = load_db().await?;
 
         let iterations = if let Some(iterations) = db.iterations {
             iterations
@@ -123,6 +112,8 @@ pub async fn unlock(
                     "failed to find protected private key in db"
                 ));
             };
+
+        let email = config_email().await?;
 
         for i in 1u8..=3 {
             let err = if i > 1 {
@@ -184,12 +175,7 @@ pub async fn lock(
 }
 
 pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
-    let email = config_email()
-        .await
-        .context("failed to read email from config")?;
-    let mut db = rbw::db::Db::load_async(&email)
-        .await
-        .context("failed to load local database")?;
+    let mut db = load_db().await?;
 
     let access_token = if let Some(access_token) = &db.access_token {
         access_token.clone()
@@ -214,9 +200,7 @@ pub async fn sync(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     db.protected_private_key = Some(protected_private_key);
     db.protected_org_keys = protected_org_keys;
     db.entries = entries;
-    db.save_async(&email)
-        .await
-        .context("failed to save database")?;
+    save_db(&db).await?;
 
     respond_ack(sock).await?;
 
@@ -322,6 +306,28 @@ async fn config_email() -> anyhow::Result<String> {
         .context("failed to load config")?;
     if let Some(email) = config.email {
         Ok(email)
+    } else {
+        Err(anyhow::anyhow!("failed to find email address in config"))
+    }
+}
+
+async fn load_db() -> anyhow::Result<rbw::db::Db> {
+    let config = rbw::config::Config::load_async().await?;
+    if let Some(email) = &config.email {
+        rbw::db::Db::load_async(&config.server_name(), &email)
+            .await
+            .context("failed to load password database")
+    } else {
+        Err(anyhow::anyhow!("failed to find email address in config"))
+    }
+}
+
+async fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
+    let config = rbw::config::Config::load_async().await?;
+    if let Some(email) = &config.email {
+        db.save_async(&config.server_name(), &email)
+            .await
+            .context("failed to save password database")
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }

@@ -17,8 +17,13 @@ pub fn config_file() -> std::path::PathBuf {
     config_dir().join("config.json")
 }
 
-pub fn db_file(email: &str) -> std::path::PathBuf {
-    cache_dir().join(format!("{}.json", email))
+const INVALID_PATH: &percent_encoding::AsciiSet =
+    &percent_encoding::CONTROLS.add(b'/').add(b'%').add(b':');
+pub fn db_file(server: &str, email: &str) -> std::path::PathBuf {
+    let server =
+        percent_encoding::percent_encode(server.as_bytes(), INVALID_PATH)
+            .to_string();
+    cache_dir().join(format!("{}:{}.json", server, email))
 }
 
 pub fn pid_file() -> std::path::PathBuf {

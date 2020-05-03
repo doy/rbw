@@ -1031,6 +1031,7 @@ dependencies = [
  "log",
  "nix",
  "openssl",
+ "percent-encoding",
  "rand",
  "region",
  "reqwest",

@@ -77,4 +77,10 @@ impl Config {
             )
         })
     }
+
+    pub fn server_name(&self) -> String {
+        self.base_url
+            .clone()
+            .unwrap_or_else(|| "default".to_string())
+    }
 }
