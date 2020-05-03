@@ -842,6 +842,7 @@ mod test {
         (
             rbw::db::Entry {
                 id: "irrelevant".to_string(),
+                org_id: None,
                 folder: None,
                 name: "this is the encrypted name".to_string(),
                 username: username

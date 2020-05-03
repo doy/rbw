@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 )]
 pub struct Entry {
     pub id: String,
+    pub org_id: Option<String>,
     pub folder: Option<String>,
     pub name: String,
     pub username: Option<String>,

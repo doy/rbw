@@ -85,6 +85,8 @@ struct SyncResCipher {
     id: String,
     #[serde(rename = "FolderId")]
     folder_id: Option<String>,
+    #[serde(rename = "OrganizationId")]
+    organization_id: Option<String>,
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Login")]
@@ -126,6 +128,7 @@ impl SyncResCipher {
             };
             Some(crate::db::Entry {
                 id: self.id.clone(),
+                org_id: self.organization_id.clone(),
                 folder,
                 name: self.name.clone(),
                 username: login.username.clone(),
