@@ -12,7 +12,7 @@ pub struct Config {
     pub lock_timeout: u64,
 }
 
-fn default_lock_timeout() -> u64 {
+pub fn default_lock_timeout() -> u64 {
     3600
 }
 

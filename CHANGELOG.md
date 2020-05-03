@@ -7,6 +7,7 @@
 * Multi-server support - you can now switch between multiple different
   bitwarden servers with `rbw config set base_url` without needing to
   redownload the password database each time.
+* `rbw config unset` to reset configuration items back to the default
 
 ### Fixed
 

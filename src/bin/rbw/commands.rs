@@ -75,6 +75,23 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn config_unset(key: &str) -> anyhow::Result<()> {
+    let mut config = rbw::config::Config::load()
+        .unwrap_or_else(|_| rbw::config::Config::new());
+    match key {
+        "email" => config.email = None,
+        "base_url" => config.base_url = None,
+        "identity_url" => config.identity_url = None,
+        "lock_timeout" => {
+            config.lock_timeout = rbw::config::default_lock_timeout()
+        }
+        _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
+    }
+    config.save().context("failed to save config file")?;
+
+    Ok(())
+}
+
 pub fn login() -> anyhow::Result<()> {
     ensure_agent()?;
     crate::actions::login()?;

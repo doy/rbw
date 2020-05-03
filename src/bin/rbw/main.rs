@@ -37,6 +37,15 @@ fn main() {
                                 "Value to set the configuration option to",
                             ),
                         ),
+                )
+                .subcommand(
+                    clap::SubCommand::with_name("unset")
+                        .about("Reset a configuration option to its default")
+                        .arg(
+                            clap::Arg::with_name("key")
+                                .required(true)
+                                .help("Configuration key to unset"),
+                        ),
                 ),
         )
         .subcommand(
@@ -271,6 +280,11 @@ fn main() {
                 ssmatches.value_of("value").unwrap(),
             )
             .context("config set"),
+            // this unwrap is fine because key is marked .required(true)
+            ("unset", Some(ssmatches)) => {
+                commands::config_unset(ssmatches.value_of("key").unwrap())
+                    .context("config unset")
+            }
             _ => {
                 eprintln!("{}", smatches.usage());
                 std::process::exit(1);
