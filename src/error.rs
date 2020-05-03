@@ -22,17 +22,8 @@ pub enum Error {
         res: std::process::ExitStatus,
     },
 
-    // no Error impl
-    // #[snafu(display("failed to expand with hkdf: {}", source))]
-    // HkdfExpand { source: hkdf::InvalidLength },
     #[snafu(display("failed to expand with hkdf"))]
     HkdfExpand,
-
-    // no Error impl
-    // #[snafu(display("failed to create hkdf: {}", source))]
-    // HkdfFromPrk { source: hkdf::InvalidPrkLength },
-    #[snafu(display("failed to create hkdf"))]
-    HkdfFromPrk,
 
     #[snafu(display("username or password incorrect"))]
     IncorrectPassword,
@@ -48,12 +39,6 @@ pub enum Error {
 
     #[snafu(display("invalid mac"))]
     InvalidMac,
-
-    // no Error impl
-    // #[snafu(display("invalid mac key: {}", source))]
-    // InvalidMacKey { source: hmac::crypto_mac::InvalidKeyLength },
-    #[snafu(display("invalid mac key"))]
-    InvalidMacKey,
 
     #[snafu(display("failed to load config: {}", source))]
     LoadConfig { source: std::io::Error },
@@ -72,6 +57,9 @@ pub enum Error {
 
     #[snafu(display("failed to load db: {}", source))]
     LoadDbJson { source: serde_json::Error },
+
+    #[snafu(display("pbkdf2 requires at least 1 iteration (got 0)"))]
+    Pbkdf2ZeroIterations,
 
     #[snafu(display("pinentry cancelled"))]
     PinentryCancelled,

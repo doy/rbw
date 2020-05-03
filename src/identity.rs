@@ -12,33 +12,42 @@ impl Identity {
         password: &crate::locked::Password,
         iterations: u32,
     ) -> Result<Self> {
+        let iterations = std::num::NonZeroU32::new(iterations)
+            .context(crate::error::Pbkdf2ZeroIterations)?;
+
         let mut keys = crate::locked::Vec::new();
         keys.extend(std::iter::repeat(0).take(64));
 
         let enc_key = &mut keys.data_mut()[0..32];
-        pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
-            password.password(),
+        ring::pbkdf2::derive(
+            ring::pbkdf2::PBKDF2_HMAC_SHA256,
+            iterations,
             email.as_bytes(),
-            iterations as usize,
+            password.password(),
             enc_key,
         );
 
         let mut hash = crate::locked::Vec::new();
         hash.extend(std::iter::repeat(0).take(32));
-        pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
-            enc_key,
+        ring::pbkdf2::derive(
+            ring::pbkdf2::PBKDF2_HMAC_SHA256,
+            std::num::NonZeroU32::new(1).unwrap(),
             password.password(),
-            1,
+            enc_key,
             hash.data_mut(),
         );
 
-        let hkdf = hkdf::Hkdf::<sha2::Sha256>::from_prk(enc_key)
-            .map_err(|_| Error::HkdfFromPrk)?;
-        hkdf.expand(b"enc", enc_key)
+        let hkdf =
+            ring::hkdf::Prk::new_less_safe(ring::hkdf::HKDF_SHA256, enc_key);
+        hkdf.expand(&[b"enc"], ring::hkdf::HKDF_SHA256)
+            .map_err(|_| Error::HkdfExpand)?
+            .fill(enc_key)
             .map_err(|_| Error::HkdfExpand)?;
 
         let mac_key = &mut keys.data_mut()[32..64];
-        hkdf.expand(b"mac", mac_key)
+        hkdf.expand(&[b"mac"], ring::hkdf::HKDF_SHA256)
+            .map_err(|_| Error::HkdfExpand)?
+            .fill(mac_key)
             .map_err(|_| Error::HkdfExpand)?;
 
         let keys = crate::locked::Keys::new(keys);

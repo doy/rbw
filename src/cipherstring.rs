@@ -1,7 +1,6 @@
 use crate::prelude::*;
 
 use block_modes::BlockMode as _;
-use hmac::Mac as _;
 use rand::RngCore as _;
 
 pub struct CipherString {
@@ -58,6 +57,8 @@ impl CipherString {
     ) -> Result<Self> {
         let iv = random_iv();
 
+        // ring doesn't currently support CBC ciphers, so we have to do it
+        // manually. see https://github.com/briansmith/ring/issues/588
         let cipher = block_modes::Cbc::<
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
@@ -65,12 +66,12 @@ impl CipherString {
         .context(crate::error::CreateBlockMode)?;
         let ciphertext = cipher.encrypt_vec(plaintext);
 
-        let mut digest =
-            hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
-                .map_err(|_| Error::InvalidMacKey)?;
-        digest.input(&iv);
-        digest.input(&ciphertext);
-        let mac = digest.result().code().to_vec();
+        let mut digest = ring::hmac::Context::with_key(
+            &ring::hmac::Key::new(ring::hmac::HMAC_SHA256, keys.mac_key()),
+        );
+        digest.update(&iv);
+        digest.update(&ciphertext);
+        let mac = digest.sign().as_ref().to_vec();
 
         Ok(Self {
             ty: 2,
@@ -111,18 +112,25 @@ impl CipherString {
         }
 
         if let Some(mac) = &self.mac {
-            let mut digest =
-                hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
-                    .map_err(|_| Error::InvalidMacKey)?;
-            digest.input(&self.iv);
-            digest.input(&self.ciphertext);
-            let calculated_mac = digest.result().code();
+            let key =
+                ring::hmac::Key::new(ring::hmac::HMAC_SHA256, keys.mac_key());
+            // it'd be nice to not have to pull this into a vec, but ring
+            // doesn't currently support non-contiguous verification. see
+            // https://github.com/briansmith/ring/issues/615
+            let data: Vec<_> = self
+                .iv
+                .iter()
+                .chain(self.ciphertext.iter())
+                .copied()
+                .collect();
 
-            if !macs_equal(mac, &calculated_mac, keys.mac_key())? {
+            if ring::hmac::verify(&key, &data, mac).is_err() {
                 return Err(Error::InvalidMac);
             }
         }
 
+        // ring doesn't currently support CBC ciphers, so we have to do it
+        // manually. see https://github.com/briansmith/ring/issues/588
         Ok(block_modes::Cbc::<
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
@@ -142,20 +150,6 @@ impl std::fmt::Display for CipherString {
             write!(f, "{}.{}|{}", self.ty, iv, ciphertext)
         }
     }
-}
-
-fn macs_equal(mac1: &[u8], mac2: &[u8], mac_key: &[u8]) -> Result<bool> {
-    let mut digest = hmac::Hmac::<sha2::Sha256>::new_varkey(mac_key)
-        .map_err(|_| Error::InvalidMacKey)?;
-    digest.input(mac1);
-    let hmac1 = digest.result().code();
-
-    let mut digest = hmac::Hmac::<sha2::Sha256>::new_varkey(mac_key)
-        .map_err(|_| Error::InvalidMacKey)?;
-    digest.input(mac2);
-    let hmac2 = digest.result().code();
-
-    Ok(hmac1 == hmac2)
 }
 
 fn random_iv() -> Vec<u8> {
