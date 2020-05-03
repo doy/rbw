@@ -659,6 +659,8 @@ fn find_entry_raw(
 }
 
 fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
+    // folder name should always be decrypted with the local key because
+    // folders are local to a specific user's vault, not the organization
     let folder = entry
         .folder
         .as_ref()
@@ -674,7 +676,9 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let username = entry
         .username
         .as_ref()
-        .map(|username| crate::actions::decrypt(username, None))
+        .map(|username| {
+            crate::actions::decrypt(username, entry.org_id.as_deref())
+        })
         .transpose();
     let username = match username {
         Ok(username) => username,
@@ -686,7 +690,9 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let password = entry
         .password
         .as_ref()
-        .map(|password| crate::actions::decrypt(password, None))
+        .map(|password| {
+            crate::actions::decrypt(password, entry.org_id.as_deref())
+        })
         .transpose();
     let password = match password {
         Ok(password) => password,
@@ -698,7 +704,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let notes = entry
         .notes
         .as_ref()
-        .map(|notes| crate::actions::decrypt(notes, None))
+        .map(|notes| crate::actions::decrypt(notes, entry.org_id.as_deref()))
         .transpose();
     let notes = match notes {
         Ok(notes) => notes,
@@ -710,17 +716,20 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let history = entry
         .history
         .iter()
-        .map(|entry| {
+        .map(|history_entry| {
             Ok(DecryptedHistoryEntry {
-                last_used_date: entry.last_used_date.clone(),
-                password: crate::actions::decrypt(&entry.password, None)?,
+                last_used_date: history_entry.last_used_date.clone(),
+                password: crate::actions::decrypt(
+                    &history_entry.password,
+                    entry.org_id.as_deref(),
+                )?,
             })
         })
         .collect::<anyhow::Result<_>>()?;
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         folder,
-        name: crate::actions::decrypt(&entry.name, None)?,
+        name: crate::actions::decrypt(&entry.name, entry.org_id.as_deref())?,
         username,
         password,
         notes,
