@@ -16,7 +16,7 @@ pub async fn login(
         .login(&identity.email, &identity.master_password_hash)
         .await?;
     let master_keys = crate::cipherstring::CipherString::new(&protected_key)?
-        .decrypt_locked(&identity.keys)?;
+        .decrypt_locked_symmetric(&identity.keys)?;
 
     Ok((
         access_token,
@@ -39,7 +39,7 @@ pub async fn unlock(
     let protected_key =
         crate::cipherstring::CipherString::new(protected_key)?;
 
-    match protected_key.decrypt_locked(&identity.keys) {
+    match protected_key.decrypt_locked_symmetric(&identity.keys) {
         Ok(master_keys) => Ok(crate::locked::Keys::new(master_keys)),
         Err(Error::InvalidMac) => Err(Error::IncorrectPassword),
         Err(e) => Err(e),

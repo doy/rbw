@@ -226,7 +226,7 @@ pub async fn decrypt(
         .context("failed to parse encrypted secret")?;
     let plaintext = String::from_utf8(
         cipherstring
-            .decrypt(&keys)
+            .decrypt_symmetric(&keys)
             .context("failed to decrypt encrypted secret")?,
     )
     .context("failed to parse decrypted secret")?;
@@ -250,9 +250,11 @@ pub async fn encrypt(
             "failed to find encryption keys in in-memory state"
         ));
     };
-    let cipherstring =
-        rbw::cipherstring::CipherString::encrypt(keys, plaintext.as_bytes())
-            .context("failed to encrypt plaintext secret")?;
+    let cipherstring = rbw::cipherstring::CipherString::encrypt_symmetric(
+        keys,
+        plaintext.as_bytes(),
+    )
+    .context("failed to encrypt plaintext secret")?;
 
     respond_encrypt(sock, cipherstring.to_string()).await?;
 
