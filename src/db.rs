@@ -32,6 +32,7 @@ pub struct Db {
 
     pub iterations: Option<u32>,
     pub protected_key: Option<String>,
+    pub protected_private_key: Option<String>,
 
     pub entries: Vec<Entry>,
 }

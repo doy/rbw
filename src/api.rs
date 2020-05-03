@@ -146,6 +146,8 @@ impl SyncResCipher {
 struct SyncResProfile {
     #[serde(rename = "Key")]
     key: String,
+    #[serde(rename = "PrivateKey")]
+    private_key: String,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -319,7 +321,7 @@ impl Client {
     pub async fn sync(
         &self,
         access_token: &str,
-    ) -> Result<(String, Vec<crate::db::Entry>)> {
+    ) -> Result<(String, String, Vec<crate::db::Entry>)> {
         let client = reqwest::Client::new();
         let res = client
             .get(&self.api_url("/sync"))
@@ -337,7 +339,11 @@ impl Client {
                     .iter()
                     .filter_map(|cipher| cipher.to_entry(&folders))
                     .collect();
-                Ok((sync_res.profile.key, ciphers))
+                Ok((
+                    sync_res.profile.key,
+                    sync_res.profile.private_key,
+                    ciphers,
+                ))
             }
             reqwest::StatusCode::UNAUTHORIZED => {
                 Err(Error::RequestUnauthorized)
