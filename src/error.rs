@@ -58,6 +58,9 @@ pub enum Error {
     #[snafu(display("failed to load db: {}", source))]
     LoadDbJson { source: serde_json::Error },
 
+    #[snafu(display("openssl error: {}", source))]
+    OpenSSL { source: openssl::error::ErrorStack },
+
     #[snafu(display("pbkdf2 requires at least 1 iteration (got 0)"))]
     Pbkdf2ZeroIterations,
 

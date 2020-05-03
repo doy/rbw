@@ -158,8 +158,8 @@ impl CipherString {
                 let pkey = openssl::pkey::PKey::private_key_from_pkcs8(
                     private_key.private_key(),
                 )
-                .unwrap(); // XXX
-                let rsa = pkey.rsa().unwrap(); // XXX
+                .context(crate::error::OpenSSL)?;
+                let rsa = pkey.rsa().context(crate::error::OpenSSL)?;
 
                 let mut res = crate::locked::Vec::new();
                 res.extend(std::iter::repeat(0).take(rsa.size() as usize));
@@ -170,7 +170,7 @@ impl CipherString {
                         res.data_mut(),
                         openssl::rsa::Padding::PKCS1_OAEP,
                     )
-                    .unwrap(); // XXX
+                    .context(crate::error::OpenSSL)?;
                 res.truncate(bytes);
 
                 Ok(res)
