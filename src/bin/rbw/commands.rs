@@ -643,10 +643,17 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
 
             let (password, notes) = parse_editor(&contents);
             let password = password
-                .map(|password| crate::actions::encrypt(&password, None))
+                .map(|password| {
+                    crate::actions::encrypt(
+                        &password,
+                        entry.org_id.as_deref(),
+                    )
+                })
                 .transpose()?;
             let notes = notes
-                .map(|notes| crate::actions::encrypt(&notes, None))
+                .map(|notes| {
+                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
+                })
                 .transpose()?;
             let mut history = entry.history.clone();
             let (entry_username, entry_password) = match &entry.data {
@@ -680,6 +687,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         &access_token,
         &refresh_token,
         &entry.id,
+        entry.org_id.as_deref(),
         &entry.name,
         &data,
         notes.as_deref(),

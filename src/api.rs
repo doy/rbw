@@ -307,6 +307,8 @@ struct CiphersPostReq {
 struct CiphersPutReq {
     #[serde(rename = "type")]
     ty: u32, // XXX what are the valid types?
+    #[serde(rename = "organizationId")]
+    organization_id: Option<String>,
     name: String,
     notes: Option<String>,
     login: Option<CipherLogin>,
@@ -594,6 +596,7 @@ impl Client {
         &self,
         access_token: &str,
         id: &str,
+        org_id: Option<&str>,
         name: &str,
         data: &crate::db::EntryData,
         notes: Option<&str>,
@@ -601,6 +604,7 @@ impl Client {
     ) -> Result<()> {
         let mut req = CiphersPutReq {
             ty: 1,
+            organization_id: org_id.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
             login: None,
