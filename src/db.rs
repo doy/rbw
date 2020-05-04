@@ -10,6 +10,7 @@ pub struct Entry {
     pub id: String,
     pub org_id: Option<String>,
     pub folder: Option<String>,
+    pub folder_id: Option<String>,
     pub name: String,
     pub data: EntryData,
     pub notes: Option<String>,
@@ -23,6 +24,7 @@ pub enum EntryData {
     Login {
         username: Option<String>,
         password: Option<String>,
+        uris: Vec<String>,
     },
     Card {
         cardholder_name: Option<String>,

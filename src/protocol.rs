@@ -1,4 +1,4 @@
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Request {

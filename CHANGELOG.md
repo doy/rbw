@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2020-05-03
+
+### Fixed
+
+* Properly maintain folder and URIs when editing an entry.
+
 ## [0.2.0] - 2020-05-03
 
 ### Added

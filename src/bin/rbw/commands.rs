@@ -509,9 +509,12 @@ pub fn add(
         &access_token,
         &refresh_token,
         &name,
-        &rbw::db::EntryData::Login { username, password },
+        &rbw::db::EntryData::Login {
+            username,
+            password,
+            uris,
+        },
         notes.as_deref(),
-        &uris,
         folder_id.as_deref(),
     )? {
         db.access_token = Some(access_token);
@@ -598,9 +601,9 @@ pub fn generate(
             &rbw::db::EntryData::Login {
                 username,
                 password: Some(password),
+                uris,
             },
             None,
-            &uris,
             folder_id.as_deref(),
         )? {
             db.access_token = Some(access_token);
@@ -656,12 +659,15 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
                 })
                 .transpose()?;
             let mut history = entry.history.clone();
-            let (entry_username, entry_password) = match &entry.data {
-                rbw::db::EntryData::Login { username, password } => {
-                    (username, password)
-                }
-                _ => unreachable!(),
-            };
+            let (entry_username, entry_password, entry_uris) =
+                match &entry.data {
+                    rbw::db::EntryData::Login {
+                        username,
+                        password,
+                        uris,
+                    } => (username, password, uris),
+                    _ => unreachable!(),
+                };
             let new_history_entry = rbw::db::HistoryEntry {
                 last_used_date: format!(
                     "{}",
@@ -673,6 +679,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
             let data = rbw::db::EntryData::Login {
                 username: entry_username.clone(),
                 password,
+                uris: entry_uris.to_vec(),
             };
             (data, notes, history)
         }
@@ -691,6 +698,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         &entry.name,
         &data,
         notes.as_deref(),
+        entry.folder_id.as_deref(),
         &history,
     )? {
         db.access_token = Some(access_token);
@@ -970,20 +978,20 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .collect::<anyhow::Result<_>>()?;
 
     let data = match &entry.data {
-        rbw::db::EntryData::Login { username, password } => {
-            DecryptedData::Login {
-                username: decrypt_field(
-                    "username",
-                    username.as_deref(),
-                    entry.org_id.as_deref(),
-                ),
-                password: decrypt_field(
-                    "password",
-                    password.as_deref(),
-                    entry.org_id.as_deref(),
-                ),
-            }
-        }
+        rbw::db::EntryData::Login {
+            username, password, ..
+        } => DecryptedData::Login {
+            username: decrypt_field(
+                "username",
+                username.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            password: decrypt_field(
+                "password",
+                password.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+        },
         rbw::db::EntryData::Card {
             cardholder_name,
             number,
@@ -1278,12 +1286,14 @@ mod test {
                 id: "irrelevant".to_string(),
                 org_id: None,
                 folder: None,
+                folder_id: None,
                 name: "this is the encrypted name".to_string(),
                 data: rbw::db::EntryData::Login {
                     username: username.map(|_| {
                         "this is the encrypted username".to_string()
                     }),
                     password: None,
+                    uris: vec![],
                 },
                 notes: None,
                 history: vec![],

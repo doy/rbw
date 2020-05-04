@@ -115,11 +115,10 @@ pub fn add(
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
-    uris: &[String],
     folder_id: Option<&str>,
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, name, data, notes, uris, folder_id)
+        add_once(access_token, name, data, notes, folder_id)
     })
 }
 
@@ -128,20 +127,12 @@ fn add_once(
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
-    uris: &[String],
     folder_id: Option<&str>,
 ) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.add(
-        access_token,
-        name,
-        data,
-        notes,
-        uris,
-        folder_id.as_deref(),
-    )?;
+    client.add(access_token, name, data, notes, folder_id.as_deref())?;
     Ok(())
 }
 
@@ -153,10 +144,20 @@ pub fn edit(
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
+    folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        edit_once(access_token, id, org_id, name, data, notes, history)
+        edit_once(
+            access_token,
+            id,
+            org_id,
+            name,
+            data,
+            notes,
+            folder_uuid,
+            history,
+        )
     })
 }
 
@@ -167,12 +168,22 @@ fn edit_once(
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
+    folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
 ) -> Result<()> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.edit(access_token, id, org_id, name, data, notes, history)?;
+    client.edit(
+        access_token,
+        id,
+        org_id,
+        name,
+        data,
+        notes,
+        folder_uuid,
+        history,
+    )?;
     Ok(())
 }
 

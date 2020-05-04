@@ -119,21 +119,25 @@ impl SyncResCipher {
         } else {
             vec![]
         };
-        let folder = if let Some(folder_id) = &self.folder_id {
+        let (folder, folder_id) = if let Some(folder_id) = &self.folder_id {
             let mut folder_name = None;
             for folder in folders {
                 if &folder.id == folder_id {
                     folder_name = Some(folder.name.clone());
                 }
             }
-            folder_name
+            (folder_name, Some(folder_id))
         } else {
-            None
+            (None, None)
         };
         let data = if let Some(login) = &self.login {
             crate::db::EntryData::Login {
                 username: login.username.clone(),
                 password: login.password.clone(),
+                uris: login.uris.as_ref().map_or_else(
+                    || vec![],
+                    |uris| uris.iter().map(|uri| uri.uri.clone()).collect(),
+                ),
             }
         } else if let Some(card) = &self.card {
             crate::db::EntryData::Card {
@@ -173,6 +177,7 @@ impl SyncResCipher {
             id: self.id.clone(),
             org_id: self.organization_id.clone(),
             folder,
+            folder_id: folder_id.map(std::string::ToString::to_string),
             name: self.name.clone(),
             data,
             notes: self.notes.clone(),
@@ -213,11 +218,13 @@ struct CipherLogin {
     username: Option<String>,
     #[serde(rename = "Password")]
     password: Option<String>,
+    #[serde(rename = "Uris")]
     uris: Option<Vec<CipherLoginUri>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherLoginUri {
+    #[serde(rename = "Uri")]
     uri: String,
 }
 
@@ -307,6 +314,8 @@ struct CiphersPostReq {
 struct CiphersPutReq {
     #[serde(rename = "type")]
     ty: u32, // XXX what are the valid types?
+    #[serde(rename = "folderId")]
+    folder_id: Option<String>,
     #[serde(rename = "organizationId")]
     organization_id: Option<String>,
     name: String,
@@ -484,7 +493,6 @@ impl Client {
         name: &str,
         data: &crate::db::EntryData,
         notes: Option<&str>,
-        uris: &[String],
         folder_id: Option<&str>,
     ) -> Result<()> {
         let mut req = CiphersPostReq {
@@ -498,7 +506,11 @@ impl Client {
             secure_note: None,
         };
         match data {
-            crate::db::EntryData::Login { username, password } => {
+            crate::db::EntryData::Login {
+                username,
+                password,
+                uris,
+            } => {
                 let uris = if uris.is_empty() {
                     None
                 } else {
@@ -600,10 +612,12 @@ impl Client {
         name: &str,
         data: &crate::db::EntryData,
         notes: Option<&str>,
+        folder_uuid: Option<&str>,
         history: &[crate::db::HistoryEntry],
     ) -> Result<()> {
         let mut req = CiphersPutReq {
             ty: 1,
+            folder_id: folder_uuid.map(std::string::ToString::to_string),
             organization_id: org_id.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
@@ -620,11 +634,24 @@ impl Client {
                 .collect(),
         };
         match data {
-            crate::db::EntryData::Login { username, password } => {
+            crate::db::EntryData::Login {
+                username,
+                password,
+                uris,
+            } => {
+                let uris = if uris.is_empty() {
+                    None
+                } else {
+                    Some(
+                        uris.iter()
+                            .map(|s| CipherLoginUri { uri: s.to_string() })
+                            .collect(),
+                    )
+                };
                 req.login = Some(CipherLogin {
                     username: username.clone(),
                     password: password.clone(),
-                    uris: None,
+                    uris,
                 });
             }
             crate::db::EntryData::Card {
