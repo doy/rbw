@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.2] - 2020-05-17
+
+### Fixed
+
+* Fix syncing from the official Bitwarden server (thanks the_fdw).
+
+### Added
+
+* Added a couple example scripts to the repository for searching using fzf and
+  rofi. Contributions and improvements welcome!
+
 ## [0.2.1] - 2020-05-03
 
 ### Fixed
