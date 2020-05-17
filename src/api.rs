@@ -65,8 +65,6 @@ struct ConnectRefreshTokenRes {
     expires_in: u32,
     token_type: String,
     refresh_token: String,
-    #[serde(rename = "Key")]
-    key: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
