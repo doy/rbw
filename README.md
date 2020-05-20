@@ -11,11 +11,30 @@ similar to the way that `ssh-agent` or `gpg-agent` work. This allows the client
 to be used in a much simpler way, with the background agent taking care of
 maintaining the necessary state.
 
-## Requirements
+## Installation
 
-This program relies on the
+### Arch Linux
+
+`rbw` is available via the AUR as either
+[`rbw`](https://aur.archlinux.org/packages/rbw/),
+[`rbw-git`](https://aur.archlinux.org/packages/rbw-git/), or
+[`rbw-bin`](https://aur.archlinux.org/packages/rbw-bin/). `rbw-git` will always
+build from the latest master commit, and `rbw-bin` installs pre-built binaries.
+
+### Debian/Ubuntu
+
+You can download a Debian package from
+[https://git.tozt.net/rbw/releases/deb/
+](https://git.tozt.net/rbw/releases/deb/). The packages are signed by
+[`minisign`](https://github.com/jedisct1/minisign), and can be verified using
+the public key `RWTM0AZ5RpROOfAIWx1HvYQ6pw1+FKwN6526UFTKNImP/Hz3ynCFst3r`.
+
+### Other
+
+With a working Rust installation, `rbw` can be installed via `cargo install
+rbw`. This requires that the
 [`pinentry`](https://www.gnupg.org/related_software/pinentry/index.en.html)
-program for password prompts.
+program is installed (to display password prompts).
 
 ## Configuration
 
