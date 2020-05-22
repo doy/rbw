@@ -791,15 +791,11 @@ fn ensure_agent() -> anyhow::Result<()> {
             rbw::protocol::VERSION,
             version
         );
-        if version != 0 {
-            crate::actions::quit()?;
-        }
+        crate::actions::quit()?;
         ensure_agent_once()?;
         let version = version_or_quit()?;
         if version != rbw::protocol::VERSION {
-            if version != 0 {
-                crate::actions::quit()?;
-            }
+            crate::actions::quit()?;
             return Err(anyhow::anyhow!(
                 "incompatible protocol versions: client ({}), agent ({})",
                 rbw::protocol::VERSION,
@@ -834,13 +830,9 @@ fn ensure_agent_once() -> anyhow::Result<()> {
 }
 
 fn version_or_quit() -> anyhow::Result<u32> {
-    Ok(match crate::actions::version() {
-        Ok(version) => version,
-        Err(e) => {
-            log::warn!("{}", e);
-            crate::actions::quit()?;
-            0
-        }
+    crate::actions::version().or_else(|e| {
+        let _ = crate::actions::quit();
+        Err(e)
     })
 }
 
