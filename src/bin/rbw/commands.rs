@@ -279,11 +279,11 @@ enum ListField {
     Folder,
 }
 
-impl std::convert::TryFrom<&str> for ListField {
+impl std::convert::TryFrom<&String> for ListField {
     type Error = anyhow::Error;
 
-    fn try_from(s: &str) -> anyhow::Result<Self> {
-        Ok(match s {
+    fn try_from(s: &String) -> anyhow::Result<Self> {
+        Ok(match s.as_str() {
             "name" => Self::Name,
             "id" => Self::Id,
             "user" => Self::User,
@@ -368,10 +368,9 @@ pub fn sync() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn list(fields: &[&str]) -> anyhow::Result<()> {
+pub fn list(fields: &[String]) -> anyhow::Result<()> {
     let fields: Vec<ListField> = fields
         .iter()
-        .copied()
         .map(std::convert::TryFrom::try_from)
         .collect::<anyhow::Result<_>>()?;
 
@@ -438,7 +437,7 @@ pub fn get(name: &str, user: Option<&str>, full: bool) -> anyhow::Result<()> {
 pub fn add(
     name: &str,
     username: Option<&str>,
-    uris: Vec<&str>,
+    uris: Vec<String>,
     folder: Option<&str>,
 ) -> anyhow::Result<()> {
     unlock()?;
@@ -529,7 +528,7 @@ pub fn add(
 pub fn generate(
     name: Option<&str>,
     username: Option<&str>,
-    uris: Vec<&str>,
+    uris: Vec<String>,
     folder: Option<&str>,
     len: usize,
     ty: rbw::pwgen::Type,
