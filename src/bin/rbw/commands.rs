@@ -325,6 +325,10 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
     }
     config.save().context("failed to save config file")?;
 
+    // drop in-memory keys, since they will be different if the email or url
+    // changed
+    lock()?;
+
     Ok(())
 }
 
@@ -341,6 +345,10 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
         _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
     }
     config.save().context("failed to save config file")?;
+
+    // drop in-memory keys, since they will be different if the email or url
+    // changed
+    lock()?;
 
     Ok(())
 }
