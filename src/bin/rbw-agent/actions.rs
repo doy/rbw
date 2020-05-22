@@ -299,7 +299,7 @@ pub async fn encrypt(
 
 pub async fn version(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Version {
-        version: rbw::protocol::VERSION,
+        version: rbw::protocol::version(),
     })
     .await
     .context("failed to send response")?;

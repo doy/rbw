@@ -1,4 +1,14 @@
-pub const VERSION: u32 = 3;
+// eventually it would be nice to make this a const function so that we could
+// just get the version from a variable directly, but this is fine for now
+pub fn version() -> u32 {
+    let major = env!("CARGO_PKG_VERSION_MAJOR");
+    let minor = env!("CARGO_PKG_VERSION_MINOR");
+    let patch = env!("CARGO_PKG_VERSION_PATCH");
+
+    major.parse::<u32>().unwrap() * 1_000_000
+        + minor.parse::<u32>().unwrap() * 1_000
+        + patch.parse::<u32>().unwrap()
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Request {

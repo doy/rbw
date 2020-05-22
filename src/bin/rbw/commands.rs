@@ -784,22 +784,23 @@ pub fn stop_agent() -> anyhow::Result<()> {
 
 fn ensure_agent() -> anyhow::Result<()> {
     ensure_agent_once()?;
-    let version = version_or_quit()?;
-    if version != rbw::protocol::VERSION {
+    let client_version = rbw::protocol::version();
+    let agent_version = version_or_quit()?;
+    if agent_version != client_version {
         log::debug!(
             "client protocol version is {} but agent protocol version is {}",
-            rbw::protocol::VERSION,
-            version
+            client_version,
+            agent_version
         );
         crate::actions::quit()?;
         ensure_agent_once()?;
-        let version = version_or_quit()?;
-        if version != rbw::protocol::VERSION {
+        let agent_version = version_or_quit()?;
+        if agent_version != client_version {
             crate::actions::quit()?;
             return Err(anyhow::anyhow!(
                 "incompatible protocol versions: client ({}), agent ({})",
-                rbw::protocol::VERSION,
-                version
+                client_version,
+                agent_version
             ));
         }
     }
