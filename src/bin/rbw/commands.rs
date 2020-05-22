@@ -317,9 +317,14 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
         "base_url" => config.base_url = Some(value.to_string()),
         "identity_url" => config.identity_url = Some(value.to_string()),
         "lock_timeout" => {
-            config.lock_timeout = value
+            let timeout = value
                 .parse()
-                .context("failed to parse value for lock_timeout")?
+                .context("failed to parse value for lock_timeout")?;
+            if timeout == 0 {
+                log::error!("lock_timeout must be greater than 0");
+            } else {
+                config.lock_timeout = timeout;
+            }
         }
         _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
     }

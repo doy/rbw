@@ -27,8 +27,12 @@ impl Config {
         let mut json = String::new();
         fh.read_to_string(&mut json)
             .context(crate::error::LoadConfig)?;
-        let slf: Self = serde_json::from_str(&json)
+        let mut slf: Self = serde_json::from_str(&json)
             .context(crate::error::LoadConfigJson)?;
+        if slf.lock_timeout == 0 {
+            log::warn!("lock_timeout must be greater than 0");
+            slf.lock_timeout = default_lock_timeout();
+        }
         Ok(slf)
     }
 
@@ -40,8 +44,12 @@ impl Config {
         fh.read_to_string(&mut json)
             .await
             .context(crate::error::LoadConfigAsync)?;
-        let slf: Self = serde_json::from_str(&json)
+        let mut slf: Self = serde_json::from_str(&json)
             .context(crate::error::LoadConfigJson)?;
+        if slf.lock_timeout == 0 {
+            log::warn!("lock_timeout must be greater than 0");
+            slf.lock_timeout = default_lock_timeout();
+        }
         Ok(slf)
     }
 
