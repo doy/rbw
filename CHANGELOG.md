@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2020-05-22
+
+### Fixed
+
+* Better error message if the agent fails to start after daemonizing.
+* Always automatically upgrade rbw-agent on new releases.
+* Changing configuration now automatically drops in-memory keys (this should
+  avoid errors when switching between different servers or accounts).
+* Disallow setting `lock_timeout` to `0`, since this will cause the agent to
+  immediately drop the decrypted keys before they can be used for decryption,
+  even within a single run of the `rbw` client.
+
 ## [0.2.2] - 2020-05-17
 
 ### Fixed
