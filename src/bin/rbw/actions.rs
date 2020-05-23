@@ -2,19 +2,19 @@ use anyhow::Context as _;
 use std::io::Read as _;
 
 pub fn login() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Login, "login")
+    simple_action(rbw::protocol::Action::Login)
 }
 
 pub fn unlock() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Unlock, "unlock")
+    simple_action(rbw::protocol::Action::Unlock)
 }
 
 pub fn sync() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Sync, "sync")
+    simple_action(rbw::protocol::Action::Sync)
 }
 
 pub fn lock() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Lock, "lock")
+    simple_action(rbw::protocol::Action::Lock)
 }
 
 pub fn quit() -> anyhow::Result<()> {
@@ -107,10 +107,7 @@ pub fn version() -> anyhow::Result<u32> {
     }
 }
 
-fn simple_action(
-    action: rbw::protocol::Action,
-    desc: &str,
-) -> anyhow::Result<()> {
+fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     let mut sock = crate::sock::Sock::connect()
         .context("failed to connect to rbw-agent")?;
 
@@ -123,7 +120,7 @@ fn simple_action(
     match res {
         rbw::protocol::Response::Ack => Ok(()),
         rbw::protocol::Response::Error { error } => {
-            Err(anyhow::anyhow!("failed to {}: {}", desc, error))
+            Err(anyhow::anyhow!("{}", error))
         }
         _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
     }
