@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2] - 2020-05-23
+
+### Fixed
+
+* Improve warning and error output a bit.
+
 ## [0.3.1] - 2020-05-23
 
 ### Fixed
