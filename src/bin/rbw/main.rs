@@ -34,7 +34,8 @@ enum Opt {
             help = "Fields to display. \
                 Available options are id, name, user, folder. \
                 Multiple fields will be separated by tabs.",
-            default_value = "name"
+            default_value = "name",
+            use_delimiter = true
         )]
         fields: Vec<String>,
     },
@@ -66,7 +67,12 @@ enum Opt {
         name: String,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
-        #[structopt(long, help = "URI for the password entry")]
+        #[structopt(
+            long,
+            help = "URI for the password entry",
+            multiple = true,
+            number_of_values = 1
+        )]
         uri: Vec<String>,
         #[structopt(long, help = "Folder for the password entry")]
         folder: Option<String>,
@@ -92,7 +98,12 @@ enum Opt {
         name: Option<String>,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
-        #[structopt(long, help = "URI for the password entry")]
+        #[structopt(
+            long,
+            help = "URI for the password entry",
+            multiple = true,
+            number_of_values = 1
+        )]
         uri: Vec<String>,
         #[structopt(long, help = "Folder for the password entry")]
         folder: Option<String>,
