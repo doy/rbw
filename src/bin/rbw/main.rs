@@ -1,6 +1,7 @@
 #![allow(clippy::large_enum_variant)]
 
 use anyhow::Context as _;
+use std::io::Write as _;
 
 mod actions;
 mod commands;
@@ -203,6 +204,9 @@ fn main(opt: Opt) {
     env_logger::from_env(
         env_logger::Env::default().default_filter_or("info"),
     )
+    .format(|buf, record| {
+        writeln!(buf, "{}: {}", record.level(), record.args())
+    })
     .init();
 
     let res = match opt {
