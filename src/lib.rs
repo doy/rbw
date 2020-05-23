@@ -19,6 +19,7 @@ pub mod dirs;
 pub mod edit;
 pub mod error;
 pub mod identity;
+pub mod json;
 pub mod locked;
 pub mod pinentry;
 mod prelude;

@@ -43,6 +43,11 @@ pub enum Error {
     #[snafu(display("invalid mac"))]
     InvalidMac,
 
+    #[snafu(display("{}", source))]
+    JSON {
+        source: serde_path_to_error::Error<serde_json::Error>,
+    },
+
     #[snafu(display("failed to load config: {}", source))]
     LoadConfig { source: std::io::Error },
 

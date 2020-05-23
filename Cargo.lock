@@ -84,6 +84,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
 
 [[package]]
+name = "async-trait"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26c4f3195085c36ea8d24d32b2f828d23296a9370a28aa39d111f6f16bef9f3b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1110,6 +1121,7 @@ dependencies = [
  "aes",
  "anyhow",
  "arrayvec",
+ "async-trait",
  "base64 0.12.1",
  "block-modes",
  "chbs",
@@ -1129,6 +1141,7 @@ dependencies = [
  "ring",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "snafu",
  "structopt",
  "tempfile",
@@ -1329,6 +1342,15 @@ checksum = "993948e75b189211a9b31a7528f950c6adc21f9720b6438ff80a7fa2f864cea2"
 dependencies = [
  "itoa",
  "ryu",
+ "serde",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "359b895005d818163c78a24d272cc98567cce80c2461cf73f513da1d296c0b62"
+dependencies = [
  "serde",
 ]
 

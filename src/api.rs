@@ -1,5 +1,9 @@
 use crate::prelude::*;
 
+use crate::json::{
+    DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
+};
+
 #[derive(serde::Serialize, Debug)]
 struct PreloginReq {
     email: String,
@@ -385,8 +389,7 @@ impl Client {
             .send()
             .await
             .context(crate::error::Reqwest)?;
-        let prelogin_res: PreloginRes =
-            res.json().await.context(crate::error::Reqwest)?;
+        let prelogin_res: PreloginRes = res.json_with_path().await?;
         Ok(prelogin_res.kdf_iterations)
     }
 
@@ -417,7 +420,7 @@ impl Client {
             .context(crate::error::Reqwest)?;
         if let reqwest::StatusCode::OK = res.status() {
             let connect_res: ConnectPasswordRes =
-                res.json().await.context(crate::error::Reqwest)?;
+                res.json_with_path().await?;
             Ok((
                 connect_res.access_token,
                 connect_res.refresh_token,
@@ -425,8 +428,7 @@ impl Client {
             ))
         } else {
             let code = res.status().as_u16();
-            let error_res: ConnectErrorRes =
-                res.json().await.context(crate::error::Reqwest)?;
+            let error_res: ConnectErrorRes = res.json_with_path().await?;
             if error_res.error_model.message
                 == "Username or password is incorrect. Try again"
             {
@@ -455,8 +457,7 @@ impl Client {
             .context(crate::error::Reqwest)?;
         match res.status() {
             reqwest::StatusCode::OK => {
-                let sync_res: SyncRes =
-                    res.json().await.context(crate::error::Reqwest)?;
+                let sync_res: SyncRes = res.json_with_path().await?;
                 let folders = sync_res.folders.clone();
                 let ciphers = sync_res
                     .ciphers
@@ -760,8 +761,7 @@ impl Client {
             .context(crate::error::Reqwest)?;
         match res.status() {
             reqwest::StatusCode::OK => {
-                let folders_res: FoldersRes =
-                    res.json().context(crate::error::Reqwest)?;
+                let folders_res: FoldersRes = res.json_with_path()?;
                 Ok(folders_res
                     .data
                     .iter()
@@ -794,8 +794,7 @@ impl Client {
             .context(crate::error::Reqwest)?;
         match res.status() {
             reqwest::StatusCode::OK => {
-                let folders_res: FoldersResData =
-                    res.json().context(crate::error::Reqwest)?;
+                let folders_res: FoldersResData = res.json_with_path()?;
                 Ok(folders_res.id)
             }
             reqwest::StatusCode::UNAUTHORIZED => {
@@ -822,8 +821,7 @@ impl Client {
             .form(&connect_req)
             .send()
             .context(crate::error::Reqwest)?;
-        let connect_res: ConnectRefreshTokenRes =
-            res.json().context(crate::error::Reqwest)?;
+        let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
         Ok(connect_res.access_token)
     }
 
@@ -844,7 +842,7 @@ impl Client {
             .await
             .context(crate::error::Reqwest)?;
         let connect_res: ConnectRefreshTokenRes =
-            res.json().await.context(crate::error::Reqwest)?;
+            res.json_with_path().await?;
         Ok(connect_res.access_token)
     }
 
