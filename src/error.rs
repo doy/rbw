@@ -9,8 +9,11 @@ pub enum Error {
         source: block_modes::InvalidKeyIvLength,
     },
 
-    #[snafu(display("failed to create directory"))]
-    CreateDirectory { source: std::io::Error },
+    #[snafu(display("failed to create directory at {}", file.display()))]
+    CreateDirectory {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
 
     #[snafu(display("failed to decrypt"))]
     Decrypt { source: block_modes::BlockModeError },
@@ -51,23 +54,41 @@ pub enum Error {
         source: serde_path_to_error::Error<serde_json::Error>,
     },
 
-    #[snafu(display("failed to load config"))]
-    LoadConfig { source: std::io::Error },
+    #[snafu(display("failed to load config from {}", file.display()))]
+    LoadConfig {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to load config"))]
-    LoadConfigAsync { source: tokio::io::Error },
+    #[snafu(display("failed to load config from {}", file.display()))]
+    LoadConfigAsync {
+        source: tokio::io::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to load config"))]
-    LoadConfigJson { source: serde_json::Error },
+    #[snafu(display("failed to load config from {}", file.display()))]
+    LoadConfigJson {
+        source: serde_json::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to load db"))]
-    LoadDb { source: std::io::Error },
+    #[snafu(display("failed to load db from {}", file.display()))]
+    LoadDb {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to load db"))]
-    LoadDbAsync { source: tokio::io::Error },
+    #[snafu(display("failed to load db from {}", file.display()))]
+    LoadDbAsync {
+        source: tokio::io::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to load db"))]
-    LoadDbJson { source: serde_json::Error },
+    #[snafu(display("failed to load db from {}", file.display()))]
+    LoadDbJson {
+        source: serde_json::Error,
+        file: std::path::PathBuf,
+    },
 
     #[snafu(display("openssl error"))]
     OpenSSL { source: openssl::error::ErrorStack },
@@ -87,8 +108,11 @@ pub enum Error {
     #[snafu(display("error waiting for pinentry to exit"))]
     PinentryWait { source: tokio::io::Error },
 
-    #[snafu(display("failed to remove db"))]
-    RemoveDb { source: std::io::Error },
+    #[snafu(display("failed to remove db at {}", file.display()))]
+    RemoveDb {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
 
     #[snafu(display("api request returned error: {}", status))]
     RequestFailed { status: u16 },
@@ -99,20 +123,35 @@ pub enum Error {
     #[snafu(display("error making api request"))]
     Reqwest { source: reqwest::Error },
 
-    #[snafu(display("failed to save config"))]
-    SaveConfig { source: std::io::Error },
+    #[snafu(display("failed to save config to {}", file.display()))]
+    SaveConfig {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to save config"))]
-    SaveConfigJson { source: serde_json::Error },
+    #[snafu(display("failed to save config to {}", file.display()))]
+    SaveConfigJson {
+        source: serde_json::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to save db"))]
-    SaveDb { source: std::io::Error },
+    #[snafu(display("failed to save db to {}", file.display()))]
+    SaveDb {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to save db"))]
-    SaveDbAsync { source: tokio::io::Error },
+    #[snafu(display("failed to save db to {}", file.display()))]
+    SaveDbAsync {
+        source: tokio::io::Error,
+        file: std::path::PathBuf,
+    },
 
-    #[snafu(display("failed to save db"))]
-    SaveDbJson { source: serde_json::Error },
+    #[snafu(display("failed to save db to {}", file.display()))]
+    SaveDbJson {
+        source: serde_json::Error,
+        file: std::path::PathBuf,
+    },
 
     #[snafu(display("error spawning pinentry"))]
     Spawn { source: tokio::io::Error },

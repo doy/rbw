@@ -1,14 +1,17 @@
 use crate::prelude::*;
 
 pub fn make_all() -> Result<()> {
-    std::fs::create_dir_all(&cache_dir())
-        .context(crate::error::CreateDirectory)?;
+    let cache_dir = cache_dir();
+    std::fs::create_dir_all(&cache_dir)
+        .context(crate::error::CreateDirectory { file: cache_dir })?;
 
-    std::fs::create_dir_all(&runtime_dir())
-        .context(crate::error::CreateDirectory)?;
+    let runtime_dir = runtime_dir();
+    std::fs::create_dir_all(&runtime_dir)
+        .context(crate::error::CreateDirectory { file: runtime_dir })?;
 
-    std::fs::create_dir_all(&data_dir())
-        .context(crate::error::CreateDirectory)?;
+    let data_dir = data_dir();
+    std::fs::create_dir_all(&data_dir)
+        .context(crate::error::CreateDirectory { file: data_dir })?;
 
     Ok(())
 }

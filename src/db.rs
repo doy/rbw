@@ -83,77 +83,87 @@ impl Db {
     }
 
     pub fn load(server: &str, email: &str) -> Result<Self> {
-        let mut fh = std::fs::File::open(crate::dirs::db_file(server, email))
-            .context(crate::error::LoadDb)?;
+        let file = crate::dirs::db_file(server, email);
+        let mut fh = std::fs::File::open(&file)
+            .with_context(|| crate::error::LoadDb { file: file.clone() })?;
         let mut json = String::new();
-        fh.read_to_string(&mut json).context(crate::error::LoadDb)?;
-        let slf: Self =
-            serde_json::from_str(&json).context(crate::error::LoadDbJson)?;
+        fh.read_to_string(&mut json)
+            .with_context(|| crate::error::LoadDb { file: file.clone() })?;
+        let slf: Self = serde_json::from_str(&json)
+            .context(crate::error::LoadDbJson { file })?;
         Ok(slf)
     }
 
     pub async fn load_async(server: &str, email: &str) -> Result<Self> {
+        let file = crate::dirs::db_file(server, email);
         let mut fh =
-            tokio::fs::File::open(crate::dirs::db_file(server, email))
-                .await
-                .context(crate::error::LoadDbAsync)?;
+            tokio::fs::File::open(&file).await.with_context(|| {
+                crate::error::LoadDbAsync { file: file.clone() }
+            })?;
         let mut json = String::new();
-        fh.read_to_string(&mut json)
-            .await
-            .context(crate::error::LoadDbAsync)?;
-        let slf: Self =
-            serde_json::from_str(&json).context(crate::error::LoadDbJson)?;
+        fh.read_to_string(&mut json).await.with_context(|| {
+            crate::error::LoadDbAsync { file: file.clone() }
+        })?;
+        let slf: Self = serde_json::from_str(&json)
+            .context(crate::error::LoadDbJson { file })?;
         Ok(slf)
     }
 
     // XXX need to make this atomic
     pub fn save(&self, server: &str, email: &str) -> Result<()> {
-        let filename = crate::dirs::db_file(server, email);
+        let file = crate::dirs::db_file(server, email);
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
-        std::fs::create_dir_all(filename.parent().unwrap())
-            .context(crate::error::SaveDb)?;
-        let mut fh =
-            std::fs::File::create(filename).context(crate::error::SaveDb)?;
+        std::fs::create_dir_all(file.parent().unwrap())
+            .with_context(|| crate::error::SaveDb { file: file.clone() })?;
+        let mut fh = std::fs::File::create(&file)
+            .with_context(|| crate::error::SaveDb { file: file.clone() })?;
         fh.write_all(
             serde_json::to_string(self)
-                .context(crate::error::SaveDbJson)?
+                .with_context(|| crate::error::SaveDbJson {
+                    file: file.clone(),
+                })?
                 .as_bytes(),
         )
-        .context(crate::error::SaveDb)?;
+        .context(crate::error::SaveDb { file })?;
         Ok(())
     }
 
     // XXX need to make this atomic
     pub async fn save_async(&self, server: &str, email: &str) -> Result<()> {
-        let filename = crate::dirs::db_file(server, email);
+        let file = crate::dirs::db_file(server, email);
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
-        tokio::fs::create_dir_all(filename.parent().unwrap())
+        tokio::fs::create_dir_all(file.parent().unwrap())
             .await
-            .context(crate::error::SaveDbAsync)?;
-        let mut fh = tokio::fs::File::create(filename)
-            .await
-            .context(crate::error::SaveDbAsync)?;
+            .with_context(|| crate::error::SaveDbAsync {
+                file: file.clone(),
+            })?;
+        let mut fh =
+            tokio::fs::File::create(&file).await.with_context(|| {
+                crate::error::SaveDbAsync { file: file.clone() }
+            })?;
         fh.write_all(
             serde_json::to_string(self)
-                .context(crate::error::SaveDbJson)?
+                .with_context(|| crate::error::SaveDbJson {
+                    file: file.clone(),
+                })?
                 .as_bytes(),
         )
         .await
-        .context(crate::error::SaveDbAsync)?;
+        .context(crate::error::SaveDbAsync { file })?;
         Ok(())
     }
 
     pub fn remove(server: &str, email: &str) -> Result<()> {
-        let filename = crate::dirs::db_file(server, email);
-        let res = std::fs::remove_file(filename);
+        let file = crate::dirs::db_file(server, email);
+        let res = std::fs::remove_file(&file);
         if let Err(e) = &res {
             if e.kind() == std::io::ErrorKind::NotFound {
                 return Ok(());
             }
         }
-        res.context(crate::error::RemoveDb)?;
+        res.context(crate::error::RemoveDb { file })?;
         Ok(())
     }
 
