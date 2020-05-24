@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4] - 2020-05-24
+
+### Fixed
+
+* Handle edge case where a URI entry is set for a cipher but that entry has a
+  null URI string (Adrien CLERC).
+
 ## [0.3.3] - 2020-05-23
 
 ### Fixed
