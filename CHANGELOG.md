@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.3] - 2020-05-23
+
+### Fixed
+
+* Set the correct default lock timeout when first creating the config file.
+* Add a more useful error when `rbw` is run without being configured first.
+* Don't throw an error when attempting to configure the base url before
+  configuring the email.
+* More improvements to error output.
+
 ## [0.3.2] - 2020-05-23
 
 ### Fixed
