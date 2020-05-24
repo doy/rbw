@@ -341,8 +341,11 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
     config.save().context("failed to save config file")?;
 
     // drop in-memory keys, since they will be different if the email or url
-    // changed
-    lock()?;
+    // changed. not using lock() because we don't want to require the agent to
+    // be running (since this may be the user running `rbw config set
+    // base_url` as the first operation), and stop_agent() already handles the
+    // agent not running case gracefully.
+    stop_agent()?;
 
     Ok(())
 }
@@ -362,8 +365,11 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
     config.save().context("failed to save config file")?;
 
     // drop in-memory keys, since they will be different if the email or url
-    // changed
-    lock()?;
+    // changed. not using lock() because we don't want to require the agent to
+    // be running (since this may be the user running `rbw config set
+    // base_url` as the first operation), and stop_agent() already handles the
+    // agent not running case gracefully.
+    stop_agent()?;
 
     Ok(())
 }
