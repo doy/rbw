@@ -85,7 +85,7 @@ enum Opt {
             If given a password entry name, also save the generated \
             password to the database.",
         visible_alias = "gen",
-        group = clap::ArgGroup::with_name("password-type").args(&[
+        group = structopt::clap::ArgGroup::with_name("password-type").args(&[
             "no-symbols",
             "only-numbers",
             "nonconfusables",

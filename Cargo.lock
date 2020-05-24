@@ -1125,7 +1125,6 @@ dependencies = [
  "base64 0.12.1",
  "block-modes",
  "chbs",
- "clap",
  "daemonize",
  "directories",
  "env_logger",

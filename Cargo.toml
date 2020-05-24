@@ -19,7 +19,6 @@ async-trait = "0.1"
 base64 = "0.12"
 block-modes = "0.3"
 chbs = "0.0.10"
-clap = { version = "2.33", features = ["wrap_help"] }
 daemonize = "0.4"
 directories = "2.0"
 env_logger = "0.7"
@@ -37,7 +36,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_path_to_error = "0.1"
 snafu = "0.6"
-structopt = { version = "0.3", features = ["paw"] }
+structopt = { version = "0.3", features = ["paw", "wrap_help"] }
 tempfile = "3.1"
 tokio = { version = "0.2", features = ["full"] }
 uuid = { version = "0.8", features = ["v4"] }
