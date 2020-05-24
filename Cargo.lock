@@ -1144,6 +1144,8 @@ dependencies = [
  "snafu",
  "structopt",
  "tempfile",
+ "term_size",
+ "textwrap",
  "tokio",
  "uuid",
  "zeroize",

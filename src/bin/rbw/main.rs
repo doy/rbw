@@ -239,7 +239,12 @@ fn main(opt: Opt) {
         env_logger::Env::default().default_filter_or("info"),
     )
     .format(|buf, record| {
-        writeln!(buf, "{}: {}", record.level(), record.args())
+        if let Some((w, _)) = term_size::dimensions() {
+            let out = format!("{}: {}", record.level(), record.args());
+            writeln!(buf, "{}", textwrap::fill(&out, w - 1))
+        } else {
+            writeln!(buf, "{}: {}", record.level(), record.args())
+        }
     })
     .init();
 
