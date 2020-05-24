@@ -181,6 +181,29 @@ enum Opt {
     StopAgent,
 }
 
+impl Opt {
+    fn subcommand_name(&self) -> String {
+        match self {
+            Self::Config { config } => {
+                format!("config {}", config.subcommand_name())
+            }
+            Self::Login => "login".to_string(),
+            Self::Unlock => "unlock".to_string(),
+            Self::Sync => "sync".to_string(),
+            Self::List { .. } => "list".to_string(),
+            Self::Get { .. } => "get".to_string(),
+            Self::Add { .. } => "add".to_string(),
+            Self::Generate { .. } => "generate".to_string(),
+            Self::Edit { .. } => "edit".to_string(),
+            Self::Remove { .. } => "remove".to_string(),
+            Self::History { .. } => "history".to_string(),
+            Self::Lock => "lock".to_string(),
+            Self::Purge => "purge".to_string(),
+            Self::StopAgent => "stop-agent".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, structopt::StructOpt)]
 enum Config {
     #[structopt(about = "Show the values of all configuration settings")]
@@ -199,6 +222,17 @@ enum Config {
     },
 }
 
+impl Config {
+    fn subcommand_name(&self) -> String {
+        match self {
+            Self::Show => "show",
+            Self::Set { .. } => "set",
+            Self::Unset { .. } => "unset",
+        }
+        .to_string()
+    }
+}
+
 #[paw::main]
 fn main(opt: Opt) {
     env_logger::from_env(
@@ -209,30 +243,30 @@ fn main(opt: Opt) {
     })
     .init();
 
-    let res = match opt {
+    let res = match &opt {
         Opt::Config { config } => match config {
-            Config::Show => commands::config_show().context("config show"),
-            Config::Set { key, value } => {
-                commands::config_set(&key, &value).context("config set")
-            }
-            Config::Unset { key } => {
-                commands::config_unset(&key).context("config unset")
-            }
+            Config::Show => commands::config_show(),
+            Config::Set { key, value } => commands::config_set(&key, &value),
+            Config::Unset { key } => commands::config_unset(&key),
         },
-        Opt::Login => commands::login().context("login"),
-        Opt::Unlock => commands::unlock().context("unlock"),
-        Opt::Sync => commands::sync().context("sync"),
-        Opt::List { fields } => commands::list(&fields).context("list"),
+        Opt::Login => commands::login(),
+        Opt::Unlock => commands::unlock(),
+        Opt::Sync => commands::sync(),
+        Opt::List { fields } => commands::list(&fields),
         Opt::Get { name, user, full } => {
-            commands::get(&name, user.as_deref(), full).context("get")
+            commands::get(&name, user.as_deref(), *full)
         }
         Opt::Add {
             name,
             user,
             uri,
             folder,
-        } => commands::add(&name, user.as_deref(), uri, folder.as_deref())
-            .context("add"),
+        } => commands::add(
+            &name,
+            user.as_deref(),
+            uri.to_vec(),
+            folder.as_deref(),
+        ),
         Opt::Generate {
             len,
             name,
@@ -244,13 +278,13 @@ fn main(opt: Opt) {
             nonconfusables,
             diceware,
         } => {
-            let ty = if no_symbols {
+            let ty = if *no_symbols {
                 rbw::pwgen::Type::NoSymbols
-            } else if only_numbers {
+            } else if *only_numbers {
                 rbw::pwgen::Type::Numbers
-            } else if nonconfusables {
+            } else if *nonconfusables {
                 rbw::pwgen::Type::NonConfusables
-            } else if diceware {
+            } else if *diceware {
                 rbw::pwgen::Type::Diceware
             } else {
                 rbw::pwgen::Type::AllChars
@@ -258,27 +292,24 @@ fn main(opt: Opt) {
             commands::generate(
                 name.as_deref(),
                 user.as_deref(),
-                uri,
+                uri.to_vec(),
                 folder.as_deref(),
-                len,
+                *len,
                 ty,
             )
-            .context("generate")
         }
-        Opt::Edit { name, user } => {
-            commands::edit(&name, user.as_deref()).context("edit")
-        }
+        Opt::Edit { name, user } => commands::edit(&name, user.as_deref()),
         Opt::Remove { name, user } => {
-            commands::remove(&name, user.as_deref()).context("remove")
+            commands::remove(&name, user.as_deref())
         }
         Opt::History { name, user } => {
-            commands::history(&name, user.as_deref()).context("history")
+            commands::history(&name, user.as_deref())
         }
-        Opt::Lock => commands::lock().context("lock"),
-        Opt::Purge => commands::purge().context("purge"),
-        Opt::StopAgent => commands::stop_agent().context("stop-agent"),
+        Opt::Lock => commands::lock(),
+        Opt::Purge => commands::purge(),
+        Opt::StopAgent => commands::stop_agent(),
     }
-    .context("rbw");
+    .context(format!("rbw {}", opt.subcommand_name()));
 
     if let Err(e) = res {
         eprintln!("{:#}", e);
