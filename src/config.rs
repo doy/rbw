@@ -70,6 +70,14 @@ impl Config {
         Ok(())
     }
 
+    pub fn validate() -> Result<()> {
+        let config = Self::load()?;
+        if config.email.is_none() {
+            return Err(Error::ConfigMissingEmail);
+        }
+        Ok(())
+    }
+
     pub fn base_url(&self) -> String {
         self.base_url.clone().map_or_else(
             || "https://api.bitwarden.com".to_string(),

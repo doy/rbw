@@ -1,5 +1,15 @@
 use anyhow::Context as _;
 
+const MISSING_CONFIG_HELP: &str =
+    "Before using rbw, you must configure the email address you would like to \
+    use to log in to the server by running:\n\n    \
+        rbw config set email <email>\n\n\
+    Additionally, if you are using a self-hosted installation, you should \
+    run:\n\n    \
+        rbw config set base_url <url>\n\n\
+    and, if your server has a non-default identity url:\n\n    \
+        rbw config set identity_url <url>\n";
+
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
@@ -795,6 +805,8 @@ pub fn stop_agent() -> anyhow::Result<()> {
 }
 
 fn ensure_agent() -> anyhow::Result<()> {
+    check_config()?;
+
     ensure_agent_once()?;
     let client_version = rbw::protocol::version();
     let agent_version = version_or_quit()?;
@@ -840,6 +852,13 @@ fn ensure_agent_once() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn check_config() -> anyhow::Result<()> {
+    rbw::config::Config::validate().map_err(|e| {
+        log::error!("{}", MISSING_CONFIG_HELP);
+        anyhow::Error::new(e)
+    })
 }
 
 fn version_or_quit() -> anyhow::Result<u32> {

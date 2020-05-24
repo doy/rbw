@@ -1,6 +1,9 @@
 #[derive(Debug, snafu::Snafu)]
 #[snafu(visibility = "pub")]
 pub enum Error {
+    #[snafu(display("email address not set"))]
+    ConfigMissingEmail,
+
     #[snafu(display("failed to create block mode decryptor"))]
     CreateBlockMode {
         source: block_modes::InvalidKeyIvLength,
