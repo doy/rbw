@@ -138,7 +138,11 @@ impl SyncResCipher {
                 password: login.password.clone(),
                 uris: login.uris.as_ref().map_or_else(
                     || vec![],
-                    |uris| uris.iter().map(|uri| uri.uri.clone()).collect(),
+                    |uris| {
+                        uris.iter()
+                            .filter_map(|uri| uri.uri.clone())
+                            .collect()
+                    },
                 ),
             }
         } else if let Some(card) = &self.card {
@@ -227,7 +231,7 @@ struct CipherLogin {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherLoginUri {
     #[serde(rename = "Uri")]
-    uri: String,
+    uri: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -515,7 +519,9 @@ impl Client {
                 } else {
                     Some(
                         uris.iter()
-                            .map(|s| CipherLoginUri { uri: s.to_string() })
+                            .map(|s| CipherLoginUri {
+                                uri: Some(s.to_string()),
+                            })
                             .collect(),
                     )
                 };
@@ -643,7 +649,9 @@ impl Client {
                 } else {
                     Some(
                         uris.iter()
-                            .map(|s| CipherLoginUri { uri: s.to_string() })
+                            .map(|s| CipherLoginUri {
+                                uri: Some(s.to_string()),
+                            })
                             .collect(),
                     )
                 };
