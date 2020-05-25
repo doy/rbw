@@ -31,13 +31,13 @@ pub fn quit() -> anyhow::Result<()> {
             wait_for_exit(pid)?;
             Ok(())
         }
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::ConnectionRefused {
-                Ok(())
-            } else {
-                Err(e.into())
-            }
-        }
+        Err(e) => match e.kind() {
+            // if the socket doesn't exist, or the socket exists but nothing
+            // is listening on it, the agent must already be not running
+            std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(e.into()),
+        },
     }
 }
 
