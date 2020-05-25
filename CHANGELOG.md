@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* Further error message improvements.
+
 ## [0.3.4] - 2020-05-24
 
 ### Fixed
