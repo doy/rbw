@@ -310,8 +310,7 @@ const HELP: &str = r#"
 "#;
 
 pub fn config_show() -> anyhow::Result<()> {
-    let config =
-        rbw::config::Config::load().context("failed to load config")?;
+    let config = rbw::config::Config::load()?;
     serde_json::to_writer_pretty(std::io::stdout(), &config)
         .context("failed to write config to stdout")?;
     println!();
@@ -338,7 +337,7 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
         }
         _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
     }
-    config.save().context("failed to save config file")?;
+    config.save()?;
 
     // drop in-memory keys, since they will be different if the email or url
     // changed. not using lock() because we don't want to require the agent to
@@ -362,7 +361,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
         }
         _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
     }
-    config.save().context("failed to save config file")?;
+    config.save()?;
 
     // drop in-memory keys, since they will be different if the email or url
     // changed. not using lock() because we don't want to require the agent to
@@ -1201,7 +1200,7 @@ fn load_db() -> anyhow::Result<rbw::db::Db> {
     let config = rbw::config::Config::load()?;
     if let Some(email) = &config.email {
         rbw::db::Db::load(&config.server_name(), &email)
-            .context("failed to load password database")
+            .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }
@@ -1211,7 +1210,7 @@ fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
     if let Some(email) = &config.email {
         db.save(&config.server_name(), &email)
-            .context("failed to save password database")
+            .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }
@@ -1221,7 +1220,7 @@ fn remove_db() -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
     if let Some(email) = &config.email {
         rbw::db::Db::remove(&config.server_name(), &email)
-            .context("failed to remove password database")
+            .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }
