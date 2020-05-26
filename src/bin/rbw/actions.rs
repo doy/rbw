@@ -45,8 +45,7 @@ pub fn decrypt(
     cipherstring: &str,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
-    let mut sock = crate::sock::Sock::connect()
-        .context("failed to connect to rbw-agent")?;
+    let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
         tty: ttyname(),
         action: rbw::protocol::Action::Decrypt {
@@ -69,8 +68,7 @@ pub fn encrypt(
     plaintext: &str,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
-    let mut sock = crate::sock::Sock::connect()
-        .context("failed to connect to rbw-agent")?;
+    let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
         tty: ttyname(),
         action: rbw::protocol::Action::Encrypt {
@@ -90,8 +88,7 @@ pub fn encrypt(
 }
 
 pub fn version() -> anyhow::Result<u32> {
-    let mut sock = crate::sock::Sock::connect()
-        .context("failed to connect to rbw-agent")?;
+    let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
         tty: ttyname(),
         action: rbw::protocol::Action::Version,
@@ -108,8 +105,7 @@ pub fn version() -> anyhow::Result<u32> {
 }
 
 fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
-    let mut sock = crate::sock::Sock::connect()
-        .context("failed to connect to rbw-agent")?;
+    let mut sock = connect()?;
 
     sock.send(&rbw::protocol::Request {
         tty: ttyname(),
@@ -124,6 +120,18 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
         }
         _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
     }
+}
+
+fn connect() -> anyhow::Result<crate::sock::Sock> {
+    crate::sock::Sock::connect().with_context(|| {
+        let log = rbw::dirs::agent_stderr_file();
+        format!(
+            "failed to connect to rbw-agent \
+            (this often means that the agent failed to start; \
+            check {} for agent logs)",
+            log.display()
+        )
+    })
 }
 
 // TODO: it'd be great if ttyname_r was exposed via nix, so i didn't have to
