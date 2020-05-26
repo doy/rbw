@@ -8,9 +8,7 @@ pub async fn login(
     let mut db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
-        let url_str = config_base_url()
-            .await
-            .context("failed to read base url from config")?;
+        let url_str = config_base_url().await?;
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
         let host = if let Some(host) = url.host_str() {
@@ -301,16 +299,13 @@ pub async fn version(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Version {
         version: rbw::protocol::version(),
     })
-    .await
-    .context("failed to send response")?;
+    .await?;
 
     Ok(())
 }
 
 async fn respond_ack(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
-    sock.send(&rbw::protocol::Response::Ack)
-        .await
-        .context("failed to send response")?;
+    sock.send(&rbw::protocol::Response::Ack).await?;
 
     Ok(())
 }
@@ -320,8 +315,7 @@ async fn respond_decrypt(
     plaintext: String,
 ) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Decrypt { plaintext })
-        .await
-        .context("failed to send response")?;
+        .await?;
 
     Ok(())
 }
@@ -331,16 +325,13 @@ async fn respond_encrypt(
     cipherstring: String,
 ) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Encrypt { cipherstring })
-        .await
-        .context("failed to send response")?;
+        .await?;
 
     Ok(())
 }
 
 async fn config_email() -> anyhow::Result<String> {
-    let config = rbw::config::Config::load_async()
-        .await
-        .context("failed to load config")?;
+    let config = rbw::config::Config::load_async().await?;
     if let Some(email) = config.email {
         Ok(email)
     } else {
@@ -353,7 +344,7 @@ async fn load_db() -> anyhow::Result<rbw::db::Db> {
     if let Some(email) = &config.email {
         rbw::db::Db::load_async(&config.server_name(), &email)
             .await
-            .context("failed to load password database")
+            .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }
@@ -364,15 +355,13 @@ async fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
     if let Some(email) = &config.email {
         db.save_async(&config.server_name(), &email)
             .await
-            .context("failed to save password database")
+            .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }
 }
 
 async fn config_base_url() -> anyhow::Result<String> {
-    let config = rbw::config::Config::load_async()
-        .await
-        .context("failed to load config")?;
+    let config = rbw::config::Config::load_async().await?;
     Ok(config.base_url())
 }

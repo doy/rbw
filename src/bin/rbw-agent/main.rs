@@ -8,8 +8,7 @@ mod sock;
 async fn tokio_main(
     startup_ack: Option<crate::daemon::StartupAck>,
 ) -> anyhow::Result<()> {
-    let listener =
-        crate::sock::listen().context("failed to listen on socket")?;
+    let listener = crate::sock::listen()?;
 
     if let Some(startup_ack) = startup_ack {
         startup_ack.ack()?;

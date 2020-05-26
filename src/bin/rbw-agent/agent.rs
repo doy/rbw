@@ -48,8 +48,7 @@ pub struct Agent {
 
 impl Agent {
     pub fn new() -> anyhow::Result<Self> {
-        let config =
-            rbw::config::Config::load().context("failed to load config")?;
+        let config = rbw::config::Config::load()?;
         let timeout_duration =
             tokio::time::Duration::from_secs(config.lock_timeout);
         let (w, r) = tokio::sync::mpsc::unbounded_channel();
@@ -125,16 +124,11 @@ async fn handle_request(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
 ) -> anyhow::Result<()> {
-    let req = sock
-        .recv()
-        .await
-        .context("failed to receive incoming message")?;
+    let req = sock.recv().await?;
     let req = match req {
         Ok(msg) => msg,
         Err(error) => {
-            sock.send(&rbw::protocol::Response::Error { error })
-                .await
-                .context("failed to send response")?;
+            sock.send(&rbw::protocol::Response::Error { error }).await?;
             return Ok(());
         }
     };
