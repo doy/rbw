@@ -4,6 +4,7 @@
 
 ### Fixed
 
+* Terminal-based pinentry methods should now work correctly (Glandos).
 * Further error message improvements.
 
 ## [0.3.4] - 2020-05-24
