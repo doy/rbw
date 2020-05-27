@@ -46,8 +46,12 @@ struct ConnectPasswordRes {
 
 #[derive(serde::Deserialize, Debug)]
 struct ConnectErrorRes {
+    error: String,
+    error_description: String,
     #[serde(rename = "ErrorModel")]
-    error_model: ConnectErrorResErrorModel,
+    error_model: Option<ConnectErrorResErrorModel>,
+    #[serde(rename = "TwoFactorProviders")]
+    two_factor_providers: Option<Vec<u32>>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -432,14 +436,7 @@ impl Client {
             ))
         } else {
             let code = res.status().as_u16();
-            let error_res: ConnectErrorRes = res.json_with_path().await?;
-            if error_res.error_model.message
-                == "Username or password is incorrect. Try again"
-            {
-                Err(Error::IncorrectPassword)
-            } else {
-                Err(Error::RequestFailed { status: code })
-            }
+            Err(classify_login_error(&res.json_with_path().await?, code))
         }
     }
 
@@ -861,4 +858,43 @@ impl Client {
     fn identity_url(&self, path: &str) -> String {
         format!("{}{}", self.identity_url, path)
     }
+}
+
+fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
+    match error_res.error.as_str() {
+        "invalid_grant" => match error_res.error_description.as_str() {
+            "invalid_username_or_password" => {
+                return Error::IncorrectPassword;
+            }
+            "Two factor required." => {
+                match error_res.two_factor_providers.as_ref() {
+                    Some(providers) => {
+                        return Error::TwoFactorRequired {
+                            providers: providers.clone(),
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        },
+        "" => {
+            // bitwarden_rs returns an empty error and error_description for
+            // this case, for some reason
+            if error_res.error_description == "" {
+                if let Some(error_model) = error_res.error_model.as_ref() {
+                    match error_model.message.as_str() {
+                        "Username or password is incorrect. Try again" => {
+                            return Error::IncorrectPassword;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    log::warn!("unexpected error received during login: {:?}", error_res);
+    Error::RequestFailed { status: code }
 }

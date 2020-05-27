@@ -156,6 +156,9 @@ pub enum Error {
     #[snafu(display("error spawning pinentry"))]
     Spawn { source: tokio::io::Error },
 
+    #[snafu(display("two factor required"))]
+    TwoFactorRequired { providers: Vec<u32> },
+
     #[snafu(display("error writing to pinentry stdin"))]
     WriteStdin { source: tokio::io::Error },
 }
