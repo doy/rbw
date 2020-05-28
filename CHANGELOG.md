@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+* Authenticator-based two-step login is now supported.
+
 ### Fixed
 
 * Correctly handle password retries when entering an invalid password on the

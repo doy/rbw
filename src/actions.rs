@@ -3,6 +3,8 @@ use crate::prelude::*;
 pub async fn login(
     email: &str,
     password: &crate::locked::Password,
+    two_factor_token: Option<&str>,
+    two_factor_provider: Option<crate::api::TwoFactorProviderType>,
 ) -> Result<(String, String, u32, String, crate::locked::Keys)> {
     let config = crate::config::Config::load_async().await?;
     let client =
@@ -13,7 +15,12 @@ pub async fn login(
         crate::identity::Identity::new(email, password, iterations)?;
 
     let (access_token, refresh_token, protected_key) = client
-        .login(&identity.email, &identity.master_password_hash)
+        .login(
+            &identity.email,
+            &identity.master_password_hash,
+            two_factor_token,
+            two_factor_provider,
+        )
         .await?;
     let master_keys = crate::cipherstring::CipherString::new(&protected_key)?
         .decrypt_locked_symmetric(&identity.keys)?;

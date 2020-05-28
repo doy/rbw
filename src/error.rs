@@ -49,6 +49,9 @@ pub enum Error {
     #[snafu(display("invalid mac"))]
     InvalidMac,
 
+    #[snafu(display("invalid two factor provider type: {}", ty))]
+    InvalidTwoFactorProvider { ty: u32 },
+
     #[snafu(display("failed to parse JSON"))]
     JSON {
         source: serde_path_to_error::Error<serde_json::Error>,
@@ -157,7 +160,9 @@ pub enum Error {
     Spawn { source: tokio::io::Error },
 
     #[snafu(display("two factor required"))]
-    TwoFactorRequired { providers: Vec<u32> },
+    TwoFactorRequired {
+        providers: Vec<crate::api::TwoFactorProviderType>,
+    },
 
     #[snafu(display("error writing to pinentry stdin"))]
     WriteStdin { source: tokio::io::Error },

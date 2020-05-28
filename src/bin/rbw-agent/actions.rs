@@ -5,7 +5,7 @@ pub async fn login(
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     tty: Option<&str>,
 ) -> anyhow::Result<()> {
-    let mut db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
+    let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
         let url_str = config_base_url().await?;
@@ -36,8 +36,7 @@ pub async fn login(
             )
             .await
             .context("failed to read password from pinentry")?;
-            let res = rbw::actions::login(&email, &password).await;
-            match res {
+            match rbw::actions::login(&email, &password, None, None).await {
                 Ok((
                     access_token,
                     refresh_token,
@@ -45,49 +44,52 @@ pub async fn login(
                     protected_key,
                     _,
                 )) => {
-                    db.access_token = Some(access_token);
-                    db.refresh_token = Some(refresh_token);
-                    db.iterations = Some(iterations);
-                    db.protected_key = Some(protected_key.clone());
-                    save_db(&db).await?;
-
-                    sync(sock, false).await?;
-                    db = load_db().await?;
-
-                    let protected_private_key =
-                        if let Some(protected_private_key) =
-                            db.protected_private_key
-                        {
-                            protected_private_key
-                        } else {
-                            return Err(anyhow::anyhow!(
-                                "failed to find protected private key in db"
-                            ));
-                        };
-
-                    let res = rbw::actions::unlock(
-                        &email,
-                        &password,
+                    login_success(
+                        sock,
+                        state,
+                        access_token,
+                        refresh_token,
                         iterations,
-                        &protected_key,
-                        &protected_private_key,
-                        &db.protected_org_keys,
+                        protected_key,
+                        password,
+                        db,
+                        email,
                     )
-                    .await;
-
-                    match res {
-                        Ok((keys, org_keys)) => {
-                            let mut state = state.write().await;
-                            state.priv_key = Some(keys);
-                            state.org_keys = Some(org_keys);
-                        }
-                        Err(e) => {
-                            return Err(e)
-                                .context("failed to unlock database")
-                        }
-                    }
-
+                    .await?;
                     break;
+                }
+                Err(rbw::error::Error::TwoFactorRequired { providers }) => {
+                    if providers.contains(
+                        &rbw::api::TwoFactorProviderType::Authenticator,
+                    ) {
+                        let (
+                            access_token,
+                            refresh_token,
+                            iterations,
+                            protected_key,
+                        ) = two_factor(
+                            tty,
+                            &email,
+                            &password,
+                            rbw::api::TwoFactorProviderType::Authenticator,
+                        )
+                        .await?;
+                        login_success(
+                            sock,
+                            state,
+                            access_token,
+                            refresh_token,
+                            iterations,
+                            protected_key,
+                            password,
+                            db,
+                            email,
+                        )
+                        .await?;
+                        break;
+                    } else {
+                        return Err(anyhow::anyhow!("TODO"));
+                    }
                 }
                 Err(rbw::error::Error::IncorrectPassword) => {
                     if i == 3 {
@@ -108,6 +110,119 @@ pub async fn login(
     }
 
     respond_ack(sock).await?;
+
+    Ok(())
+}
+
+async fn two_factor(
+    tty: Option<&str>,
+    email: &str,
+    password: &rbw::locked::Password,
+    provider: rbw::api::TwoFactorProviderType,
+) -> anyhow::Result<(String, String, u32, String)> {
+    for i in 1_u8..=3 {
+        let err = if i > 1 {
+            Some(format!("Incorrect code (attempt {}/3)", i))
+        } else {
+            None
+        };
+        let code = rbw::pinentry::getpin(
+            "Authenticator App",
+            "Enter the 6 digit verification code from your authenticator app.",
+            err.as_deref(),
+            tty,
+        )
+        .await
+        .context("failed to read code from pinentry")?;
+        let code = std::str::from_utf8(code.password())
+            .context("code was not valid utf8")?;
+        match rbw::actions::login(
+            &email,
+            &password,
+            Some(code),
+            Some(provider),
+        )
+        .await
+        {
+            Ok((
+                access_token,
+                refresh_token,
+                iterations,
+                protected_key,
+                _,
+            )) => {
+                return Ok((
+                    access_token,
+                    refresh_token,
+                    iterations,
+                    protected_key,
+                ))
+            }
+            Err(rbw::error::Error::IncorrectPassword) => {
+                if i == 3 {
+                    return Err(rbw::error::Error::IncorrectPassword)
+                        .context("failed to log in to bitwarden instance");
+                } else {
+                    continue;
+                }
+            }
+            Err(e) => {
+                return Err(e)
+                    .context("failed to log in to bitwarden instance")
+            }
+        }
+    }
+
+    unreachable!()
+}
+
+async fn login_success(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    access_token: String,
+    refresh_token: String,
+    iterations: u32,
+    protected_key: String,
+    password: rbw::locked::Password,
+    mut db: rbw::db::Db,
+    email: String,
+) -> anyhow::Result<()> {
+    db.access_token = Some(access_token.to_string());
+    db.refresh_token = Some(refresh_token.to_string());
+    db.iterations = Some(iterations);
+    db.protected_key = Some(protected_key.to_string());
+    save_db(&db).await?;
+
+    sync(sock, false).await?;
+    let db = load_db().await?;
+
+    let protected_private_key =
+        if let Some(protected_private_key) = db.protected_private_key {
+            protected_private_key
+        } else {
+            return Err(anyhow::anyhow!(
+                "failed to find protected private key in db"
+            ));
+        };
+
+    let res = rbw::actions::unlock(
+        &email,
+        &password,
+        iterations,
+        &protected_key,
+        &protected_private_key,
+        &db.protected_org_keys,
+    )
+    .await;
+
+    match res {
+        Ok((keys, org_keys)) => {
+            let mut state = state.write().await;
+            state.priv_key = Some(keys);
+            state.org_keys = Some(org_keys);
+        }
+        Err(e) => return Err(e).context("failed to unlock database"),
+    }
 
     Ok(())
 }
@@ -159,7 +274,7 @@ pub async fn unlock(
             )
             .await
             .context("failed to read password from pinentry")?;
-            let res = rbw::actions::unlock(
+            match rbw::actions::unlock(
                 &email,
                 &password,
                 iterations,
@@ -167,12 +282,10 @@ pub async fn unlock(
                 &protected_private_key,
                 &db.protected_org_keys,
             )
-            .await;
-            match res {
+            .await
+            {
                 Ok((keys, org_keys)) => {
-                    let mut state = state.write().await;
-                    state.priv_key = Some(keys);
-                    state.org_keys = Some(org_keys);
+                    unlock_success(state, keys, org_keys).await?;
                     break;
                 }
                 Err(rbw::error::Error::IncorrectPassword) => {
@@ -190,6 +303,17 @@ pub async fn unlock(
 
     respond_ack(sock).await?;
 
+    Ok(())
+}
+
+async fn unlock_success(
+    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    keys: rbw::locked::Keys,
+    org_keys: std::collections::HashMap<String, rbw::locked::Keys>,
+) -> anyhow::Result<()> {
+    let mut state = state.write().await;
+    state.priv_key = Some(keys);
+    state.org_keys = Some(org_keys);
     Ok(())
 }
 

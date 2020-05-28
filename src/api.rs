@@ -4,6 +4,34 @@ use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TwoFactorProviderType {
+    Authenticator = 0,
+    Email = 1,
+    Duo = 2,
+    Yubikey = 3,
+    U2f = 4,
+    Remember = 5,
+    OrganizationDuo = 6,
+}
+
+impl std::convert::TryFrom<u32> for TwoFactorProviderType {
+    type Error = Error;
+
+    fn try_from(ty: u32) -> Result<Self> {
+        match ty {
+            0 => Ok(Self::Authenticator),
+            1 => Ok(Self::Email),
+            2 => Ok(Self::Duo),
+            3 => Ok(Self::Yubikey),
+            4 => Ok(Self::U2f),
+            5 => Ok(Self::Remember),
+            6 => Ok(Self::OrganizationDuo),
+            _ => Err(Error::InvalidTwoFactorProvider { ty }),
+        }
+    }
+}
+
 #[derive(serde::Serialize, Debug)]
 struct PreloginReq {
     email: String,
@@ -32,6 +60,10 @@ struct ConnectPasswordReq {
     device_name: String,
     #[serde(rename = "devicePushToken")]
     device_push_token: String,
+    #[serde(rename = "twoFactorToken")]
+    two_factor_token: Option<String>,
+    #[serde(rename = "twoFactorProvider")]
+    two_factor_provider: Option<u32>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -405,6 +437,8 @@ impl Client {
         &self,
         email: &str,
         master_password_hash: &crate::locked::PasswordHash,
+        two_factor_token: Option<&str>,
+        two_factor_provider: Option<TwoFactorProviderType>,
     ) -> Result<(String, String, String)> {
         let connect_req = ConnectPasswordReq {
             grant_type: "password".to_string(),
@@ -418,6 +452,9 @@ impl Client {
                 .to_string(),
             device_name: "test cli".to_string(),
             device_push_token: "".to_string(),
+            two_factor_token: two_factor_token
+                .map(std::string::ToString::to_string),
+            two_factor_provider: two_factor_provider.map(|ty| ty as u32),
         };
         let client = reqwest::Client::new();
         let res = client
@@ -869,8 +906,16 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
             "Two factor required." => {
                 match error_res.two_factor_providers.as_ref() {
                     Some(providers) => {
-                        return Error::TwoFactorRequired {
-                            providers: providers.clone(),
+                        let providers: Result<_> = providers
+                            .iter()
+                            .copied()
+                            .map(std::convert::TryInto::try_into)
+                            .collect();
+                        return match providers {
+                            Ok(providers) => {
+                                Error::TwoFactorRequired { providers }
+                            }
+                            Err(e) => e,
                         };
                     }
                     _ => {}
@@ -884,10 +929,17 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
             if error_res.error_description == "" {
                 if let Some(error_model) = error_res.error_model.as_ref() {
                     match error_model.message.as_str() {
-                        "Username or password is incorrect. Try again" => {
+                        "Username or password is incorrect. Try again"
+                        | "TOTP code is not a number" => {
                             return Error::IncorrectPassword;
                         }
-                        _ => {}
+                        s => {
+                            if s.starts_with(
+                                "Invalid TOTP code! Server time: ",
+                            ) {
+                                return Error::IncorrectPassword;
+                            }
+                        }
                     }
                 }
             }
