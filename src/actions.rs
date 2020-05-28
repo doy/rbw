@@ -52,7 +52,11 @@ pub async fn unlock(
         crate::cipherstring::CipherString::new(protected_key)?;
     let key = match protected_key.decrypt_locked_symmetric(&identity.keys) {
         Ok(master_keys) => crate::locked::Keys::new(master_keys),
-        Err(Error::InvalidMac) => return Err(Error::IncorrectPassword),
+        Err(Error::InvalidMac) => {
+            return Err(Error::IncorrectPassword {
+                message: "Password is incorrect. Try again.".to_string(),
+            })
+        }
         Err(e) => return Err(e),
     };
 

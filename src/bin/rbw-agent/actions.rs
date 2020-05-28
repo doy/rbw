@@ -22,9 +22,12 @@ pub async fn login(
 
         let email = config_email().await?;
 
+        let mut err_msg = None;
         for i in 1_u8..=3 {
             let err = if i > 1 {
-                Some(format!("Incorrect password (attempt {}/3)", i))
+                // this unwrap is safe because we only ever continue the loop
+                // if we have set err_msg
+                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
             } else {
                 None
             };
@@ -91,13 +94,14 @@ pub async fn login(
                         return Err(anyhow::anyhow!("TODO"));
                     }
                 }
-                Err(rbw::error::Error::IncorrectPassword) => {
+                Err(rbw::error::Error::IncorrectPassword { message }) => {
                     if i == 3 {
-                        return Err(rbw::error::Error::IncorrectPassword)
-                            .context(
-                                "failed to log in to bitwarden instance",
-                            );
+                        return Err(rbw::error::Error::IncorrectPassword {
+                            message,
+                        })
+                        .context("failed to log in to bitwarden instance");
                     } else {
+                        err_msg = Some(message);
                         continue;
                     }
                 }
@@ -120,9 +124,12 @@ async fn two_factor(
     password: &rbw::locked::Password,
     provider: rbw::api::TwoFactorProviderType,
 ) -> anyhow::Result<(String, String, u32, String)> {
+    let mut err_msg = None;
     for i in 1_u8..=3 {
         let err = if i > 1 {
-            Some(format!("Incorrect code (attempt {}/3)", i))
+            // this unwrap is safe because we only ever continue the loop if
+            // we have set err_msg
+            Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
         } else {
             None
         };
@@ -158,13 +165,27 @@ async fn two_factor(
                     protected_key,
                 ))
             }
-            Err(rbw::error::Error::IncorrectPassword)
-            // can get this if the user passes an empty string
-            | Err(rbw::error::Error::TwoFactorRequired { .. }) => {
+            Err(rbw::error::Error::IncorrectPassword { message }) => {
                 if i == 3 {
-                    return Err(rbw::error::Error::IncorrectPassword)
-                        .context("failed to log in to bitwarden instance");
+                    return Err(rbw::error::Error::IncorrectPassword {
+                        message,
+                    })
+                    .context("failed to log in to bitwarden instance");
                 } else {
+                    err_msg = Some(message);
+                    continue;
+                }
+            }
+            // can get this if the user passes an empty string
+            Err(rbw::error::Error::TwoFactorRequired { .. }) => {
+                let message = "TOTP code is not a number".to_string();
+                if i == 3 {
+                    return Err(rbw::error::Error::IncorrectPassword {
+                        message,
+                    })
+                    .context("failed to log in to bitwarden instance");
+                } else {
+                    err_msg = Some(message);
                     continue;
                 }
             }
@@ -262,9 +283,12 @@ pub async fn unlock(
 
         let email = config_email().await?;
 
+        let mut err_msg = None;
         for i in 1u8..=3 {
             let err = if i > 1 {
-                Some(format!("Incorrect password (attempt {}/3)", i))
+                // this unwrap is safe because we only ever continue the loop
+                // if we have set err_msg
+                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
             } else {
                 None
             };
@@ -290,11 +314,14 @@ pub async fn unlock(
                     unlock_success(state, keys, org_keys).await?;
                     break;
                 }
-                Err(rbw::error::Error::IncorrectPassword) => {
+                Err(rbw::error::Error::IncorrectPassword { message }) => {
                     if i == 3 {
-                        return Err(rbw::error::Error::IncorrectPassword)
-                            .context("failed to unlock database");
+                        return Err(rbw::error::Error::IncorrectPassword {
+                            message,
+                        })
+                        .context("failed to unlock database");
                     } else {
+                        err_msg = Some(message);
                         continue;
                     }
                 }

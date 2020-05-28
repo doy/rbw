@@ -11,6 +11,7 @@
 * Correctly handle password retries when entering an invalid password on the
   official Bitwarden server.
 * Fix hang when giving an empty string to pinentry.
+* The error message from the server is now shown when logging in fails.
 
 ## [0.3.5] - 2020-05-25
 

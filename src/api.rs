@@ -901,24 +901,26 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
     match error_res.error.as_str() {
         "invalid_grant" => match error_res.error_description.as_str() {
             "invalid_username_or_password" => {
-                return Error::IncorrectPassword;
+                if let Some(error_model) = error_res.error_model.as_ref() {
+                    let message = error_model.message.as_str().to_string();
+                    return Error::IncorrectPassword { message };
+                }
             }
             "Two factor required." => {
-                match error_res.two_factor_providers.as_ref() {
-                    Some(providers) => {
-                        let providers: Result<_> = providers
-                            .iter()
-                            .copied()
-                            .map(std::convert::TryInto::try_into)
-                            .collect();
-                        return match providers {
-                            Ok(providers) => {
-                                Error::TwoFactorRequired { providers }
-                            }
-                            Err(e) => e,
-                        };
-                    }
-                    _ => {}
+                if let Some(providers) =
+                    error_res.two_factor_providers.as_ref()
+                {
+                    let providers: Result<_> = providers
+                        .iter()
+                        .copied()
+                        .map(std::convert::TryInto::try_into)
+                        .collect();
+                    return match providers {
+                        Ok(providers) => {
+                            Error::TwoFactorRequired { providers }
+                        }
+                        Err(e) => e,
+                    };
                 }
             }
             _ => {}
@@ -928,16 +930,17 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
             // this case, for some reason
             if error_res.error_description == "" {
                 if let Some(error_model) = error_res.error_model.as_ref() {
-                    match error_model.message.as_str() {
+                    let message = error_model.message.as_str().to_string();
+                    match message.as_str() {
                         "Username or password is incorrect. Try again"
                         | "TOTP code is not a number" => {
-                            return Error::IncorrectPassword;
+                            return Error::IncorrectPassword { message };
                         }
                         s => {
                             if s.starts_with(
                                 "Invalid TOTP code! Server time: ",
                             ) {
-                                return Error::IncorrectPassword;
+                                return Error::IncorrectPassword { message };
                             }
                         }
                     }

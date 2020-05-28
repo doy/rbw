@@ -34,8 +34,8 @@ pub enum Error {
     #[snafu(display("failed to expand with hkdf"))]
     HkdfExpand,
 
-    #[snafu(display("username or password incorrect"))]
-    IncorrectPassword,
+    #[snafu(display("{}", message))]
+    IncorrectPassword { message: String },
 
     #[snafu(display("invalid base64"))]
     InvalidBase64 { source: base64::DecodeError },
