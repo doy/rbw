@@ -22,36 +22,46 @@ pub async fn getpin(
     // above
     let mut stdin = child.stdin.take().unwrap();
 
+    let mut ncommands = 1;
     stdin
         .write_all(b"SETTITLE rbw\n")
         .await
         .context(crate::error::WriteStdin)?;
+    ncommands += 1;
     stdin
         .write_all(format!("SETPROMPT {}\n", prompt).as_bytes())
         .await
         .context(crate::error::WriteStdin)?;
+    ncommands += 1;
     stdin
         .write_all(format!("SETDESC {}\n", desc).as_bytes())
         .await
         .context(crate::error::WriteStdin)?;
+    ncommands += 1;
     if let Some(err) = err {
         stdin
             .write_all(format!("SETERROR {}\n", err).as_bytes())
             .await
             .context(crate::error::WriteStdin)?;
+        ncommands += 1;
     }
     stdin
         .write_all(b"GETPIN\n")
         .await
         .context(crate::error::WriteStdin)?;
+    ncommands += 1;
     drop(stdin);
 
     let mut buf = crate::locked::Vec::new();
     buf.extend(std::iter::repeat(0));
     // unwrap is safe because we specified stdout as piped in the command opts
     // above
-    let len =
-        read_password(buf.data_mut(), child.stdout.as_mut().unwrap()).await?;
+    let len = read_password(
+        ncommands,
+        buf.data_mut(),
+        child.stdout.as_mut().unwrap(),
+    )
+    .await?;
     buf.truncate(len);
 
     child.await.context(crate::error::PinentryWait)?;
@@ -62,6 +72,7 @@ pub async fn getpin(
 async fn read_password<
     R: tokio::io::AsyncRead + tokio::io::AsyncReadExt + Unpin,
 >(
+    mut ncommands: u8,
     data: &mut [u8],
     mut r: R,
 ) -> Result<usize> {
@@ -70,8 +81,14 @@ async fn read_password<
         let nl = data.iter().take(len).position(|c| *c == b'\n');
         if let Some(nl) = nl {
             if data.starts_with(b"OK") {
-                data.copy_within((nl + 1).., 0);
-                len -= nl + 1;
+                if ncommands == 1 {
+                    len = 0;
+                    break;
+                } else {
+                    data.copy_within((nl + 1).., 0);
+                    len -= nl + 1;
+                    ncommands -= 1;
+                }
             } else if data.starts_with(b"D ") {
                 data.copy_within(2..nl, 0);
                 len = nl - 2;
@@ -123,16 +140,26 @@ async fn read_password<
 #[test]
 fn test_read_password() {
     let good_inputs = &[
-        &b"D super secret password\n"[..],
-        &b"OK\nOK\nOK\nD super secret password\nOK\n"[..],
-        &b"OK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nD super secret password\nOK\n"[..],
-        &b"OK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nD super secret password\nOK\n"[..],
+        (0, &b"D super secret password\n"[..]),
+        (4, &b"OK\nOK\nOK\nD super secret password\nOK\n"[..]),
+        (12, &b"OK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nD super secret password\nOK\n"[..]),
+        (24, &b"OK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nOK\nD super secret password\nOK\n"[..]),
     ];
-    for input in good_inputs {
+    for (ncommands, input) in good_inputs {
         let mut buf = [0; 64];
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let len = read_password(&mut buf, &input[..]).await.unwrap();
+            let len = read_password(*ncommands, &mut buf, &input[..])
+                .await
+                .unwrap();
             assert_eq!(&buf[0..len], b"super secret password");
         });
     }
+
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let mut buf = [0; 64];
+        let len = read_password(4, &mut buf, &b"OK\nOK\nOK\nOK\n"[..])
+            .await
+            .unwrap();
+        assert_eq!(len, 0);
+    })
 }

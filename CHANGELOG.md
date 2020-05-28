@@ -10,6 +10,7 @@
 
 * Correctly handle password retries when entering an invalid password on the
   official Bitwarden server.
+* Fix hang when giving an empty string to pinentry.
 
 ## [0.3.5] - 2020-05-25
 

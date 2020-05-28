@@ -158,7 +158,9 @@ async fn two_factor(
                     protected_key,
                 ))
             }
-            Err(rbw::error::Error::IncorrectPassword) => {
+            Err(rbw::error::Error::IncorrectPassword)
+            // can get this if the user passes an empty string
+            | Err(rbw::error::Error::TwoFactorRequired { .. }) => {
                 if i == 3 {
                     return Err(rbw::error::Error::IncorrectPassword)
                         .context("failed to log in to bitwarden instance");
