@@ -20,12 +20,16 @@ impl CipherString {
     pub fn new(s: &str) -> Result<Self> {
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 2 {
-            return Err(Error::InvalidCipherString);
+            return Err(Error::InvalidCipherString {
+                reason: "couldn't find type".to_string(),
+            });
         }
 
         let ty = parts[0].as_bytes();
         if ty.len() != 1 {
-            return Err(Error::InvalidCipherString);
+            return Err(Error::UnimplementedCipherStringType {
+                ty: parts[0].to_string(),
+            });
         }
 
         let ty = ty[0] - b'0';
@@ -35,7 +39,12 @@ impl CipherString {
             2 => {
                 let parts: Vec<&str> = contents.split('|').collect();
                 if parts.len() < 2 || parts.len() > 3 {
-                    return Err(Error::InvalidCipherString);
+                    return Err(Error::InvalidCipherString {
+                        reason: format!(
+                            "type 2 cipherstring with {} parts",
+                            parts.len()
+                        ),
+                    });
                 }
 
                 let iv = base64::decode(parts[0])
@@ -62,7 +71,9 @@ impl CipherString {
                     .context(crate::error::InvalidBase64)?;
                 Ok(Self::Asymmetric { ciphertext })
             }
-            _ => Err(Error::InvalidCipherString),
+            _ => Err(Error::UnimplementedCipherStringType {
+                ty: ty.to_string(),
+            }),
         }
     }
 
@@ -115,7 +126,11 @@ impl CipherString {
                     .decrypt_vec(ciphertext)
                     .context(crate::error::Decrypt)
             }
-            _ => Err(Error::InvalidCipherString),
+            _ => Err(Error::InvalidCipherString {
+                reason:
+                    "found an asymmetric cipherstring, expecting symmetric"
+                        .to_string(),
+            }),
         }
     }
 
@@ -142,7 +157,11 @@ impl CipherString {
                     .context(crate::error::Decrypt)?;
                 Ok(res)
             }
-            _ => Err(Error::InvalidCipherString),
+            _ => Err(Error::InvalidCipherString {
+                reason:
+                    "found an asymmetric cipherstring, expecting symmetric"
+                        .to_string(),
+            }),
         }
     }
 
@@ -175,7 +194,11 @@ impl CipherString {
 
                 Ok(res)
             }
-            _ => Err(Error::InvalidCipherString),
+            _ => Err(Error::InvalidCipherString {
+                reason:
+                    "found a symmetric cipherstring, expecting asymmetric"
+                        .to_string(),
+            }),
         }
     }
 }

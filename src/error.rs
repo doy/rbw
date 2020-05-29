@@ -40,8 +40,8 @@ pub enum Error {
     #[snafu(display("invalid base64"))]
     InvalidBase64 { source: base64::DecodeError },
 
-    #[snafu(display("invalid cipherstring"))]
-    InvalidCipherString,
+    #[snafu(display("invalid cipherstring: {}", reason))]
+    InvalidCipherString { reason: String },
 
     #[snafu(display("invalid value for $EDITOR: {}", editor.to_string_lossy()))]
     InvalidEditor { editor: std::ffi::OsString },
@@ -163,6 +163,9 @@ pub enum Error {
     TwoFactorRequired {
         providers: Vec<crate::api::TwoFactorProviderType>,
     },
+
+    #[snafu(display("unimplemented cipherstring type: {}", ty))]
+    UnimplementedCipherStringType { ty: String },
 
     #[snafu(display("error writing to pinentry stdin"))]
     WriteStdin { source: tokio::io::Error },
