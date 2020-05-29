@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use std::os::unix::fs::PermissionsExt as _;
 
 pub fn make_all() -> Result<()> {
     let cache_dir = cache_dir();
@@ -6,8 +7,16 @@ pub fn make_all() -> Result<()> {
         .context(crate::error::CreateDirectory { file: cache_dir })?;
 
     let runtime_dir = runtime_dir();
-    std::fs::create_dir_all(&runtime_dir)
-        .context(crate::error::CreateDirectory { file: runtime_dir })?;
+    std::fs::create_dir_all(&runtime_dir).context(
+        crate::error::CreateDirectory {
+            file: runtime_dir.clone(),
+        },
+    )?;
+    std::fs::set_permissions(
+        &runtime_dir,
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .context(crate::error::CreateDirectory { file: runtime_dir })?;
 
     let data_dir = data_dir();
     std::fs::create_dir_all(&data_dir)
@@ -62,5 +71,8 @@ fn data_dir() -> std::path::PathBuf {
 
 fn runtime_dir() -> std::path::PathBuf {
     let project_dirs = directories::ProjectDirs::from("", "", "rbw").unwrap();
-    project_dirs.runtime_dir().unwrap().to_path_buf()
+    match project_dirs.runtime_dir() {
+        Some(dir) => dir.to_path_buf(),
+        None => format!("/tmp/rbw-{}", nix::unistd::getuid().as_raw()).into(),
+    }
 }

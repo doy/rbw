@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* `rbw` now no longer requires the `XDG_RUNTIME_DIR` environment variable to be
+  set.
+
 ## [0.4.1] - 2020-05-28
 
 ### Fixed
