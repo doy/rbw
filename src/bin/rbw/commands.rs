@@ -78,8 +78,9 @@ impl DecryptedCipher {
 
     fn display_long(&self, desc: &str) {
         match &self.data {
-            DecryptedData::Login { .. } => {
-                let displayed = self.display_short(desc);
+            DecryptedData::Login { username, .. } => {
+                let mut displayed = self.display_short(desc);
+                displayed |= self.display_field("Username", username.as_deref());
 
                 if let Some(notes) = &self.notes {
                     if displayed {
