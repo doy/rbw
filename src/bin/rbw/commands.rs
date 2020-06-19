@@ -80,7 +80,8 @@ impl DecryptedCipher {
         match &self.data {
             DecryptedData::Login { username, .. } => {
                 let mut displayed = self.display_short(desc);
-                displayed |= self.display_field("Username", username.as_deref());
+                displayed |=
+                    self.display_field("Username", username.as_deref());
 
                 if let Some(notes) = &self.notes {
                     if displayed {
