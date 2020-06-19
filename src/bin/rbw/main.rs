@@ -47,6 +47,8 @@ enum Opt {
         name: String,
         #[structopt(help = "Username of the entry to display")]
         user: Option<String>,
+        #[structopt(long, help = "Folder name to search in")]
+        folder: Option<String>,
         #[structopt(
             long,
             help = "Display the notes in addition to the password"
@@ -150,6 +152,8 @@ enum Opt {
         name: String,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
+        #[structopt(long, help = "Folder name to search in")]
+        folder: Option<String>,
     },
 
     #[structopt(about = "Remove a given entry", visible_alias = "rm")]
@@ -158,6 +162,8 @@ enum Opt {
         name: String,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
+        #[structopt(long, help = "Folder name to search in")]
+        folder: Option<String>,
     },
 
     #[structopt(about = "View the password history for a given entry")]
@@ -166,6 +172,8 @@ enum Opt {
         name: String,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
+        #[structopt(long, help = "Folder name to search in")]
+        folder: Option<String>,
     },
 
     #[structopt(about = "Lock the password database")]
@@ -258,9 +266,12 @@ fn main(opt: Opt) {
         Opt::Unlock => commands::unlock(),
         Opt::Sync => commands::sync(),
         Opt::List { fields } => commands::list(&fields),
-        Opt::Get { name, user, full } => {
-            commands::get(&name, user.as_deref(), *full)
-        }
+        Opt::Get {
+            name,
+            user,
+            folder,
+            full,
+        } => commands::get(&name, user.as_deref(), folder.as_deref(), *full),
         Opt::Add {
             name,
             user,
@@ -303,12 +314,14 @@ fn main(opt: Opt) {
                 ty,
             )
         }
-        Opt::Edit { name, user } => commands::edit(&name, user.as_deref()),
-        Opt::Remove { name, user } => {
-            commands::remove(&name, user.as_deref())
+        Opt::Edit { name, user, folder } => {
+            commands::edit(&name, user.as_deref(), folder.as_deref())
         }
-        Opt::History { name, user } => {
-            commands::history(&name, user.as_deref())
+        Opt::Remove { name, user, folder } => {
+            commands::remove(&name, user.as_deref(), folder.as_deref())
+        }
+        Opt::History { name, user, folder } => {
+            commands::history(&name, user.as_deref(), folder.as_deref())
         }
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+* `rbw get` now accepts a `--folder` option to pick the folder to search in.
+
 ### Changed
 
 * `rbw get --full` now also includes the username. (Jarkko Oranen)

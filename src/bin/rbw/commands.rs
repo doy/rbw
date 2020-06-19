@@ -193,7 +193,12 @@ impl DecryptedCipher {
         }
     }
 
-    fn exact_match(&self, name: &str, username: Option<&str>) -> bool {
+    fn exact_match(
+        &self,
+        name: &str,
+        username: Option<&str>,
+        folder: Option<&str>,
+    ) -> bool {
         if name != self.name {
             return false;
         }
@@ -202,9 +207,12 @@ impl DecryptedCipher {
             match &self.data {
                 DecryptedData::Login { username, .. } => {
                     if let Some(found_username) = username {
-                        return given_username == found_username;
+                        if given_username != found_username {
+                            return false;
+                        }
+                    } else {
+                        return false;
                     }
-                    return false;
                 }
                 _ => {
                     // not sure what else to do here, but open to suggestions
@@ -213,10 +221,27 @@ impl DecryptedCipher {
             }
         }
 
+        if let Some(given_folder) = folder {
+            if let Some(folder) = &self.folder {
+                if given_folder != folder {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else if self.folder.is_some() {
+            return false;
+        }
+
         true
     }
 
-    fn partial_match(&self, name: &str, username: Option<&str>) -> bool {
+    fn partial_match(
+        &self,
+        name: &str,
+        username: Option<&str>,
+        folder: Option<&str>,
+    ) -> bool {
         if !self.name.contains(name) {
             return false;
         }
@@ -225,15 +250,30 @@ impl DecryptedCipher {
             match &self.data {
                 DecryptedData::Login { username, .. } => {
                     if let Some(found_username) = username {
-                        return found_username.contains(given_username);
+                        if !found_username.contains(given_username) {
+                            return false;
+                        }
+                    } else {
+                        return false;
                     }
-                    return false;
                 }
                 _ => {
                     // not sure what else to do here, but open to suggestions
                     return false;
                 }
             }
+        }
+
+        if let Some(given_folder) = folder {
+            if let Some(folder) = &self.folder {
+                if !folder.contains(given_folder) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else if self.folder.is_some() {
+            return false;
         }
 
         true
@@ -441,7 +481,12 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn get(name: &str, user: Option<&str>, full: bool) -> anyhow::Result<()> {
+pub fn get(
+    name: &str,
+    user: Option<&str>,
+    folder: Option<&str>,
+    full: bool,
+) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
@@ -453,7 +498,7 @@ pub fn get(name: &str, user: Option<&str>, full: bool) -> anyhow::Result<()> {
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, user)
+    let (_, decrypted) = find_entry(&db, name, user, folder)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
     if full {
         decrypted.display_long(&desc);
@@ -645,7 +690,11 @@ pub fn generate(
     Ok(())
 }
 
-pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
+pub fn edit(
+    name: &str,
+    username: Option<&str>,
+    folder: Option<&str>,
+) -> anyhow::Result<()> {
     unlock()?;
 
     let mut db = load_db()?;
@@ -660,7 +709,7 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         name
     );
 
-    let (entry, decrypted) = find_entry(&db, name, username)
+    let (entry, decrypted) = find_entry(&db, name, username, folder)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
 
     let (data, notes, history) = match &decrypted.data {
@@ -738,7 +787,11 @@ pub fn edit(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
+pub fn remove(
+    name: &str,
+    username: Option<&str>,
+    folder: Option<&str>,
+) -> anyhow::Result<()> {
     unlock()?;
 
     let mut db = load_db()?;
@@ -753,7 +806,7 @@ pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         name
     );
 
-    let (entry, _) = find_entry(&db, name, username)
+    let (entry, _) = find_entry(&db, name, username, folder)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
 
     if let (Some(access_token), ()) =
@@ -768,7 +821,11 @@ pub fn remove(name: &str, username: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn history(name: &str, username: Option<&str>) -> anyhow::Result<()> {
+pub fn history(
+    name: &str,
+    username: Option<&str>,
+    folder: Option<&str>,
+) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
@@ -781,7 +838,7 @@ pub fn history(name: &str, username: Option<&str>) -> anyhow::Result<()> {
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, username)
+    let (_, decrypted) = find_entry(&db, name, username, folder)
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
     for history in decrypted.history {
         println!("{}: {}", history.last_used_date, history.password);
@@ -879,6 +936,7 @@ fn find_entry(
     db: &rbw::db::Db,
     name: &str,
     username: Option<&str>,
+    folder: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
     match uuid::Uuid::parse_str(name) {
         Ok(_) => {
@@ -898,7 +956,7 @@ fn find_entry(
                     decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
                 })
                 .collect::<anyhow::Result<_>>()?;
-            find_entry_raw(&ciphers, name, username)
+            find_entry_raw(&ciphers, name, username, folder)
         }
     }
 }
@@ -907,12 +965,13 @@ fn find_entry_raw(
     entries: &[(rbw::db::Entry, DecryptedCipher)],
     name: &str,
     username: Option<&str>,
+    folder: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
     let exact_matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
-            decrypted_cipher.exact_match(name, username)
+            decrypted_cipher.exact_match(name, username, folder)
         })
         .collect();
 
@@ -921,7 +980,7 @@ fn find_entry_raw(
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username)
+                decrypted_cipher.partial_match(name, username, folder)
             })
             .collect();
 
@@ -1235,42 +1294,77 @@ mod test {
     #[test]
     fn test_find_entry() {
         let entries = &[
-            make_entry("github", Some("foo")),
-            make_entry("gitlab", Some("foo")),
-            make_entry("gitlab", Some("bar")),
-            make_entry("gitter", Some("baz")),
-            make_entry("git", Some("foo")),
-            make_entry("bitwarden", None),
+            make_entry("github", Some("foo"), None),
+            make_entry("gitlab", Some("foo"), None),
+            make_entry("gitlab", Some("bar"), None),
+            make_entry("gitter", Some("baz"), None),
+            make_entry("git", Some("foo"), None),
+            make_entry("bitwarden", None, None),
+            make_entry("github", Some("foo"), Some("websites")),
+            make_entry("github", Some("foo"), Some("ssh")),
         ];
 
-        assert!(one_match(entries, "github", Some("foo"), 0), "foo@github");
-        assert!(one_match(entries, "github", None, 0), "github");
-        assert!(one_match(entries, "gitlab", Some("foo"), 1), "foo@gitlab");
-        assert!(one_match(entries, "git", Some("bar"), 2), "bar@git");
-        assert!(one_match(entries, "gitter", Some("ba"), 3), "ba@gitter");
-        assert!(one_match(entries, "git", Some("foo"), 4), "foo@git");
-        assert!(one_match(entries, "git", None, 4), "git");
-        assert!(one_match(entries, "bitwarden", None, 5), "bitwarden");
-
-        assert!(no_matches(entries, "gitlab", Some("baz")), "baz@gitlab");
         assert!(
-            no_matches(entries, "bitbucket", Some("foo")),
-            "foo@bitbucket"
+            one_match(entries, "github", Some("foo"), None, 0),
+            "foo@github"
+        );
+        assert!(one_match(entries, "github", None, None, 0), "github");
+        assert!(
+            one_match(entries, "gitlab", Some("foo"), None, 1),
+            "foo@gitlab"
+        );
+        assert!(one_match(entries, "git", Some("bar"), None, 2), "bar@git");
+        assert!(
+            one_match(entries, "gitter", Some("ba"), None, 3),
+            "ba@gitter"
+        );
+        assert!(one_match(entries, "git", Some("foo"), None, 4), "foo@git");
+        assert!(one_match(entries, "git", None, None, 4), "git");
+        assert!(one_match(entries, "bitwarden", None, None, 5), "bitwarden");
+        assert!(
+            one_match(entries, "github", Some("foo"), Some("websites"), 6),
+            "websites/foo@github"
+        );
+        assert!(
+            one_match(entries, "github", Some("foo"), Some("ssh"), 7),
+            "ssh/foo@github"
         );
 
-        assert!(many_matches(entries, "gitlab", None), "gitlab");
-        assert!(many_matches(entries, "gi", Some("foo")), "foo@gi");
-        assert!(many_matches(entries, "git", Some("ba")), "ba@git");
+        assert!(
+            no_matches(entries, "gitlab", Some("baz"), None),
+            "baz@gitlab"
+        );
+        assert!(
+            no_matches(entries, "bitbucket", Some("foo"), None),
+            "foo@bitbucket"
+        );
+        assert!(
+            no_matches(entries, "github", Some("foo"), Some("bar")),
+            "bar/foo@github"
+        );
+        assert!(
+            no_matches(entries, "gitlab", Some("foo"), Some("bar")),
+            "bar/foo@gitlab"
+        );
+
+        assert!(many_matches(entries, "gitlab", None, None), "gitlab");
+        assert!(many_matches(entries, "gi", Some("foo"), None), "foo@gi");
+        assert!(many_matches(entries, "git", Some("ba"), None), "ba@git");
+        assert!(
+            many_matches(entries, "github", Some("foo"), Some("s")),
+            "s/foo@github"
+        );
     }
 
     fn one_match(
         entries: &[(rbw::db::Entry, DecryptedCipher)],
         name: &str,
         username: Option<&str>,
+        folder: Option<&str>,
         idx: usize,
     ) -> bool {
         entries_eq(
-            &find_entry_raw(entries, name, username).unwrap(),
+            &find_entry_raw(entries, name, username, folder).unwrap(),
             &entries[idx],
         )
     }
@@ -1279,8 +1373,9 @@ mod test {
         entries: &[(rbw::db::Entry, DecryptedCipher)],
         name: &str,
         username: Option<&str>,
+        folder: Option<&str>,
     ) -> bool {
-        let res = find_entry_raw(entries, name, username);
+        let res = find_entry_raw(entries, name, username, folder);
         if let Err(e) = res {
             format!("{}", e).contains("no entry found")
         } else {
@@ -1292,8 +1387,9 @@ mod test {
         entries: &[(rbw::db::Entry, DecryptedCipher)],
         name: &str,
         username: Option<&str>,
+        folder: Option<&str>,
     ) -> bool {
-        let res = find_entry_raw(entries, name, username);
+        let res = find_entry_raw(entries, name, username, folder);
         if let Err(e) = res {
             format!("{}", e).contains("multiple entries found")
         } else {
@@ -1311,12 +1407,13 @@ mod test {
     fn make_entry(
         name: &str,
         username: Option<&str>,
+        folder: Option<&str>,
     ) -> (rbw::db::Entry, DecryptedCipher) {
         (
             rbw::db::Entry {
                 id: "irrelevant".to_string(),
                 org_id: None,
-                folder: None,
+                folder: folder.map(|_| "encrypted folder name".to_string()),
                 folder_id: None,
                 name: "this is the encrypted name".to_string(),
                 data: rbw::db::EntryData::Login {
@@ -1331,7 +1428,7 @@ mod test {
             },
             DecryptedCipher {
                 id: "irrelevant".to_string(),
-                folder: None,
+                folder: folder.map(std::string::ToString::to_string),
                 name: name.to_string(),
                 data: DecryptedData::Login {
                     username: username.map(std::string::ToString::to_string),
