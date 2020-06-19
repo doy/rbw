@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+* `rbw get --full` now also includes the username. (Jarkko Oranen)
+
 ## [0.4.2] - 2020-05-30
 
 ### Fixed
