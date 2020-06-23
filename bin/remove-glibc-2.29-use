@@ -11,8 +11,6 @@ no warnings 'experimental::signatures';
 # corresponding version from GLIBC_2.2.5 does exist, so we can just swap it
 # out.
 
-use constant VER_FLG_WEAK => 0x02;
-
 my $bin = $ARGV[0];
 
 system("readelf -s $bin | grep -q GLIBC_2.29");
@@ -41,12 +39,13 @@ my $glibc_225_offset = $gnu_version_r_offset + $readelf_v{'.gnu.version_r'}{'lib
 # page), but that causes a warning to be printed every time you run the binary,
 # which is obnoxious
 
+# use constant VER_FLG_WEAK => 0x02;
 # my $prev_glibc_229_flags = substr $bin_contents, $glibc_229_offset + 0x04, 2, pack('s', VER_FLG_WEAK);
 # if (unpack('s', $prev_glibc_229_flags) != 0) {
-#     die "GLIBC_2.39 did not have flags set to 0\n";
+#     die "GLIBC_2.29 did not have flags set to 0\n";
 # }
 
-# instead, we overwrite vna_hash, vna_flags, vna_other, vna_name with the 2.3.5
+# instead, we overwrite vna_hash, vna_flags, vna_other, vna_name with the 2.2.5
 # versions (but leave vna_next the same) - this causes there to be two entries
 # describing GLIBC_2.2.5, but this appears to be harmless
 substr($bin_contents, $glibc_229_offset + 0x00, 12, substr($bin_contents, $glibc_225_offset + 0x00, 12));
