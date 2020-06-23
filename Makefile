@@ -12,6 +12,8 @@ build:
 
 release:
 	@cargo build --release --all-targets
+	@./bin/remove-glibc-2.29-use ./target/release/rbw
+	@mv ./target/release/rbw.new ./target/release/rbw
 .PHONY: release
 
 test:
@@ -40,8 +42,8 @@ package: pkg/$(DEB_PACKAGE)
 pkg:
 	@mkdir pkg
 
-pkg/$(DEB_PACKAGE): | pkg
-	@cargo deb && mv target/debian/$(DEB_PACKAGE) pkg
+pkg/$(DEB_PACKAGE): release | pkg
+	@cargo deb --no-build && mv target/debian/$(DEB_PACKAGE) pkg
 
 pkg/$(DEB_PACKAGE).minisig: pkg/$(DEB_PACKAGE)
 	@minisign -Sm pkg/$(DEB_PACKAGE)

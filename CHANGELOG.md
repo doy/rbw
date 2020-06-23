@@ -10,6 +10,11 @@
 
 * `rbw get --full` now also includes the username. (Jarkko Oranen)
 
+### Fixed
+
+* `rbw` should now be usable on systems with glibc-2.28 (such as Debian
+  stable). (incredible-machine)
+
 ## [0.4.2] - 2020-05-30
 
 ### Fixed
