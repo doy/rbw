@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* Fix regression in `rbw get` when not specifying a folder.
+
 ## [0.4.3] - 2020-06-23
 
 ### Added

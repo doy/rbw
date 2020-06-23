@@ -198,6 +198,7 @@ impl DecryptedCipher {
         name: &str,
         username: Option<&str>,
         folder: Option<&str>,
+        try_match_folder: bool,
     ) -> bool {
         if name != self.name {
             return false;
@@ -221,16 +222,18 @@ impl DecryptedCipher {
             }
         }
 
-        if let Some(given_folder) = folder {
-            if let Some(folder) = &self.folder {
-                if given_folder != folder {
+        if try_match_folder {
+            if let Some(given_folder) = folder {
+                if let Some(folder) = &self.folder {
+                    if given_folder != folder {
+                        return false;
+                    }
+                } else {
                     return false;
                 }
-            } else {
+            } else if self.folder.is_some() {
                 return false;
             }
-        } else if self.folder.is_some() {
-            return false;
         }
 
         true
@@ -241,6 +244,7 @@ impl DecryptedCipher {
         name: &str,
         username: Option<&str>,
         folder: Option<&str>,
+        try_match_folder: bool,
     ) -> bool {
         if !self.name.contains(name) {
             return false;
@@ -264,16 +268,18 @@ impl DecryptedCipher {
             }
         }
 
-        if let Some(given_folder) = folder {
-            if let Some(folder) = &self.folder {
-                if !folder.contains(given_folder) {
+        if try_match_folder {
+            if let Some(given_folder) = folder {
+                if let Some(folder) = &self.folder {
+                    if !folder.contains(given_folder) {
+                        return false;
+                    }
+                } else {
                     return false;
                 }
-            } else {
+            } else if self.folder.is_some() {
                 return false;
             }
-        } else if self.folder.is_some() {
-            return false;
         }
 
         true
@@ -967,44 +973,66 @@ fn find_entry_raw(
     username: Option<&str>,
     folder: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    let exact_matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
+    let mut matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
-            decrypted_cipher.exact_match(name, username, folder)
+            decrypted_cipher.exact_match(name, username, folder, true)
         })
         .collect();
 
-    if exact_matches.is_empty() {
-        let partial_matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
+    if matches.len() == 1 {
+        return Ok(matches[0].clone());
+    }
+
+    if folder.is_none() {
+        matches = entries
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder)
+                decrypted_cipher.exact_match(name, username, folder, false)
             })
             .collect();
 
-        if partial_matches.is_empty() {
-            Err(anyhow::anyhow!("no entry found"))
-        } else if partial_matches.len() > 1 {
-            let entries: Vec<String> = partial_matches
-                .iter()
-                .map(|(_, decrypted)| decrypted.display_name())
-                .collect();
-            let entries = entries.join(", ");
-            Err(anyhow::anyhow!("multiple entries found: {}", entries))
-        } else {
-            Ok(partial_matches[0].clone())
+        if matches.len() == 1 {
+            return Ok(matches[0].clone());
         }
-    } else if exact_matches.len() > 1 {
-        let entries: Vec<String> = exact_matches
+    }
+
+    matches = entries
+        .iter()
+        .cloned()
+        .filter(|(_, decrypted_cipher)| {
+            decrypted_cipher.partial_match(name, username, folder, true)
+        })
+        .collect();
+
+    if matches.len() == 1 {
+        return Ok(matches[0].clone());
+    }
+
+    if folder.is_none() {
+        matches = entries
+            .iter()
+            .cloned()
+            .filter(|(_, decrypted_cipher)| {
+                decrypted_cipher.partial_match(name, username, folder, false)
+            })
+            .collect();
+        if matches.len() == 1 {
+            return Ok(matches[0].clone());
+        }
+    }
+
+    if matches.is_empty() {
+        Err(anyhow::anyhow!("no entry found"))
+    } else {
+        let entries: Vec<String> = matches
             .iter()
             .map(|(_, decrypted)| decrypted.display_name())
             .collect();
         let entries = entries.join(", ");
         Err(anyhow::anyhow!("multiple entries found: {}", entries))
-    } else {
-        Ok(exact_matches[0].clone())
     }
 }
 
@@ -1302,6 +1330,7 @@ mod test {
             make_entry("bitwarden", None, None),
             make_entry("github", Some("foo"), Some("websites")),
             make_entry("github", Some("foo"), Some("ssh")),
+            make_entry("github", Some("root"), Some("ssh")),
         ];
 
         assert!(
@@ -1328,6 +1357,10 @@ mod test {
         assert!(
             one_match(entries, "github", Some("foo"), Some("ssh"), 7),
             "ssh/foo@github"
+        );
+        assert!(
+            one_match(entries, "github", Some("root"), None, 8),
+            "ssh/root@github"
         );
 
         assert!(
