@@ -43,7 +43,7 @@ enum Opt {
 
     #[structopt(about = "Display the password for a given entry")]
     Get {
-        #[structopt(help = "Name of the entry to display")]
+        #[structopt(help = "Name or UUID of the entry to display")]
         name: String,
         #[structopt(help = "Username of the entry to display")]
         user: Option<String>,
@@ -148,7 +148,7 @@ enum Opt {
             as a note."
     )]
     Edit {
-        #[structopt(help = "Name of the password entry")]
+        #[structopt(help = "Name or UUID of the password entry")]
         name: String,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
@@ -158,7 +158,7 @@ enum Opt {
 
     #[structopt(about = "Remove a given entry", visible_alias = "rm")]
     Remove {
-        #[structopt(help = "Name of the password entry")]
+        #[structopt(help = "Name or UUID of the password entry")]
         name: String,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
@@ -168,7 +168,7 @@ enum Opt {
 
     #[structopt(about = "View the password history for a given entry")]
     History {
-        #[structopt(help = "Name of the password entry")]
+        #[structopt(help = "Name or UUID of the password entry")]
         name: String,
         #[structopt(help = "Username for the password entry")]
         user: Option<String>,
