@@ -1146,7 +1146,6 @@ dependencies = [
  "humantime 2.0.1",
  "libc",
  "log",
- "memchr",
  "nix",
  "openssl",
  "paw",

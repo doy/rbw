@@ -1,5 +1,6 @@
 use anyhow::Context as _;
 use std::io::Read as _;
+use std::os::unix::ffi::OsStringExt as _;
 
 pub fn login() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Login)
@@ -25,7 +26,9 @@ pub fn quit() -> anyhow::Result<()> {
             std::fs::File::open(pidfile)?.read_to_string(&mut pid)?;
             let pid = nix::unistd::Pid::from_raw(pid.parse()?);
             sock.send(&rbw::protocol::Request {
-                tty: ttyname(),
+                tty: ttyname(0)
+                    .ok()
+                    .and_then(|p| p.to_str().map(|s| s.to_string())),
                 action: rbw::protocol::Action::Quit,
             })?;
             wait_for_exit(pid)?;
@@ -47,7 +50,9 @@ pub fn decrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: ttyname(),
+        tty: ttyname(0)
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string())),
         action: rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -70,7 +75,9 @@ pub fn encrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: ttyname(),
+        tty: ttyname(0)
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string())),
         action: rbw::protocol::Action::Encrypt {
             plaintext: plaintext.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -90,7 +97,9 @@ pub fn encrypt(
 pub fn version() -> anyhow::Result<u32> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: ttyname(),
+        tty: ttyname(0)
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string())),
         action: rbw::protocol::Action::Version,
     })?;
 
@@ -108,7 +117,9 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     let mut sock = connect()?;
 
     sock.send(&rbw::protocol::Request {
-        tty: ttyname(),
+        tty: ttyname(0)
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string())),
         action,
     })?;
 
@@ -134,25 +145,23 @@ fn connect() -> anyhow::Result<crate::sock::Sock> {
     })
 }
 
-// TODO: it'd be great if ttyname_r was exposed via nix, so i didn't have to
-// manually deal with unsafe here
-fn ttyname() -> Option<String> {
+// XXX copied (with small modifications) from the as-yet-unreleased nix
+// version, should use that directly once 0.18 is released
+fn ttyname(
+    fd: std::os::unix::io::RawFd,
+) -> anyhow::Result<std::path::PathBuf> {
     const PATH_MAX: usize = libc::PATH_MAX as usize;
-    let mut buf = [0_u8; PATH_MAX];
+    let mut buf = vec![0_u8; PATH_MAX];
     let c_buf = buf.as_mut_ptr() as *mut libc::c_char;
 
-    let ret = unsafe { libc::ttyname_r(0, c_buf, PATH_MAX) };
+    let ret = unsafe { libc::ttyname_r(fd, c_buf, buf.len()) };
     if ret != 0 {
-        return None;
+        return Err(anyhow::anyhow!("ttyname_r failed: {}", ret));
     }
 
-    let nul = memchr::memchr(b'\0', &buf)?;
-    if nul == 0 {
-        return None;
-    }
-
-    let s = std::str::from_utf8(&buf[..nul]).ok()?;
-    Some(s.to_string())
+    let nul = buf.iter().position(|c| *c == b'\0').unwrap();
+    buf.truncate(nul);
+    Ok(std::ffi::OsString::from_vec(buf).into())
 }
 
 fn wait_for_exit(pid: nix::unistd::Pid) -> anyhow::Result<()> {
