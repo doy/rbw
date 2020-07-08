@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* The pinentry window now no longer times out.
+
 ## [0.4.4] - 2020-06-23
 
 ### Fixed

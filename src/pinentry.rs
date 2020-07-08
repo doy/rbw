@@ -13,9 +13,9 @@ pub async fn getpin(
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
     let opts = if let Some(tty) = tty {
-        opts.args(&["-T", tty])
+        opts.args(&["-T", tty, "-o", "0"])
     } else {
-        opts
+        opts.args(&["-o", "0"])
     };
     let mut child = opts.spawn().context(crate::error::Spawn)?;
     // unwrap is safe because we specified stdin as piped in the command opts
