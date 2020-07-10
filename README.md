@@ -63,3 +63,7 @@ do both.
 
 `rbw help` can be used to get more information about the available
 functionality.
+
+## Related projects
+
+* [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden
