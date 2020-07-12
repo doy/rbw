@@ -75,7 +75,10 @@ async fn read_password<
     mut ncommands: u8,
     data: &mut [u8],
     mut r: R,
-) -> Result<usize> {
+) -> Result<usize>
+where
+    R: Send,
+{
     let mut len = 0;
     loop {
         let nl = data.iter().take(len).position(|c| *c == b'\n');

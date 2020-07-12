@@ -275,10 +275,12 @@ async fn with_exchange_refresh_token_async<F, T>(
 ) -> Result<(Option<String>, T)>
 where
     F: Fn(
-        &str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<T>> + Send>,
-    >,
+            &str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<T>> + Send>,
+        > + Send
+        + Sync,
+    T: Send,
 {
     match f(access_token).await {
         Ok(t) => Ok((None, t)),

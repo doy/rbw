@@ -173,7 +173,7 @@ impl SyncResCipher {
                 username: login.username.clone(),
                 password: login.password.clone(),
                 uris: login.uris.as_ref().map_or_else(
-                    || vec![],
+                    std::vec::Vec::new,
                     |uris| {
                         uris.iter()
                             .filter_map(|uri| uri.uri.clone())
