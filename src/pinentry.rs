@@ -137,7 +137,39 @@ where
         }
     }
 
+    len = percent_decode(&mut data[..len]);
+
     Ok(len)
+}
+
+// not using the percent-encoding crate because it doesn't provide a way to do
+// this in-place, and we want the password to always live within the locked
+// vec. should really move something like this into the percent-encoding crate
+// at some point.
+fn percent_decode(buf: &mut [u8]) -> usize {
+    let mut read_idx = 0;
+    let mut write_idx = 0;
+    let len = buf.len();
+
+    while read_idx < len {
+        let mut c = buf[read_idx];
+
+        if c == b'%' && read_idx + 2 < len {
+            if let Some(h) = char::from(buf[read_idx + 1]).to_digit(16) {
+                #[allow(clippy::cast_possible_truncation)]
+                if let Some(l) = char::from(buf[read_idx + 2]).to_digit(16) {
+                    c = h as u8 * 0x10 + l as u8;
+                    read_idx += 2;
+                }
+            }
+        }
+
+        buf[write_idx] = c;
+        read_idx += 1;
+        write_idx += 1;
+    }
+
+    write_idx
 }
 
 #[test]
@@ -158,11 +190,23 @@ fn test_read_password() {
         });
     }
 
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
+    let match_inputs = &[
+        (&b"OK\nOK\nOK\nOK\n"[..], &b""[..]),
+        (&b"D foo%25bar\n"[..], &b"foo%bar"[..]),
+        (&b"D foo%0abar\n"[..], &b"foo\nbar"[..]),
+        (&b"D foo%0Abar\n"[..], &b"foo\nbar"[..]),
+        (&b"D foo%0Gbar\n"[..], &b"foo%0Gbar"[..]),
+        (&b"D foo%0\n"[..], &b"foo%0"[..]),
+        (&b"D foo%\n"[..], &b"foo%"[..]),
+        (&b"D %25foo\n"[..], &b"%foo"[..]),
+        (&b"D %25\n"[..], &b"%"[..]),
+    ];
+
+    for (input, output) in match_inputs {
         let mut buf = [0; 64];
-        let len = read_password(4, &mut buf, &b"OK\nOK\nOK\nOK\n"[..])
-            .await
-            .unwrap();
-        assert_eq!(len, 0);
-    })
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let len = read_password(4, &mut buf, &input[..]).await.unwrap();
+            assert_eq!(&buf[0..len], &output[..]);
+        });
+    }
 }

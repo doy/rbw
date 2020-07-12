@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* Login passwords containing a `%` now work properly (albakham).
+
 ## [0.4.5] - 2020-07-11
 
 ### Fixed
