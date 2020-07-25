@@ -66,7 +66,8 @@ impl CipherString {
                     mac,
                 })
             }
-            4 => {
+            4 | 6 => {
+                let contents = contents.split("|").next().unwrap();
                 let ciphertext = base64::decode(contents)
                     .context(crate::error::InvalidBase64)?;
                 Ok(Self::Asymmetric { ciphertext })
