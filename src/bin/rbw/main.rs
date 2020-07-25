@@ -22,6 +22,9 @@ enum Opt {
     #[structopt(about = "Unlock the local Bitwarden database")]
     Unlock,
 
+    #[structopt(about = "Check if the local Bitwarden database is unlocked")]
+    Unlocked,
+
     #[structopt(about = "Update the local copy of the Bitwarden database")]
     Sync,
 
@@ -207,6 +210,7 @@ impl Opt {
             }
             Self::Login => "login".to_string(),
             Self::Unlock => "unlock".to_string(),
+            Self::Unlocked => "unlocked".to_string(),
             Self::Sync => "sync".to_string(),
             Self::List { .. } => "list".to_string(),
             Self::Get { .. } => "get".to_string(),
@@ -275,6 +279,7 @@ fn main(opt: Opt) {
         },
         Opt::Login => commands::login(),
         Opt::Unlock => commands::unlock(),
+        Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),
         Opt::List { fields } => commands::list(&fields),
         Opt::Get {

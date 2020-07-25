@@ -9,6 +9,8 @@
 * `rbw get --full` now displays URIs, TOTP secrets, and custom fields.
 * Add `rbw code` for generating TOTP codes based on secrets stored in
   Bitwarden.
+* Add `rbw unlocked` which will exit with success if the agent is unlocked and
+  failure if the agent is locked.
 
 ## [0.4.6] - 2020-07-11
 

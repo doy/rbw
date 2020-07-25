@@ -357,6 +357,20 @@ pub async fn lock(
     Ok(())
 }
 
+pub async fn check_lock(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    _tty: Option<&str>,
+) -> anyhow::Result<()> {
+    if state.read().await.needs_unlock() {
+        return Err(anyhow::anyhow!("agent is locked"));
+    }
+
+    respond_ack(sock).await?;
+
+    Ok(())
+}
+
 pub async fn sync(
     sock: &mut crate::sock::Sock,
     ack: bool,

@@ -10,6 +10,10 @@ pub fn unlock() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Unlock)
 }
 
+pub fn unlocked() -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::CheckLock)
+}
+
 pub fn sync() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Sync)
 }

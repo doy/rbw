@@ -466,6 +466,13 @@ pub fn unlock() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn unlocked() -> anyhow::Result<()> {
+    ensure_agent()?;
+    crate::actions::unlocked()?;
+
+    Ok(())
+}
+
 pub fn sync() -> anyhow::Result<()> {
     ensure_agent()?;
     crate::actions::login()?;

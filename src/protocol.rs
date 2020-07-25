@@ -21,6 +21,7 @@ pub struct Request {
 pub enum Action {
     Login,
     Unlock,
+    CheckLock,
     Lock,
     Sync,
     Decrypt {
