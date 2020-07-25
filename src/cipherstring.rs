@@ -67,6 +67,9 @@ impl CipherString {
                 })
             }
             4 | 6 => {
+                // the only difference between 4 and 6 is the HMAC256 signature appended at the end
+                // https://github.com/bitwarden/jslib/blob/785b681f61f81690de6df55159ab07ae710bcfad/src/enums/encryptionType.ts#L8
+                // format is: <cipher_text_b64>|<hmac_sig>
                 let contents = contents.split("|").next().unwrap();
                 let ciphertext = base64::decode(contents)
                     .context(crate::error::InvalidBase64)?;
