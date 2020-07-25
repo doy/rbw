@@ -545,6 +545,40 @@ pub fn get(
     Ok(())
 }
 
+pub fn code(
+    name: &str,
+    user: Option<&str>,
+    folder: Option<&str>,
+) -> anyhow::Result<()> {
+    unlock()?;
+
+    let db = load_db()?;
+
+    let desc = format!(
+        "{}{}",
+        user.map(|s| format!("{}@", s))
+            .unwrap_or_else(|| "".to_string()),
+        name
+    );
+
+    let (_, decrypted) = find_entry(&db, name, user, folder)
+        .with_context(|| format!("couldn't find entry for '{}'", desc))?;
+
+    if let DecryptedData::Login { totp, .. } = decrypted.data {
+        if let Some(totp) = totp {
+            println!("{}", generate_totp(&totp)?)
+        } else {
+            return Err(anyhow::anyhow!(
+                "entry does not contain a totp secret"
+            ));
+        }
+    } else {
+        return Err(anyhow::anyhow!("not a login entry"));
+    }
+
+    Ok(())
+}
+
 pub fn add(
     name: &str,
     username: Option<&str>,
@@ -1390,6 +1424,25 @@ fn remove_db() -> anyhow::Result<()> {
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
     }
+}
+
+fn generate_totp(secret: &str) -> anyhow::Result<String> {
+    Ok(format!(
+        "{}",
+        oath::totp_raw_now(
+            &base32::decode(
+                base32::Alphabet::RFC4648 { padding: false },
+                secret
+            )
+            .ok_or_else(|| anyhow::anyhow!(
+                "totp secret was not valid base32"
+            ))?,
+            6,
+            0,
+            30,
+            &oath::HashType::SHA1,
+        )
+    ))
 }
 
 #[cfg(test)]

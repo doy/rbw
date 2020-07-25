@@ -56,6 +56,16 @@ enum Opt {
         full: bool,
     },
 
+    #[structopt(about = "Display the authenticator code for a given entry")]
+    Code {
+        #[structopt(help = "Name or UUID of the entry to display")]
+        name: String,
+        #[structopt(help = "Username of the entry to display")]
+        user: Option<String>,
+        #[structopt(long, help = "Folder name to search in")]
+        folder: Option<String>,
+    },
+
     #[structopt(
         about = "Add a new password to the database",
         long_about = "Add a new password to the database\n\n\
@@ -200,6 +210,7 @@ impl Opt {
             Self::Sync => "sync".to_string(),
             Self::List { .. } => "list".to_string(),
             Self::Get { .. } => "get".to_string(),
+            Self::Code { .. } => "code".to_string(),
             Self::Add { .. } => "add".to_string(),
             Self::Generate { .. } => "generate".to_string(),
             Self::Edit { .. } => "edit".to_string(),
@@ -272,6 +283,9 @@ fn main(opt: Opt) {
             folder,
             full,
         } => commands::get(&name, user.as_deref(), folder.as_deref(), *full),
+        Opt::Code { name, user, folder } => {
+            commands::code(&name, user.as_deref(), folder.as_deref())
+        }
         Opt::Add {
             name,
             user,
