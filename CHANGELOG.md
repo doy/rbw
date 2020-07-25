@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* Add support for cipherstring type 6 (fixes some vaults using an older format
+  for organizations data). (Jake Swenson)
+
 ## [0.4.6] - 2020-07-11
 
 ### Fixed
