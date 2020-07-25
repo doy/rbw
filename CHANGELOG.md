@@ -2,10 +2,11 @@
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
 * Add support for cipherstring type 6 (fixes some vaults using an older format
   for organizations data). (Jake Swenson)
+* `rbw get --full` now displays URIs, TOTP secrets, and custom fields.
 
 ## [0.4.6] - 2020-07-11
 

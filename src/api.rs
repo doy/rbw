@@ -139,6 +139,8 @@ struct SyncResCipher {
     notes: Option<String>,
     #[serde(rename = "PasswordHistory")]
     password_history: Option<Vec<SyncResPasswordHistory>>,
+    #[serde(rename = "Fields")]
+    fields: Option<Vec<SyncResField>>,
 }
 
 impl SyncResCipher {
@@ -172,6 +174,7 @@ impl SyncResCipher {
             crate::db::EntryData::Login {
                 username: login.username.clone(),
                 password: login.password.clone(),
+                totp: login.totp.clone(),
                 uris: login.uris.as_ref().map_or_else(
                     std::vec::Vec::new,
                     |uris| {
@@ -215,6 +218,17 @@ impl SyncResCipher {
         } else {
             return None;
         };
+        let fields = if let Some(fields) = &self.fields {
+            fields
+                .iter()
+                .map(|field| crate::db::Field {
+                    name: field.name.clone(),
+                    value: field.value.clone(),
+                })
+                .collect()
+        } else {
+            vec![]
+        };
         Some(crate::db::Entry {
             id: self.id.clone(),
             org_id: self.organization_id.clone(),
@@ -222,6 +236,7 @@ impl SyncResCipher {
             folder_id: folder_id.map(std::string::ToString::to_string),
             name: self.name.clone(),
             data,
+            fields,
             notes: self.notes.clone(),
             history,
         })
@@ -260,6 +275,8 @@ struct CipherLogin {
     username: Option<String>,
     #[serde(rename = "Password")]
     password: Option<String>,
+    #[serde(rename = "Totp")]
+    totp: Option<String>,
     #[serde(rename = "Uris")]
     uris: Option<Vec<CipherLoginUri>>,
 }
@@ -335,6 +352,16 @@ struct SyncResPasswordHistory {
     last_used_date: String,
     #[serde(rename = "Password")]
     password: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct SyncResField {
+    #[serde(rename = "Type")]
+    ty: u32,
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "Value")]
+    value: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -546,6 +573,7 @@ impl Client {
             crate::db::EntryData::Login {
                 username,
                 password,
+                totp,
                 uris,
             } => {
                 let uris = if uris.is_empty() {
@@ -562,6 +590,7 @@ impl Client {
                 req.login = Some(CipherLogin {
                     username: username.clone(),
                     password: password.clone(),
+                    totp: totp.clone(),
                     uris,
                 })
             }
@@ -676,6 +705,7 @@ impl Client {
             crate::db::EntryData::Login {
                 username,
                 password,
+                totp,
                 uris,
             } => {
                 let uris = if uris.is_empty() {
@@ -692,6 +722,7 @@ impl Client {
                 req.login = Some(CipherLogin {
                     username: username.clone(),
                     password: password.clone(),
+                    totp: totp.clone(),
                     uris,
                 });
             }

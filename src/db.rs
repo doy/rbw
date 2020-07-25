@@ -13,6 +13,7 @@ pub struct Entry {
     pub folder_id: Option<String>,
     pub name: String,
     pub data: EntryData,
+    pub fields: Vec<Field>,
     pub notes: Option<String>,
     pub history: Vec<HistoryEntry>,
 }
@@ -24,6 +25,7 @@ pub enum EntryData {
     Login {
         username: Option<String>,
         password: Option<String>,
+        totp: Option<String>,
         uris: Vec<String>,
     },
     Card {
@@ -54,6 +56,14 @@ pub enum EntryData {
         username: Option<String>,
     },
     SecureNote,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct Field {
+    pub name: Option<String>,
+    pub value: Option<String>,
 }
 
 #[derive(

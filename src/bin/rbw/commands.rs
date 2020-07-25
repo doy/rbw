@@ -17,6 +17,7 @@ struct DecryptedCipher {
     folder: Option<String>,
     name: String,
     data: DecryptedData,
+    fields: Vec<DecryptedField>,
     notes: Option<String>,
     history: Vec<DecryptedHistoryEntry>,
 }
@@ -78,10 +79,30 @@ impl DecryptedCipher {
 
     fn display_long(&self, desc: &str) {
         match &self.data {
-            DecryptedData::Login { username, .. } => {
+            DecryptedData::Login {
+                username,
+                totp,
+                uris,
+                ..
+            } => {
                 let mut displayed = self.display_short(desc);
                 displayed |=
                     self.display_field("Username", username.as_deref());
+                displayed |=
+                    self.display_field("TOTP Secret", totp.as_deref());
+
+                if let Some(uris) = uris {
+                    for uri in uris {
+                        displayed |= self.display_field("URI", Some(uri));
+                    }
+                }
+
+                for field in &self.fields {
+                    displayed |= self.display_field(
+                        field.name.as_deref().unwrap_or_else(|| "(null)"),
+                        Some(field.value.as_deref().unwrap_or_else(|| "")),
+                    );
+                }
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -292,6 +313,8 @@ enum DecryptedData {
     Login {
         username: Option<String>,
         password: Option<String>,
+        totp: Option<String>,
+        uris: Option<Vec<String>>,
     },
     Card {
         cardholder_name: Option<String>,
@@ -321,6 +344,13 @@ enum DecryptedData {
         username: Option<String>,
     },
     SecureNote,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+struct DecryptedField {
+    name: Option<String>,
+    value: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -593,6 +623,7 @@ pub fn add(
             username,
             password,
             uris,
+            totp: None,
         },
         notes.as_deref(),
         folder_id.as_deref(),
@@ -682,6 +713,7 @@ pub fn generate(
                 username,
                 password: Some(password),
                 uris,
+                totp: None,
             },
             None,
             folder_id.as_deref(),
@@ -743,13 +775,14 @@ pub fn edit(
                 })
                 .transpose()?;
             let mut history = entry.history.clone();
-            let (entry_username, entry_password, entry_uris) =
+            let (entry_username, entry_password, entry_uris, entry_totp) =
                 match &entry.data {
                     rbw::db::EntryData::Login {
                         username,
                         password,
                         uris,
-                    } => (username, password, uris),
+                        totp,
+                    } => (username, password, uris, totp),
                     _ => unreachable!(),
                 };
             let new_history_entry = rbw::db::HistoryEntry {
@@ -764,6 +797,7 @@ pub fn edit(
                 username: entry_username.clone(),
                 password,
                 uris: entry_uris.to_vec(),
+                totp: entry_totp.clone(),
             };
             (data, notes, history)
         }
@@ -1069,6 +1103,34 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             None
         }
     };
+    let fields = entry
+        .fields
+        .iter()
+        .map(|field| {
+            Ok(DecryptedField {
+                name: field
+                    .name
+                    .as_ref()
+                    .map(|name| {
+                        crate::actions::decrypt(
+                            &name,
+                            entry.org_id.as_deref(),
+                        )
+                    })
+                    .transpose()?,
+                value: field
+                    .value
+                    .as_ref()
+                    .map(|value| {
+                        crate::actions::decrypt(
+                            &value,
+                            entry.org_id.as_deref(),
+                        )
+                    })
+                    .transpose()?,
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
     let notes = entry
         .notes
         .as_ref()
@@ -1097,7 +1159,10 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
 
     let data = match &entry.data {
         rbw::db::EntryData::Login {
-            username, password, ..
+            username,
+            password,
+            totp,
+            uris,
         } => DecryptedData::Login {
             username: decrypt_field(
                 "username",
@@ -1109,6 +1174,17 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 password.as_deref(),
                 entry.org_id.as_deref(),
             ),
+            totp: decrypt_field(
+                "totp",
+                totp.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            uris: uris
+                .iter()
+                .map(|s| {
+                    decrypt_field("uri", Some(s), entry.org_id.as_deref())
+                })
+                .collect(),
         },
         rbw::db::EntryData::Card {
             cardholder_name,
@@ -1262,6 +1338,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         folder,
         name: crate::actions::decrypt(&entry.name, entry.org_id.as_deref())?,
         data,
+        fields,
         notes,
         history,
     })
@@ -1455,7 +1532,9 @@ mod test {
                     }),
                     password: None,
                     uris: vec![],
+                    totp: None,
                 },
+                fields: vec![],
                 notes: None,
                 history: vec![],
             },
@@ -1466,7 +1545,10 @@ mod test {
                 data: DecryptedData::Login {
                     username: username.map(std::string::ToString::to_string),
                     password: None,
+                    totp: None,
+                    uris: None,
                 },
+                fields: vec![],
                 notes: None,
                 history: vec![],
             },
