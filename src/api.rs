@@ -482,7 +482,7 @@ impl Client {
             device_identifier: uuid::Uuid::new_v4()
                 .to_hyphenated()
                 .to_string(),
-            device_name: "test cli".to_string(),
+            device_name: "rbw".to_string(),
             device_push_token: "".to_string(),
             two_factor_token: two_factor_token
                 .map(std::string::ToString::to_string),
