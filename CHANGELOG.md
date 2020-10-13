@@ -12,6 +12,10 @@
 * Add `rbw unlocked` which will exit with success if the agent is unlocked and
   failure if the agent is locked.
 
+### Fixed
+
+* Don't display deleted items (#22, GnunuX)
+
 ## [0.4.6] - 2020-07-11
 
 ### Fixed
