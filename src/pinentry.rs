@@ -9,14 +9,13 @@ pub async fn getpin(
     tty: Option<&str>,
 ) -> Result<crate::locked::Password> {
     let mut opts = tokio::process::Command::new("pinentry");
-    let opts = opts
-        .stdin(std::process::Stdio::piped())
+    opts.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
-    let opts = if let Some(tty) = tty {
-        opts.args(&["-T", tty, "-o", "0"])
+    if let Some(tty) = tty {
+        opts.args(&["-T", tty, "-o", "0"]);
     } else {
-        opts.args(&["-o", "0"])
-    };
+        opts.args(&["-o", "0"]);
+    }
     let mut child = opts.spawn().context(crate::error::Spawn)?;
     // unwrap is safe because we specified stdin as piped in the command opts
     // above

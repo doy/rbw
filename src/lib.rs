@@ -1,6 +1,7 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 #![allow(clippy::default_trait_access)]
+#![allow(clippy::implicit_hasher)]
 #![allow(clippy::large_enum_variant)]
 #![allow(clippy::missing_const_for_fn)]
 #![allow(clippy::missing_errors_doc)]

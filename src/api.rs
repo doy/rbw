@@ -150,6 +150,9 @@ impl SyncResCipher {
         &self,
         folders: &[SyncResFolder],
     ) -> Option<crate::db::Entry> {
+        if self.deleted_date.is_some() {
+            return None;
+        }
         let history = if let Some(history) = &self.password_history {
             history
                 .iter()
@@ -171,9 +174,6 @@ impl SyncResCipher {
             (folder_name, Some(folder_id))
         } else {
             (None, None)
-        };
-        if ! self.deleted_date.is_none() {
-            return None;
         };
         let data = if let Some(login) = &self.login {
             crate::db::EntryData::Login {

@@ -1007,9 +1007,9 @@ fn check_config() -> anyhow::Result<()> {
 }
 
 fn version_or_quit() -> anyhow::Result<u32> {
-    crate::actions::version().or_else(|e| {
+    crate::actions::version().map_err(|e| {
         let _ = crate::actions::quit();
-        Err(e)
+        e
     })
 }
 
