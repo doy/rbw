@@ -141,6 +141,8 @@ struct SyncResCipher {
     password_history: Option<Vec<SyncResPasswordHistory>>,
     #[serde(rename = "Fields")]
     fields: Option<Vec<SyncResField>>,
+    #[serde(rename = "DeletedDate")]
+    deleted_date: Option<String>,
 }
 
 impl SyncResCipher {
@@ -169,6 +171,9 @@ impl SyncResCipher {
             (folder_name, Some(folder_id))
         } else {
             (None, None)
+        };
+        if ! self.deleted_date.is_none() {
+            return None;
         };
         let data = if let Some(login) = &self.login {
             crate::db::EntryData::Login {
