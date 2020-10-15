@@ -1435,7 +1435,7 @@ fn remove_db() -> anyhow::Result<()> {
 
 fn generate_totp(secret: &str) -> anyhow::Result<String> {
     Ok(format!(
-        "{}",
+        "{:06}",
         oath::totp_raw_now(
             &base32::decode(
                 base32::Alphabet::RFC4648 { padding: false },
