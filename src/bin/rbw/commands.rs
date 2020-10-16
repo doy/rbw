@@ -1433,22 +1433,38 @@ fn remove_db() -> anyhow::Result<()> {
     }
 }
 
+fn parse_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
+    let secret_str = if let Ok(u) = url::Url::parse(secret) {
+        if u.scheme() != "otpauth" {
+            return Err(anyhow::anyhow!(
+                "totp secret url must have otpauth scheme"
+            ));
+        }
+        if u.host_str() != Some("totp") {
+            return Err(anyhow::anyhow!(
+                "totp secret url must have totp host"
+            ));
+        }
+        let query: std::collections::HashMap<_, _> =
+            u.query_pairs().collect();
+        query
+            .get("secret")
+            .ok_or_else(|| {
+                anyhow::anyhow!("totp secret url must have secret")
+            })?
+            .to_string()
+    } else {
+        secret.to_string()
+    };
+    base32::decode(base32::Alphabet::RFC4648 { padding: false }, &secret_str)
+        .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
+}
+
 fn generate_totp(secret: &str) -> anyhow::Result<String> {
+    let key = parse_totp_secret(secret)?;
     Ok(format!(
         "{:06}",
-        oath::totp_raw_now(
-            &base32::decode(
-                base32::Alphabet::RFC4648 { padding: false },
-                secret
-            )
-            .ok_or_else(|| anyhow::anyhow!(
-                "totp secret was not valid base32"
-            ))?,
-            6,
-            0,
-            30,
-            &oath::HashType::SHA1,
-        )
+        oath::totp_raw_now(&key, 6, 0, 30, &oath::HashType::SHA1)
     ))
 }
 
