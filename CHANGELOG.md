@@ -6,6 +6,7 @@
 
 * `rbw code` now always displays the correct number of digits. (#25, Tyilo)
 * TOTP secrets can now also be supplied as `otpauth` urls.
+* Logging into bitwarden.com with 2fa enabled now works again.
 
 ## [0.5.0] - 2020-10-12
 
