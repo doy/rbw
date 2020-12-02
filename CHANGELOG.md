@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* `rbw` should once again be usable on systems with glibc-2.28 (such as Debian
+  stable).
+
 ## [0.5.1] - 2020-12-02
 
 ### Fixed

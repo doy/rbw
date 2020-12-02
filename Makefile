@@ -12,8 +12,10 @@ build:
 
 release:
 	@cargo build --release --all-targets
-	@./bin/remove-glibc-2.29-use ./target/release/rbw
+	@./build/fix-glibc-function-versions ./target/release/rbw
+	@./build/fix-glibc-function-versions ./target/release/rbw-agent
 	@mv ./target/release/rbw.new ./target/release/rbw
+	@mv ./target/release/rbw-agent.new ./target/release/rbw-agent
 .PHONY: release
 
 test:
