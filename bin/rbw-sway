@@ -1,0 +1,13 @@
+#!/bin/bash
+# copy bitwarden passwords for sway, depends on wl-copy
+#
+# example $XDG_CONFIG_DIR/sway/config using foot terminal:
+#
+#   for_window [app_id="pass"] floating enable
+#   bindsym $mod+p exec foot --app-id pass --window-size-chars 80x20 rbw-sway 
+
+set -eu
+
+rbw unlocked || rbw unlock
+
+swaymsg exec "wl-copy -s seat0 -o $(rbw-fzf)" # works
