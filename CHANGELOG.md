@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.2] - 2020-12-02
 
 ### Fixed
 
