@@ -50,7 +50,7 @@ pub enum Error {
     InvalidMac,
 
     #[snafu(display("invalid two factor provider type: {}", ty))]
-    InvalidTwoFactorProvider { ty: u32 },
+    InvalidTwoFactorProvider { ty: String },
 
     #[snafu(display("failed to parse JSON"))]
     JSON {

@@ -15,10 +15,52 @@ pub enum TwoFactorProviderType {
     OrganizationDuo = 6,
 }
 
-impl std::convert::TryFrom<u32> for TwoFactorProviderType {
+impl<'de> serde::Deserialize<'de> for TwoFactorProviderType {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TwoFactorProviderTypeVisitor;
+        impl<'de> serde::de::Visitor<'de> for TwoFactorProviderTypeVisitor {
+            type Value = TwoFactorProviderType;
+
+            fn expecting(
+                &self,
+                formatter: &mut std::fmt::Formatter,
+            ) -> std::fmt::Result {
+                formatter.write_str("two factor provider id")
+            }
+
+            fn visit_str<E>(
+                self,
+                value: &str,
+            ) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                value.parse().map_err(serde::de::Error::custom)
+            }
+
+            fn visit_u64<E>(
+                self,
+                value: u64,
+            ) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                std::convert::TryFrom::try_from(value)
+                    .map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_any(TwoFactorProviderTypeVisitor)
+    }
+}
+
+impl std::convert::TryFrom<u64> for TwoFactorProviderType {
     type Error = Error;
 
-    fn try_from(ty: u32) -> Result<Self> {
+    fn try_from(ty: u64) -> Result<Self> {
         match ty {
             0 => Ok(Self::Authenticator),
             1 => Ok(Self::Email),
@@ -27,7 +69,26 @@ impl std::convert::TryFrom<u32> for TwoFactorProviderType {
             4 => Ok(Self::U2f),
             5 => Ok(Self::Remember),
             6 => Ok(Self::OrganizationDuo),
-            _ => Err(Error::InvalidTwoFactorProvider { ty }),
+            _ => Err(Error::InvalidTwoFactorProvider {
+                ty: format!("{}", ty),
+            }),
+        }
+    }
+}
+
+impl std::str::FromStr for TwoFactorProviderType {
+    type Err = Error;
+
+    fn from_str(ty: &str) -> Result<Self> {
+        match ty {
+            "0" => Ok(Self::Authenticator),
+            "1" => Ok(Self::Email),
+            "2" => Ok(Self::Duo),
+            "3" => Ok(Self::Yubikey),
+            "4" => Ok(Self::U2f),
+            "5" => Ok(Self::Remember),
+            "6" => Ok(Self::OrganizationDuo),
+            _ => Err(Error::InvalidTwoFactorProvider { ty: ty.to_string() }),
         }
     }
 }
@@ -83,7 +144,7 @@ struct ConnectErrorRes {
     #[serde(rename = "ErrorModel")]
     error_model: Option<ConnectErrorResErrorModel>,
     #[serde(rename = "TwoFactorProviders")]
-    two_factor_providers: Option<Vec<u32>>,
+    two_factor_providers: Option<Vec<TwoFactorProviderType>>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -946,16 +1007,8 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                 if let Some(providers) =
                     error_res.two_factor_providers.as_ref()
                 {
-                    let providers: Result<_> = providers
-                        .iter()
-                        .copied()
-                        .map(std::convert::TryInto::try_into)
-                        .collect();
-                    return match providers {
-                        Ok(providers) => {
-                            Error::TwoFactorRequired { providers }
-                        }
-                        Err(e) => e,
+                    return Error::TwoFactorRequired {
+                        providers: providers.to_vec(),
                     };
                 }
             }
