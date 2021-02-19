@@ -99,8 +99,8 @@ impl DecryptedCipher {
 
                 for field in &self.fields {
                     displayed |= self.display_field(
-                        field.name.as_deref().unwrap_or_else(|| "(null)"),
-                        Some(field.value.as_deref().unwrap_or_else(|| "")),
+                        field.name.as_deref().unwrap_or("(null)"),
+                        Some(field.value.as_deref().unwrap_or("")),
                     );
                 }
 
@@ -227,12 +227,11 @@ impl DecryptedCipher {
 
         if let Some(given_username) = username {
             match &self.data {
-                DecryptedData::Login { username, .. } => {
-                    if let Some(found_username) = username {
-                        if given_username != found_username {
-                            return false;
-                        }
-                    } else {
+                DecryptedData::Login {
+                    username: Some(found_username),
+                    ..
+                } => {
+                    if given_username != found_username {
                         return false;
                     }
                 }
@@ -273,12 +272,11 @@ impl DecryptedCipher {
 
         if let Some(given_username) = username {
             match &self.data {
-                DecryptedData::Login { username, .. } => {
-                    if let Some(found_username) = username {
-                        if !found_username.contains(given_username) {
-                            return false;
-                        }
-                    } else {
+                DecryptedData::Login {
+                    username: Some(found_username),
+                    ..
+                } => {
+                    if !found_username.contains(given_username) {
                         return false;
                     }
                 }
@@ -1391,14 +1389,14 @@ fn parse_editor(contents: &str) -> (Option<String>, Option<String>) {
     let password = lines.next().map(std::string::ToString::to_string);
 
     let mut notes: String = lines
-        .skip_while(|line| *line == "")
+        .skip_while(|line| line.is_empty())
         .filter(|line| !line.starts_with('#'))
         .map(|line| format!("{}\n", line))
         .collect();
     while notes.ends_with('\n') {
         notes.pop();
     }
-    let notes = if notes == "" { None } else { Some(notes) };
+    let notes = if notes.is_empty() { None } else { Some(notes) };
 
     (password, notes)
 }

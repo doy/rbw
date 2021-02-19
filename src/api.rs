@@ -1017,7 +1017,7 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "" => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_res.error_description == "" {
+            if error_res.error_description.is_empty() {
                 if let Some(error_model) = error_res.error_model.as_ref() {
                     let message = error_model.message.as_str().to_string();
                     match message.as_str() {

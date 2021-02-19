@@ -18,10 +18,12 @@ pub enum Type {
 
 pub fn pwgen(ty: Type, len: usize) -> String {
     if ty == Type::Diceware {
-        let mut config = chbs::config::BasicConfig::default();
-        config.words = len;
-        config.capitalize_first = chbs::probability::Probability::Never;
-        config.capitalize_words = chbs::probability::Probability::Never;
+        let config = chbs::config::BasicConfig {
+            words: len,
+            capitalize_first: chbs::probability::Probability::Never,
+            capitalize_words: chbs::probability::Probability::Never,
+            ..chbs::config::BasicConfig::default()
+        };
         return config.to_scheme().generate();
     }
 

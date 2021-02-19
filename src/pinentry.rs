@@ -86,11 +86,10 @@ where
                 if ncommands == 1 {
                     len = 0;
                     break;
-                } else {
-                    data.copy_within((nl + 1).., 0);
-                    len -= nl + 1;
-                    ncommands -= 1;
                 }
+                data.copy_within((nl + 1).., 0);
+                len -= nl + 1;
+                ncommands -= 1;
             } else if data.starts_with(b"D ") {
                 data.copy_within(2..nl, 0);
                 len = nl - 2;
@@ -110,11 +109,10 @@ where
                             return Err(Error::PinentryErrorMessage {
                                 error: error.to_string(),
                             });
-                        } else {
-                            return Err(Error::PinentryErrorMessage {
-                                error: format!("unknown error ({})", code),
-                            });
                         }
+                        return Err(Error::PinentryErrorMessage {
+                            error: format!("unknown error ({})", code),
+                        });
                     }
                     None => {
                         return Err(Error::PinentryErrorMessage {

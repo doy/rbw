@@ -34,7 +34,7 @@ pub fn quit() -> anyhow::Result<()> {
                     .and_then(|p| p.to_str().map(|s| s.to_string())),
                 action: rbw::protocol::Action::Quit,
             })?;
-            wait_for_exit(pid)?;
+            wait_for_exit(pid);
             Ok(())
         }
         Err(e) => match e.kind() {
@@ -148,12 +148,11 @@ fn connect() -> anyhow::Result<crate::sock::Sock> {
     })
 }
 
-fn wait_for_exit(pid: nix::unistd::Pid) -> anyhow::Result<()> {
+fn wait_for_exit(pid: nix::unistd::Pid) {
     loop {
         if nix::sys::signal::kill(pid, None).is_err() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    Ok(())
 }
