@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* Stop hardcoding /tmp when using the fallback runtime directory (#37, pschmitt)
+
 ## [0.5.2] - 2020-12-02
 
 ### Fixed

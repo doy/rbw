@@ -73,6 +73,11 @@ fn runtime_dir() -> std::path::PathBuf {
     let project_dirs = directories::ProjectDirs::from("", "", "rbw").unwrap();
     match project_dirs.runtime_dir() {
         Some(dir) => dir.to_path_buf(),
-        None => format!("/tmp/rbw-{}", nix::unistd::getuid().as_raw()).into(),
+        None => format!(
+            "{}/rbw-{}",
+            std::env::temp_dir().to_string_lossy(),
+            nix::unistd::getuid().as_raw()
+        )
+        .into(),
     }
 }
