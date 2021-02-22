@@ -7,6 +7,8 @@
 * Stop hardcoding /tmp when using the fallback runtime directory (#37, pschmitt)
 * Fix `rbw edit` clearing the match detection setting for websites associated
   with the edited password (#34, AdmiralNemo)
+  * Note that you will need to `rbw sync` after upgrading and before running
+    `rbw edit` in order to correctly update the local database.
 
 ## [0.5.2] - 2020-12-02
 
