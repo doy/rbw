@@ -299,7 +299,11 @@ fn main(opt: Opt) {
         } => commands::add(
             &name,
             user.as_deref(),
-            uri.to_vec(),
+            uri.iter()
+                // XXX not sure what the ui for specifying the match type
+                // should be
+                .map(|uri| (uri.clone(), None))
+                .collect::<Vec<_>>(),
             folder.as_deref(),
         ),
         Opt::Generate {
@@ -327,7 +331,11 @@ fn main(opt: Opt) {
             commands::generate(
                 name.as_deref(),
                 user.as_deref(),
-                uri.to_vec(),
+                uri.iter()
+                    // XXX not sure what the ui for specifying the match type
+                    // should be
+                    .map(|uri| (uri.clone(), None))
+                    .collect::<Vec<_>>(),
                 folder.as_deref(),
                 *len,
                 ty,

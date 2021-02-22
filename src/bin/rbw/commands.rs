@@ -93,7 +93,14 @@ impl DecryptedCipher {
 
                 if let Some(uris) = uris {
                     for uri in uris {
-                        displayed |= self.display_field("URI", Some(uri));
+                        displayed |=
+                            self.display_field("URI", Some(&uri.uri));
+                        let match_type =
+                            uri.match_type.map(|ty| format!("{}", ty));
+                        displayed |= self.display_field(
+                            "Match type",
+                            match_type.as_deref(),
+                        );
                     }
                 }
 
@@ -312,7 +319,7 @@ enum DecryptedData {
         username: Option<String>,
         password: Option<String>,
         totp: Option<String>,
-        uris: Option<Vec<String>>,
+        uris: Option<Vec<DecryptedUri>>,
     },
     Card {
         cardholder_name: Option<String>,
@@ -356,6 +363,13 @@ struct DecryptedField {
 struct DecryptedHistoryEntry {
     last_used_date: String,
     password: String,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+struct DecryptedUri {
+    uri: String,
+    match_type: Option<rbw::api::UriMatchType>,
 }
 
 enum ListField {
@@ -587,7 +601,7 @@ pub fn code(
 pub fn add(
     name: &str,
     username: Option<&str>,
-    uris: Vec<String>,
+    uris: Vec<(String, Option<rbw::api::UriMatchType>)>,
     folder: Option<&str>,
 ) -> anyhow::Result<()> {
     unlock()?;
@@ -613,9 +627,14 @@ pub fn add(
     let notes = notes
         .map(|notes| crate::actions::encrypt(&notes, None))
         .transpose()?;
-    let uris: Vec<String> = uris
+    let uris: Vec<_> = uris
         .iter()
-        .map(|uri| crate::actions::encrypt(&uri, None))
+        .map(|uri| {
+            Ok(rbw::db::Uri {
+                uri: crate::actions::encrypt(&uri.0, None)?,
+                match_type: uri.1,
+            })
+        })
         .collect::<anyhow::Result<_>>()?;
 
     let mut folder_id = None;
@@ -679,7 +698,7 @@ pub fn add(
 pub fn generate(
     name: Option<&str>,
     username: Option<&str>,
-    uris: Vec<String>,
+    uris: Vec<(String, Option<rbw::api::UriMatchType>)>,
     folder: Option<&str>,
     len: usize,
     ty: rbw::pwgen::Type,
@@ -701,9 +720,14 @@ pub fn generate(
             .map(|username| crate::actions::encrypt(username, None))
             .transpose()?;
         let password = crate::actions::encrypt(&password, None)?;
-        let uris: Vec<String> = uris
+        let uris: Vec<_> = uris
             .iter()
-            .map(|uri| crate::actions::encrypt(&uri, None))
+            .map(|uri| {
+                Ok(rbw::db::Uri {
+                    uri: crate::actions::encrypt(&uri.0, None)?,
+                    match_type: uri.1,
+                })
+            })
             .collect::<anyhow::Result<_>>()?;
 
         let mut folder_id = None;
@@ -1221,7 +1245,15 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             uris: uris
                 .iter()
                 .map(|s| {
-                    decrypt_field("uri", Some(s), entry.org_id.as_deref())
+                    decrypt_field(
+                        "uri",
+                        Some(&s.uri),
+                        entry.org_id.as_deref(),
+                    )
+                    .map(|uri| DecryptedUri {
+                        uri,
+                        match_type: s.match_type,
+                    })
                 })
                 .collect(),
         },

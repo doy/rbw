@@ -4,6 +4,41 @@ use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
 
+#[derive(
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+)]
+#[repr(u8)]
+pub enum UriMatchType {
+    Domain = 0,
+    Host = 1,
+    StartsWith = 2,
+    Exact = 3,
+    RegularExpression = 4,
+    Never = 5,
+}
+
+impl std::fmt::Display for UriMatchType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[allow(clippy::enum_glob_use)]
+        use UriMatchType::*;
+        let s = match self {
+            Domain => "domain",
+            Host => "host",
+            StartsWith => "starts_with",
+            Exact => "exact",
+            RegularExpression => "regular_expression",
+            Never => "never",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TwoFactorProviderType {
     Authenticator = 0,
@@ -245,7 +280,12 @@ impl SyncResCipher {
                     std::vec::Vec::new,
                     |uris| {
                         uris.iter()
-                            .filter_map(|uri| uri.uri.clone())
+                            .filter_map(|uri| {
+                                uri.uri.clone().map(|s| crate::db::Uri {
+                                    uri: s,
+                                    match_type: uri.match_type,
+                                })
+                            })
                             .collect()
                     },
                 ),
@@ -351,6 +391,8 @@ struct CipherLogin {
 struct CipherLoginUri {
     #[serde(rename = "Uri")]
     uri: Option<String>,
+    #[serde(rename = "Match")]
+    match_type: Option<UriMatchType>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -648,7 +690,8 @@ impl Client {
                     Some(
                         uris.iter()
                             .map(|s| CipherLoginUri {
-                                uri: Some(s.to_string()),
+                                uri: Some(s.uri.to_string()),
+                                match_type: s.match_type,
                             })
                             .collect(),
                     )
@@ -780,7 +823,8 @@ impl Client {
                     Some(
                         uris.iter()
                             .map(|s| CipherLoginUri {
-                                uri: Some(s.to_string()),
+                                uri: Some(s.uri.to_string()),
+                                match_type: s.match_type,
                             })
                             .collect(),
                     )

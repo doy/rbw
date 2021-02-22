@@ -96,6 +96,9 @@ pub enum Error {
     #[snafu(display("openssl error"))]
     OpenSSL { source: openssl::error::ErrorStack },
 
+    #[snafu(display("failed to parse match type {}", s))]
+    ParseMatchType { s: String },
+
     #[snafu(display("pbkdf2 requires at least 1 iteration (got 0)"))]
     Pbkdf2ZeroIterations,
 
