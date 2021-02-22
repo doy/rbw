@@ -11,6 +11,14 @@ similar to the way that `ssh-agent` or `gpg-agent` work. This allows the client
 to be used in a much simpler way, with the background agent taking care of
 maintaining the necessary state.
 
+## Maintenance
+
+I consider `rbw` to be essentially feature-complete for me at this point. While
+I still use it on a daily basis, and will continue to fix regressions as they
+occur, I am unlikely to spend time implementing new features on my own. If you
+would like to see new functionality in `rbw`, I am more than happy to review
+and merge pull requests implementing those features.
+
 ## Installation
 
 ### Arch Linux

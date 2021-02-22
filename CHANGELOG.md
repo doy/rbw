@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+* Clarified the maintenance policy for this project in the README
+
 ### Fixed
 
 * Stop hardcoding /tmp when using the fallback runtime directory (#37, pschmitt)
