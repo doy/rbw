@@ -59,7 +59,26 @@ fn real_main() -> anyhow::Result<()> {
     Ok(())
 }
 
+const PR_SET_DUMPABLE: i32 = 4;
+
+#[cfg(target_os = "linux")]
+fn disable_tracing() {
+    let ret = unsafe { libc::prctl(PR_SET_DUMPABLE, 0) };
+    if ret != 0 {
+        println!("rbw-agent: Failed to disable PTRACE_ATTACH. Agent memory may be dumpable by other processes.");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn disable_tracing() {
+    println!("rbw-agent: Unable to disable PTRACE_ATTACH on this platform: not implemented. Agent memory may be dumpable by other processes.");
+}
+
 fn main() {
+    // Prevent other user processes from attaching to the rbw agent and dumping memory
+    // This is not perfect protection, but closes a door. Unfortunately, prctl only works
+    // on Linux.
+    disable_tracing();
     let res = real_main();
 
     if let Err(e) = res {
