@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+* On Linux, the `rbw-agent` process can no longer be attached to by debuggers,
+  and no longer produces core dumps (#42, oranenj)
+
 ## [1.0.0] - 2021-02-21
 
 ### Added
