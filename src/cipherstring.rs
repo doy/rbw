@@ -76,9 +76,15 @@ impl CipherString {
                     .context(crate::error::InvalidBase64)?;
                 Ok(Self::Asymmetric { ciphertext })
             }
-            _ => Err(Error::UnimplementedCipherStringType {
-                ty: ty.to_string(),
-            }),
+            _ => {
+                if ty < 6 {
+                    Err(Error::TooOldCipherStringType { ty: ty.to_string() })
+                } else {
+                    Err(Error::UnimplementedCipherStringType {
+                        ty: ty.to_string(),
+                    })
+                }
+            }
         }
     }
 

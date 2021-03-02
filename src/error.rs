@@ -162,6 +162,9 @@ pub enum Error {
     #[snafu(display("error spawning pinentry"))]
     Spawn { source: tokio::io::Error },
 
+    #[snafu(display("cipherstring type {} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again.", ty))]
+    TooOldCipherStringType { ty: String },
+
     #[snafu(display("two factor required"))]
     TwoFactorRequired {
         providers: Vec<crate::api::TwoFactorProviderType>,
