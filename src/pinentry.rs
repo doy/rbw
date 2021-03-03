@@ -64,7 +64,7 @@ pub async fn getpin(
     .await?;
     buf.truncate(len);
 
-    child.await.context(crate::error::PinentryWait)?;
+    child.wait().await.context(crate::error::PinentryWait)?;
 
     Ok(crate::locked::Password::new(buf))
 }

@@ -1,5 +1,4 @@
 use anyhow::Context as _;
-use tokio::stream::StreamExt as _;
 
 #[derive(Debug)]
 pub enum TimeoutEvent {
@@ -41,7 +40,7 @@ impl State {
 
 pub struct Agent {
     timeout_duration: tokio::time::Duration,
-    timeout: Option<tokio::time::Delay>,
+    timeout: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
     timeout_chan: tokio::sync::mpsc::UnboundedReceiver<TimeoutEvent>,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
 }
@@ -65,7 +64,8 @@ impl Agent {
     }
 
     fn set_timeout(&mut self) {
-        self.timeout = Some(tokio::time::delay_for(self.timeout_duration));
+        self.timeout =
+            Some(Box::pin(tokio::time::sleep(self.timeout_duration)));
     }
 
     fn clear_timeout(&mut self) {
@@ -74,12 +74,12 @@ impl Agent {
 
     pub async fn run(
         &mut self,
-        mut listener: tokio::net::UnixListener,
+        listener: tokio::net::UnixListener,
     ) -> anyhow::Result<()> {
         // tokio only supports timeouts up to 2^36 milliseconds
-        let mut forever = tokio::time::delay_for(
+        let mut forever = Box::pin(tokio::time::sleep(
             tokio::time::Duration::from_secs(60 * 60 * 24 * 365 * 2),
-        );
+        ));
         loop {
             let timeout = if let Some(timeout) = &mut self.timeout {
                 timeout
@@ -87,9 +87,9 @@ impl Agent {
                 &mut forever
             };
             tokio::select! {
-                Some(sock) = listener.next() => {
+                sock = listener.accept() => {
                     let mut sock = crate::sock::Sock::new(
-                        sock.context("failed to accept incoming connection")?
+                        sock.context("failed to accept incoming connection")?.0
                     );
                     let state = self.state.clone();
                     tokio::spawn(async move {
@@ -109,7 +109,7 @@ impl Agent {
                         state.write().await.clear();
                     });
                 }
-                Some(ev) = &mut self.timeout_chan.next() => {
+                Some(ev) = self.timeout_chan.recv() => {
                     match ev {
                         TimeoutEvent::Set => self.set_timeout(),
                         TimeoutEvent::Clear => self.clear_timeout(),
