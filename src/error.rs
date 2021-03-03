@@ -43,8 +43,15 @@ pub enum Error {
     #[snafu(display("invalid cipherstring: {}", reason))]
     InvalidCipherString { reason: String },
 
-    #[snafu(display("invalid value for $EDITOR: {}", editor.to_string_lossy()))]
-    InvalidEditor { editor: std::ffi::OsString },
+    #[snafu(display(
+        "invalid value for ${}: {}",
+        var,
+        editor.to_string_lossy()
+    ))]
+    InvalidEditor {
+        var: String,
+        editor: std::ffi::OsString,
+    },
 
     #[snafu(display("invalid mac"))]
     InvalidMac,

@@ -3,8 +3,11 @@ use crate::prelude::*;
 use std::io::{Read as _, Write as _};
 
 pub fn edit(contents: &str, help: &str) -> Result<String> {
-    let editor =
-        std::env::var_os("EDITOR").unwrap_or_else(|| "/usr/bin/vim".into());
+    let mut var = "VISUAL";
+    let editor = std::env::var_os(var).unwrap_or_else(|| {
+        var = "EDITOR";
+        std::env::var_os(var).unwrap_or_else(|| "/usr/bin/vim".into())
+    });
     let editor = std::path::Path::new(&editor);
 
     let mut args = vec![];
@@ -21,6 +24,7 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
         },
         None => {
             return Err(Error::InvalidEditor {
+                var: var.to_string(),
                 editor: editor.as_os_str().to_os_string(),
             })
         }

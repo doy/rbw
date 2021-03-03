@@ -12,6 +12,8 @@
   and no longer produces core dumps (#42, oranenj)
 * Suggest rotating the user's encryption key if we see an old cipherstring type
   (#40, rjc)
+* Prefer the value of `$VISUAL` when trying to find an editor to run, before
+  falling back to `$EDITOR` (#43, rjc)
 
 ## [1.0.0] - 2021-02-21
 

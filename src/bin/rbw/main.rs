@@ -74,8 +74,8 @@ enum Opt {
         long_about = "Add a new password to the database\n\n\
             This command will open a text editor to enter \
             the password and notes. The editor to use is determined \
-            by the value of the $EDITOR environment variable. The \
-            first line will be saved as the password and the \
+            by the value of the $VISUAL or $EDITOR environment variables.
+            The first line will be saved as the password and the \
             remainder will be saved as a note."
     )]
     Add {
@@ -156,8 +156,8 @@ enum Opt {
             This command will open a text editor with the existing \
             password and notes of the given entry for editing. \
             The editor to use is determined  by the value of the \
-            $EDITOR environment variable. The first line will be \
-            saved as the password and the remainder will be saved \
+            $VISUAL or $EDITOR environment variables. The first line \
+            will be saved as the password and the remainder will be saved \
             as a note."
     )]
     Edit {
