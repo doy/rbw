@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+* You can now `rbw config set pinentry pinentry-curses` to change the pinentry
+  program used by `rbw` (#39, djmattyg007)
+
 ### Changed
 
 * On Linux, the `rbw-agent` process can no longer be attached to by debuggers,

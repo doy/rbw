@@ -10,6 +10,8 @@ pub struct Config {
     pub identity_url: Option<String>,
     #[serde(default = "default_lock_timeout")]
     pub lock_timeout: u64,
+    #[serde(default = "default_pinentry")]
+    pub pinentry: String,
 }
 
 impl Default for Config {
@@ -19,12 +21,17 @@ impl Default for Config {
             base_url: Default::default(),
             identity_url: Default::default(),
             lock_timeout: default_lock_timeout(),
+            pinentry: default_pinentry(),
         }
     }
 }
 
 pub fn default_lock_timeout() -> u64 {
     3600
+}
+
+pub fn default_pinentry() -> String {
+    "pinentry".to_string()
 }
 
 impl Config {

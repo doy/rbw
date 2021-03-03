@@ -3,12 +3,13 @@ use crate::prelude::*;
 use tokio::io::AsyncWriteExt as _;
 
 pub async fn getpin(
+    pinentry: &str,
     prompt: &str,
     desc: &str,
     err: Option<&str>,
     tty: Option<&str>,
 ) -> Result<crate::locked::Password> {
-    let mut opts = tokio::process::Command::new("pinentry");
+    let mut opts = tokio::process::Command::new(pinentry);
     opts.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
     if let Some(tty) = tty {

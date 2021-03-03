@@ -32,6 +32,7 @@ pub async fn login(
                 None
             };
             let password = rbw::pinentry::getpin(
+                &config_pinentry().await?,
                 "Master Password",
                 &format!("Log in to {}", host),
                 err.as_deref(),
@@ -134,6 +135,7 @@ async fn two_factor(
             None
         };
         let code = rbw::pinentry::getpin(
+            &config_pinentry().await?,
             "Authenticator App",
             "Enter the 6 digit verification code from your authenticator app.",
             err.as_deref(),
@@ -293,6 +295,7 @@ pub async fn unlock(
                 None
             };
             let password = rbw::pinentry::getpin(
+                &config_pinentry().await?,
                 "Master Password",
                 "Unlock the local database",
                 err.as_deref(),
@@ -531,4 +534,9 @@ async fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
 async fn config_base_url() -> anyhow::Result<String> {
     let config = rbw::config::Config::load_async().await?;
     Ok(config.base_url())
+}
+
+async fn config_pinentry() -> anyhow::Result<String> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.pinentry)
 }

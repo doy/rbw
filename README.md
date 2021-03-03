@@ -59,6 +59,9 @@ configuration options:
 * `lock_timeout`: The number of seconds to keep the master keys in memory for
   before requiring the password to be entered again. Defaults to `3600` (one
   hour).
+* `pinentry`: The
+  [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
+  executable to use. Defaults to `pinentry`.
 
 ## Usage
 
