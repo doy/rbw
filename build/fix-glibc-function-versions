@@ -91,18 +91,25 @@ open my $fh, '>', "$bin.new" or die "couldn't open $bin.new: $!";
 print $fh $bin_contents;
 chmod 0755, "$bin.new";
 
-my $remaining = `readelf -sW $bin.new | grep 'GLIBC_2.\\(29\\|32\\)'`;
-if (!$?) {
-    die "additional symbols from GLIBC_2.29 or GLIBC_2.32 found:\n$remaining\n";
+my %new = parse_readelf_s("$bin.new");
+my @found;
+for my $name (keys %new) {
+    if ($name =~ /\@GLIBC_2\.(?:29|32)$/) {
+        push @found, $name;
+    }
+}
+if (@found) {
+    die "additional symbols from GLIBC_2.29 or GLIBC_2.32 found:\n@found\n";
 }
 
 sub parse_readelf_s($bin) {
     my $readelf = `readelf -sW $bin`;
 
     my %ret;
-    for my $line (split "\n", $readelf) {
-        if ($line =~ /^ *[0-9]+:/) {
-            my ($num, $value, $size, $type, $bind, $vis, $ndx, $name, $ver) = split ' ', $line;
+    for (split "\n", $readelf) {
+        next unless /Symbol table '\.dynsym'/../^$/;
+        if (/^ *[0-9]+:/) {
+            my ($num, $value, $size, $type, $bind, $vis, $ndx, $name, $ver) = split ' ';
             if (defined $ver) {
                 ($ver) = $ver =~ /\((.*)\)/;
             }
