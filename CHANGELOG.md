@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0] - 2021-03-02
 
 ### Added
 * You can now `rbw config set pinentry pinentry-curses` to change the pinentry
