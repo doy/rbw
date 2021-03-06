@@ -29,7 +29,9 @@ fn real_main() -> anyhow::Result<()> {
     )
     .init();
 
-    debugger::disable_tracing()?;
+    if let Err(e) = debugger::disable_tracing() {
+        log::warn!("{}", e);
+    }
 
     let no_daemonize = if let Some(arg) = std::env::args().nth(1) {
         arg == "--no-daemonize"

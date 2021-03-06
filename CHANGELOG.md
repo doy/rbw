@@ -1,8 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* Fix non-Linux platforms (#44, rjc)
+
 ## [1.1.0] - 2021-03-02
 
 ### Added
+
 * You can now `rbw config set pinentry pinentry-curses` to change the pinentry
   program used by `rbw` (#39, djmattyg007)
 

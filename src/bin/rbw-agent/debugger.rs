@@ -12,11 +12,12 @@ pub fn disable_tracing() -> anyhow::Result<()> {
     if ret == 0 {
         Ok(())
     } else {
-        Err(anyhow::anyhow!("rbw-agent: Failed to disable PTRACE_ATTACH. Agent memory may be dumpable by other processes."))
+        let e = nix::Error::last();
+        Err(anyhow::anyhow!("failed to disable PTRACE_ATTACH, agent memory may be dumpable by other processes: {}", e))
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 pub fn disable_tracing() -> anyhow::Result<()> {
-    Err(anyhow::anyhow!("rbw-agent: Unable to disable PTRACE_ATTACH on this platform: not implemented. Agent memory may be dumpable by other processes."))
+    Err(anyhow::anyhow!("failed to disable PTRACE_ATTACH, agent memory may be dumpable by other processes: unimplemented on this platform"))
 }
