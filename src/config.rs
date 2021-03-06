@@ -41,15 +41,20 @@ impl Config {
 
     pub fn load() -> Result<Self> {
         let file = crate::dirs::config_file();
-        let mut fh = std::fs::File::open(&file).with_context(|| {
-            crate::error::LoadConfig { file: file.clone() }
+        let mut fh = std::fs::File::open(&file).map_err(|source| {
+            Error::LoadConfig {
+                source,
+                file: file.clone(),
+            }
         })?;
         let mut json = String::new();
-        fh.read_to_string(&mut json).with_context(|| {
-            crate::error::LoadConfig { file: file.clone() }
-        })?;
+        fh.read_to_string(&mut json)
+            .map_err(|source| Error::LoadConfig {
+                source,
+                file: file.clone(),
+            })?;
         let mut slf: Self = serde_json::from_str(&json)
-            .context(crate::error::LoadConfigJson { file })?;
+            .map_err(|source| Error::LoadConfigJson { source, file })?;
         if slf.lock_timeout == 0 {
             log::warn!("lock_timeout must be greater than 0");
             slf.lock_timeout = default_lock_timeout();
@@ -60,15 +65,21 @@ impl Config {
     pub async fn load_async() -> Result<Self> {
         let file = crate::dirs::config_file();
         let mut fh =
-            tokio::fs::File::open(&file).await.with_context(|| {
-                crate::error::LoadConfigAsync { file: file.clone() }
+            tokio::fs::File::open(&file).await.map_err(|source| {
+                Error::LoadConfigAsync {
+                    source,
+                    file: file.clone(),
+                }
             })?;
         let mut json = String::new();
-        fh.read_to_string(&mut json).await.with_context(|| {
-            crate::error::LoadConfigAsync { file: file.clone() }
+        fh.read_to_string(&mut json).await.map_err(|source| {
+            Error::LoadConfigAsync {
+                source,
+                file: file.clone(),
+            }
         })?;
         let mut slf: Self = serde_json::from_str(&json)
-            .context(crate::error::LoadConfigJson { file })?;
+            .map_err(|source| Error::LoadConfigJson { source, file })?;
         if slf.lock_timeout == 0 {
             log::warn!("lock_timeout must be greater than 0");
             slf.lock_timeout = default_lock_timeout();
@@ -80,20 +91,27 @@ impl Config {
         let file = crate::dirs::config_file();
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
-        std::fs::create_dir_all(file.parent().unwrap()).with_context(
-            || crate::error::SaveConfig { file: file.clone() },
+        std::fs::create_dir_all(file.parent().unwrap()).map_err(
+            |source| Error::SaveConfig {
+                source,
+                file: file.clone(),
+            },
         )?;
-        let mut fh = std::fs::File::create(&file).with_context(|| {
-            crate::error::SaveConfig { file: file.clone() }
+        let mut fh = std::fs::File::create(&file).map_err(|source| {
+            Error::SaveConfig {
+                source,
+                file: file.clone(),
+            }
         })?;
         fh.write_all(
             serde_json::to_string(self)
-                .with_context(|| crate::error::SaveConfigJson {
+                .map_err(|source| Error::SaveConfigJson {
+                    source,
                     file: file.clone(),
                 })?
                 .as_bytes(),
         )
-        .context(crate::error::SaveConfig { file })?;
+        .map_err(|source| Error::SaveConfig { source, file })?;
         Ok(())
     }
 

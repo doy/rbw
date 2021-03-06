@@ -13,7 +13,7 @@ impl Identity {
         iterations: u32,
     ) -> Result<Self> {
         let iterations = std::num::NonZeroU32::new(iterations)
-            .context(crate::error::Pbkdf2ZeroIterations)?;
+            .ok_or(Error::Pbkdf2ZeroIterations)?;
 
         let mut keys = crate::locked::Vec::new();
         keys.extend(std::iter::repeat(0).take(64));

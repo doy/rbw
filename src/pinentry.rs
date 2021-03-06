@@ -17,7 +17,7 @@ pub async fn getpin(
     } else {
         opts.args(&["-o", "0"]);
     }
-    let mut child = opts.spawn().context(crate::error::Spawn)?;
+    let mut child = opts.spawn().map_err(|source| Error::Spawn { source })?;
     // unwrap is safe because we specified stdin as piped in the command opts
     // above
     let mut stdin = child.stdin.take().unwrap();
@@ -26,29 +26,29 @@ pub async fn getpin(
     stdin
         .write_all(b"SETTITLE rbw\n")
         .await
-        .context(crate::error::WriteStdin)?;
+        .map_err(|source| Error::WriteStdin { source })?;
     ncommands += 1;
     stdin
         .write_all(format!("SETPROMPT {}\n", prompt).as_bytes())
         .await
-        .context(crate::error::WriteStdin)?;
+        .map_err(|source| Error::WriteStdin { source })?;
     ncommands += 1;
     stdin
         .write_all(format!("SETDESC {}\n", desc).as_bytes())
         .await
-        .context(crate::error::WriteStdin)?;
+        .map_err(|source| Error::WriteStdin { source })?;
     ncommands += 1;
     if let Some(err) = err {
         stdin
             .write_all(format!("SETERROR {}\n", err).as_bytes())
             .await
-            .context(crate::error::WriteStdin)?;
+            .map_err(|source| Error::WriteStdin { source })?;
         ncommands += 1;
     }
     stdin
         .write_all(b"GETPIN\n")
         .await
-        .context(crate::error::WriteStdin)?;
+        .map_err(|source| Error::WriteStdin { source })?;
     ncommands += 1;
     drop(stdin);
 
@@ -64,7 +64,10 @@ pub async fn getpin(
     .await?;
     buf.truncate(len);
 
-    child.wait().await.context(crate::error::PinentryWait)?;
+    child
+        .wait()
+        .await
+        .map_err(|source| Error::PinentryWait { source })?;
 
     Ok(crate::locked::Password::new(buf))
 }
@@ -130,7 +133,7 @@ where
             let bytes = r
                 .read(&mut data[len..])
                 .await
-                .context(crate::error::PinentryReadOutput)?;
+                .map_err(|source| Error::PinentryReadOutput { source })?;
             len += bytes;
         }
     }

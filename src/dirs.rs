@@ -3,24 +3,36 @@ use std::os::unix::fs::PermissionsExt as _;
 
 pub fn make_all() -> Result<()> {
     let cache_dir = cache_dir();
-    std::fs::create_dir_all(&cache_dir)
-        .context(crate::error::CreateDirectory { file: cache_dir })?;
+    std::fs::create_dir_all(&cache_dir).map_err(|source| {
+        Error::CreateDirectory {
+            source,
+            file: cache_dir,
+        }
+    })?;
 
     let runtime_dir = runtime_dir();
-    std::fs::create_dir_all(&runtime_dir).context(
-        crate::error::CreateDirectory {
+    std::fs::create_dir_all(&runtime_dir).map_err(|source| {
+        Error::CreateDirectory {
+            source,
             file: runtime_dir.clone(),
-        },
-    )?;
+        }
+    })?;
     std::fs::set_permissions(
         &runtime_dir,
         std::fs::Permissions::from_mode(0o700),
     )
-    .context(crate::error::CreateDirectory { file: runtime_dir })?;
+    .map_err(|source| Error::CreateDirectory {
+        source,
+        file: runtime_dir,
+    })?;
 
     let data_dir = data_dir();
-    std::fs::create_dir_all(&data_dir)
-        .context(crate::error::CreateDirectory { file: data_dir })?;
+    std::fs::create_dir_all(&data_dir).map_err(|source| {
+        Error::CreateDirectory {
+            source,
+            file: data_dir,
+        }
+    })?;
 
     Ok(())
 }

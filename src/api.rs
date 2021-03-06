@@ -563,7 +563,7 @@ impl Client {
             .json(&prelogin)
             .send()
             .await
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         let prelogin_res: PreloginRes = res.json_with_path().await?;
         Ok(prelogin_res.kdf_iterations)
     }
@@ -597,7 +597,7 @@ impl Client {
             .form(&connect_req)
             .send()
             .await
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         if let reqwest::StatusCode::OK = res.status() {
             let connect_res: ConnectPasswordRes =
                 res.json_with_path().await?;
@@ -627,7 +627,7 @@ impl Client {
             .header("Authorization", format!("Bearer {}", access_token))
             .send()
             .await
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
             reqwest::StatusCode::OK => {
                 let sync_res: SyncRes = res.json_with_path().await?;
@@ -769,7 +769,7 @@ impl Client {
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&req)
             .send()
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
             reqwest::StatusCode::OK => Ok(()),
             reqwest::StatusCode::UNAUTHORIZED => {
@@ -902,7 +902,7 @@ impl Client {
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&req)
             .send()
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
             reqwest::StatusCode::OK => Ok(()),
             reqwest::StatusCode::UNAUTHORIZED => {
@@ -920,7 +920,7 @@ impl Client {
             .delete(&self.api_url(&format!("/ciphers/{}", id)))
             .header("Authorization", format!("Bearer {}", access_token))
             .send()
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
             reqwest::StatusCode::OK => Ok(()),
             reqwest::StatusCode::UNAUTHORIZED => {
@@ -941,7 +941,7 @@ impl Client {
             .get(&self.api_url("/folders"))
             .header("Authorization", format!("Bearer {}", access_token))
             .send()
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
             reqwest::StatusCode::OK => {
                 let folders_res: FoldersRes = res.json_with_path()?;
@@ -974,7 +974,7 @@ impl Client {
             .header("Authorization", format!("Bearer {}", access_token))
             .json(&req)
             .send()
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
             reqwest::StatusCode::OK => {
                 let folders_res: FoldersResData = res.json_with_path()?;
@@ -1003,7 +1003,7 @@ impl Client {
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
             .send()
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
         Ok(connect_res.access_token)
     }
@@ -1023,7 +1023,7 @@ impl Client {
             .form(&connect_req)
             .send()
             .await
-            .context(crate::error::Reqwest)?;
+            .map_err(|source| Error::Reqwest { source })?;
         let connect_res: ConnectRefreshTokenRes =
             res.json_with_path().await?;
         Ok(connect_res.access_token)

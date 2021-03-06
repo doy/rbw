@@ -259,7 +259,7 @@ where
 {
     match f(access_token) {
         Ok(t) => Ok((None, t)),
-        Err(crate::error::Error::RequestUnauthorized) => {
+        Err(Error::RequestUnauthorized) => {
             let access_token = exchange_refresh_token(refresh_token)?;
             let t = f(&access_token)?;
             Ok((Some(access_token), t))
@@ -284,7 +284,7 @@ where
 {
     match f(access_token).await {
         Ok(t) => Ok((None, t)),
-        Err(crate::error::Error::RequestUnauthorized) => {
+        Err(Error::RequestUnauthorized) => {
             let access_token =
                 exchange_refresh_token_async(refresh_token).await?;
             let t = f(&access_token).await?;

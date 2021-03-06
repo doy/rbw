@@ -48,17 +48,17 @@ impl CipherString {
                 }
 
                 let iv = base64::decode(parts[0])
-                    .context(crate::error::InvalidBase64)?;
+                    .map_err(|source| Error::InvalidBase64 { source })?;
                 let ciphertext = base64::decode(parts[1])
-                    .context(crate::error::InvalidBase64)?;
-                let mac = if parts.len() > 2 {
-                    Some(
-                        base64::decode(parts[2])
-                            .context(crate::error::InvalidBase64)?,
-                    )
-                } else {
-                    None
-                };
+                    .map_err(|source| Error::InvalidBase64 { source })?;
+                let mac =
+                    if parts.len() > 2 {
+                        Some(base64::decode(parts[2]).map_err(|source| {
+                            Error::InvalidBase64 { source }
+                        })?)
+                    } else {
+                        None
+                    };
 
                 Ok(Self::Symmetric {
                     iv,
@@ -73,7 +73,7 @@ impl CipherString {
                 // format is: <cipher_text_b64>|<hmac_sig>
                 let contents = contents.split('|').next().unwrap();
                 let ciphertext = base64::decode(contents)
-                    .context(crate::error::InvalidBase64)?;
+                    .map_err(|source| Error::InvalidBase64 { source })?;
                 Ok(Self::Asymmetric { ciphertext })
             }
             _ => {
@@ -100,7 +100,7 @@ impl CipherString {
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
         >::new_var(keys.enc_key(), &iv)
-        .context(crate::error::CreateBlockMode)?;
+        .map_err(|source| Error::CreateBlockMode { source })?;
         let ciphertext = cipher.encrypt_vec(plaintext);
 
         let mut digest = ring::hmac::Context::with_key(
@@ -135,7 +135,7 @@ impl CipherString {
                 )?;
                 cipher
                     .decrypt_vec(ciphertext)
-                    .context(crate::error::Decrypt)
+                    .map_err(|source| Error::Decrypt { source })
             }
             _ => Err(Error::InvalidCipherString {
                 reason:
@@ -165,7 +165,7 @@ impl CipherString {
                 )?;
                 cipher
                     .decrypt(res.data_mut())
-                    .context(crate::error::Decrypt)?;
+                    .map_err(|source| Error::Decrypt { source })?;
                 Ok(res)
             }
             _ => Err(Error::InvalidCipherString {
@@ -188,8 +188,9 @@ impl CipherString {
                 let pkey = openssl::pkey::PKey::private_key_from_pkcs8(
                     private_key.private_key(),
                 )
-                .context(crate::error::OpenSSL)?;
-                let rsa = pkey.rsa().context(crate::error::OpenSSL)?;
+                .map_err(|source| Error::OpenSSL { source })?;
+                let rsa =
+                    pkey.rsa().map_err(|source| Error::OpenSSL { source })?;
 
                 let mut res = crate::locked::Vec::new();
                 res.extend(std::iter::repeat(0).take(rsa.size() as usize));
@@ -200,7 +201,7 @@ impl CipherString {
                         res.data_mut(),
                         openssl::rsa::Padding::PKCS1_OAEP,
                     )
-                    .context(crate::error::OpenSSL)?;
+                    .map_err(|source| Error::OpenSSL { source })?;
                 res.truncate(bytes);
 
                 Ok(res)
@@ -241,7 +242,7 @@ fn decrypt_common_symmetric(
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
         >::new_var(keys.enc_key(), iv)
-        .context(crate::error::CreateBlockMode)?)
+        .map_err(|source| Error::CreateBlockMode { source })?)
 }
 
 impl std::fmt::Display for CipherString {
