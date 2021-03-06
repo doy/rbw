@@ -29,10 +29,6 @@ fn real_main() -> anyhow::Result<()> {
     )
     .init();
 
-    if let Err(e) = debugger::disable_tracing() {
-        log::warn!("{}", e);
-    }
-
     let no_daemonize = if let Some(arg) = std::env::args().nth(1) {
         arg == "--no-daemonize"
     } else {
@@ -44,6 +40,10 @@ fn real_main() -> anyhow::Result<()> {
     } else {
         Some(daemon::daemonize().context("failed to daemonize")?)
     };
+
+    if let Err(e) = debugger::disable_tracing() {
+        log::warn!("{}", e);
+    }
 
     let (w, r) = std::sync::mpsc::channel();
     // can't use tokio::main because we need to daemonize before starting the

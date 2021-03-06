@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* Send warnings about failure to disable PTRACE_ATTACH to the agent logs rather
+  than stderr
+
 ## [1.1.1] - 2021-03-05
 
 ### Fixed
