@@ -850,14 +850,20 @@ pub fn edit(
                     } => (username, password, uris, totp),
                     _ => unreachable!(),
                 };
-            let new_history_entry = rbw::db::HistoryEntry {
-                last_used_date: format!(
-                    "{}",
-                    humantime::format_rfc3339(std::time::SystemTime::now())
-                ),
-                password: entry_password.clone().unwrap_or_else(String::new),
-            };
-            history.insert(0, new_history_entry);
+
+            if let Some(prev_password) = entry_password.clone() {
+                let new_history_entry = rbw::db::HistoryEntry {
+                    last_used_date: format!(
+                        "{}",
+                        humantime::format_rfc3339(
+                            std::time::SystemTime::now()
+                        )
+                    ),
+                    password: prev_password,
+                };
+                history.insert(0, new_history_entry);
+            }
+
             let data = rbw::db::EntryData::Login {
                 username: entry_username.clone(),
                 password,
