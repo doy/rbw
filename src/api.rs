@@ -252,14 +252,18 @@ impl SyncResCipher {
         let history = if let Some(history) = &self.password_history {
             history
                 .iter()
-                .map(|entry| crate::db::HistoryEntry {
-                    last_used_date: entry.last_used_date.clone(),
-                    password: entry.password.clone(),
+                .filter_map(|entry| {
+                    // Gets rid of entries with a non-existent password
+                    entry.password.clone().map(|p| crate::db::HistoryEntry {
+                        last_used_date: entry.last_used_date.clone(),
+                        password: p,
+                    })
                 })
                 .collect()
         } else {
             vec![]
         };
+
         let (folder, folder_id) = if let Some(folder_id) = &self.folder_id {
             let mut folder_name = None;
             for folder in folders {
@@ -459,7 +463,7 @@ struct SyncResPasswordHistory {
     #[serde(rename = "LastUsedDate")]
     last_used_date: String,
     #[serde(rename = "Password")]
-    password: String,
+    password: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
