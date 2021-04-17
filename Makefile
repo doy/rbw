@@ -51,7 +51,7 @@ pkg/$(DEB_PACKAGE).minisig: pkg/$(DEB_PACKAGE)
 	@minisign -Sm pkg/$(DEB_PACKAGE)
 
 release-dir-deb:
-	@ssh tozt.net mkdir -p releases/teleterm/deb
+	@ssh tozt.net mkdir -p releases/rbw/deb
 .PHONY: release-dir-deb
 
 publish: publish-crates-io publish-git-tags publish-deb
