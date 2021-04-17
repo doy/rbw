@@ -1,13 +1,15 @@
 use zeroize::Zeroize;
 
+const LEN: usize = 4096;
+
 pub struct Vec {
-    data: Box<arrayvec::ArrayVec<[u8; 4096]>>,
+    data: Box<arrayvec::ArrayVec<u8, LEN>>,
     _lock: region::LockGuard,
 }
 
 impl Default for Vec {
     fn default() -> Self {
-        let data = Box::new(arrayvec::ArrayVec::<_>::new());
+        let data = Box::new(arrayvec::ArrayVec::<_, LEN>::new());
         // XXX it'd be nice to handle this better than .unwrap(), but it'd be
         // a lot of effort
         let lock = region::lock(data.as_ptr(), data.capacity()).unwrap();

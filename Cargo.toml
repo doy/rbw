@@ -14,7 +14,7 @@ license = "MIT"
 [dependencies]
 aes = "0.6"
 anyhow = "1.0"
-arrayvec = "0.5"
+arrayvec = "0.7"
 async-trait = "0.1"
 base32 = "0.4"
 base64 = "0.13"
@@ -44,7 +44,7 @@ tempfile = "3.2"
 term_size = "0.3"
 textwrap = "0.13"
 thiserror = "1.0"
-tokio = { version = "1.2", features = ["full"] }
+tokio = { version = "1.5", features = ["full"] }
 url = "2.2"
 uuid = { version = "0.8", features = ["v4"] }
 zeroize = "1.2"
