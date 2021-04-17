@@ -8,6 +8,11 @@ pub enum Error {
         source: block_modes::InvalidKeyIvLength,
     },
 
+    #[error("failed to create block mode decryptor")]
+    CreateHmac {
+        source: hmac::crypto_mac::InvalidKeyLength,
+    },
+
     #[error("failed to create directory at {}", .file.display())]
     CreateDirectory {
         source: std::io::Error,

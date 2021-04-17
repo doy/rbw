@@ -1,6 +1,7 @@
 use crate::prelude::*;
 
 use block_modes::BlockMode as _;
+use hmac::{Mac as _, NewMac as _};
 use rand::RngCore as _;
 
 pub enum CipherString {
@@ -94,8 +95,6 @@ impl CipherString {
     ) -> Result<Self> {
         let iv = random_iv();
 
-        // ring doesn't currently support CBC ciphers, so we have to do it
-        // manually. see https://github.com/briansmith/ring/issues/588
         let cipher = block_modes::Cbc::<
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
@@ -103,12 +102,12 @@ impl CipherString {
         .map_err(|source| Error::CreateBlockMode { source })?;
         let ciphertext = cipher.encrypt_vec(plaintext);
 
-        let mut digest = ring::hmac::Context::with_key(
-            &ring::hmac::Key::new(ring::hmac::HMAC_SHA256, keys.mac_key()),
-        );
+        let mut digest =
+            hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
+                .map_err(|source| Error::CreateHmac { source })?;
         digest.update(&iv);
         digest.update(&ciphertext);
-        let mac = digest.sign().as_ref().to_vec();
+        let mac = digest.finalize().into_bytes().as_slice().to_vec();
 
         Ok(Self::Symmetric {
             iv,
@@ -182,9 +181,6 @@ impl CipherString {
     ) -> Result<crate::locked::Vec> {
         match self {
             Self::Asymmetric { ciphertext } => {
-                // ring doesn't currently support asymmetric encryption (only
-                // signatures). see
-                // https://github.com/briansmith/ring/issues/691
                 let pkey = openssl::pkey::PKey::private_key_from_pkcs8(
                     private_key.private_key(),
                 )
@@ -223,21 +219,16 @@ fn decrypt_common_symmetric(
 ) -> Result<block_modes::Cbc<aes::Aes256, block_modes::block_padding::Pkcs7>>
 {
     if let Some(mac) = mac {
-        let key =
-            ring::hmac::Key::new(ring::hmac::HMAC_SHA256, keys.mac_key());
-        // it'd be nice to not have to pull this into a vec, but ring
-        // doesn't currently support non-contiguous verification. see
-        // https://github.com/briansmith/ring/issues/615
-        let data: Vec<_> =
-            iv.iter().chain(ciphertext.iter()).copied().collect();
+        let mut key = hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
+            .map_err(|source| Error::CreateHmac { source })?;
+        key.update(&iv);
+        key.update(&ciphertext);
 
-        if ring::hmac::verify(&key, &data, mac).is_err() {
+        if key.verify(mac).is_err() {
             return Err(Error::InvalidMac);
         }
     }
 
-    // ring doesn't currently support CBC ciphers, so we have to do it
-    // manually. see https://github.com/briansmith/ring/issues/588
     Ok(block_modes::Cbc::<
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
