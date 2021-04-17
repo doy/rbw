@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* `rbw generate` can now choose the same character more than once (#54, rjc)
+
 ## [1.1.2] - 2021-03-06
 
 ### Fixed
