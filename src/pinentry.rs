@@ -53,7 +53,7 @@ pub async fn getpin(
     drop(stdin);
 
     let mut buf = crate::locked::Vec::new();
-    buf.extend(std::iter::repeat(0));
+    buf.zero();
     // unwrap is safe because we specified stdout as piped in the command opts
     // above
     let len = read_password(

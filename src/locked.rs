@@ -30,6 +30,11 @@ impl Vec {
         self.data.as_mut_slice()
     }
 
+    pub fn zero(&mut self) {
+        self.truncate(0);
+        self.data.extend(std::iter::repeat(0).take(LEN))
+    }
+
     pub fn extend(&mut self, it: impl Iterator<Item = u8>) {
         self.data.extend(it);
     }
@@ -41,7 +46,7 @@ impl Vec {
 
 impl Drop for Vec {
     fn drop(&mut self) {
-        self.extend(std::iter::repeat(0));
+        self.zero();
         self.data.as_mut().zeroize();
     }
 }
