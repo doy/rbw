@@ -8,7 +8,7 @@ impl DeserializeJsonWithPath for String {
     fn json_with_path<T: serde::de::DeserializeOwned>(self) -> Result<T> {
         let jd = &mut serde_json::Deserializer::from_str(&self);
         serde_path_to_error::deserialize(jd)
-            .map_err(|source| Error::JSON { source })
+            .map_err(|source| Error::Json { source })
     }
 }
 
@@ -18,7 +18,7 @@ impl DeserializeJsonWithPath for reqwest::blocking::Response {
             self.bytes().map_err(|source| Error::Reqwest { source })?;
         let jd = &mut serde_json::Deserializer::from_slice(&bytes);
         serde_path_to_error::deserialize(jd)
-            .map_err(|source| Error::JSON { source })
+            .map_err(|source| Error::Json { source })
     }
 }
 
@@ -40,6 +40,6 @@ impl DeserializeJsonWithPathAsync for reqwest::Response {
             .map_err(|source| Error::Reqwest { source })?;
         let jd = &mut serde_json::Deserializer::from_slice(&bytes);
         serde_path_to_error::deserialize(jd)
-            .map_err(|source| Error::JSON { source })
+            .map_err(|source| Error::Json { source })
     }
 }

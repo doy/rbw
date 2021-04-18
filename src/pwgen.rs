@@ -17,16 +17,6 @@ pub enum Type {
 }
 
 pub fn pwgen(ty: Type, len: usize) -> String {
-    if ty == Type::Diceware {
-        let config = chbs::config::BasicConfig {
-            words: len,
-            capitalize_first: chbs::probability::Probability::Never,
-            capitalize_words: chbs::probability::Probability::Never,
-            ..chbs::config::BasicConfig::default()
-        };
-        return config.to_scheme().generate();
-    }
-
     let alphabet = match ty {
         Type::AllChars => {
             let mut v = vec![];
@@ -51,7 +41,15 @@ pub fn pwgen(ty: Type, len: usize) -> String {
             v.extend(NONCONFUSABLES.iter().copied());
             v
         }
-        Type::Diceware => unreachable!(),
+        Type::Diceware => {
+            let config = chbs::config::BasicConfig {
+                words: len,
+                capitalize_first: chbs::probability::Probability::Never,
+                capitalize_words: chbs::probability::Probability::Never,
+                ..chbs::config::BasicConfig::default()
+            };
+            return config.to_scheme().generate();
+        }
     };
 
     let mut rng = rand::thread_rng();

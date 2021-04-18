@@ -62,7 +62,7 @@ pub enum Error {
     InvalidTwoFactorProvider { ty: String },
 
     #[error("failed to parse JSON")]
-    JSON {
+    Json {
         source: serde_path_to_error::Error<serde_json::Error>,
     },
 
@@ -103,7 +103,7 @@ pub enum Error {
     },
 
     #[error("openssl error")]
-    OpenSSL { source: openssl::error::ErrorStack },
+    OpenSsl { source: openssl::error::ErrorStack },
 
     #[error("failed to parse match type {s}")]
     ParseMatchType { s: String },

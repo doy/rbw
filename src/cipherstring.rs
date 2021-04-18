@@ -184,9 +184,9 @@ impl CipherString {
                 let pkey = openssl::pkey::PKey::private_key_from_pkcs8(
                     private_key.private_key(),
                 )
-                .map_err(|source| Error::OpenSSL { source })?;
+                .map_err(|source| Error::OpenSsl { source })?;
                 let rsa =
-                    pkey.rsa().map_err(|source| Error::OpenSSL { source })?;
+                    pkey.rsa().map_err(|source| Error::OpenSsl { source })?;
 
                 let mut res = crate::locked::Vec::new();
                 res.extend(std::iter::repeat(0).take(rsa.size() as usize));
@@ -197,7 +197,7 @@ impl CipherString {
                         res.data_mut(),
                         openssl::rsa::Padding::PKCS1_OAEP,
                     )
-                    .map_err(|source| Error::OpenSSL { source })?;
+                    .map_err(|source| Error::OpenSsl { source })?;
                 res.truncate(bytes);
 
                 Ok(res)
@@ -221,19 +221,19 @@ fn decrypt_common_symmetric(
     if let Some(mac) = mac {
         let mut key = hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
             .map_err(|source| Error::CreateHmac { source })?;
-        key.update(&iv);
-        key.update(&ciphertext);
+        key.update(iv);
+        key.update(ciphertext);
 
         if key.verify(mac).is_err() {
             return Err(Error::InvalidMac);
         }
     }
 
-    Ok(block_modes::Cbc::<
+    block_modes::Cbc::<
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
         >::new_var(keys.enc_key(), iv)
-        .map_err(|source| Error::CreateBlockMode { source })?)
+        .map_err(|source| Error::CreateBlockMode { source })
 }
 
 impl std::fmt::Display for CipherString {

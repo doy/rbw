@@ -34,7 +34,7 @@ impl Sock {
         let mut line = String::new();
         buf.read_line(&mut line)
             .context("failed to read message from agent")?;
-        Ok(serde_json::from_str(&line)
-            .context("failed to parse message from agent")?)
+        serde_json::from_str(&line)
+            .context("failed to parse message from agent")
     }
 }
