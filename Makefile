@@ -7,23 +7,19 @@ all: build
 .PHONY: all
 
 build:
-	@cargo build --all-targets
+	@cargo build --all-targets --target x86_64-unknown-linux-musl
 .PHONY: build
 
 release:
-	@cargo build --release --all-targets
-	@./build/fix-glibc-function-versions ./target/release/rbw
-	@./build/fix-glibc-function-versions ./target/release/rbw-agent
-	@mv ./target/release/rbw.new ./target/release/rbw
-	@mv ./target/release/rbw-agent.new ./target/release/rbw-agent
+	@cargo build --release --all-targets --target x86_64-unknown-linux-musl
 .PHONY: release
 
 test:
-	@RUST_BACKTRACE=1 cargo test
+	@RUST_BACKTRACE=1 cargo test --target x86_64-unknown-linux-musl
 .PHONY: test
 
 check:
-	@cargo check --all-targets
+	@cargo check --all-targets --target x86_64-unknown-linux-musl
 .PHONY: check
 
 doc:
@@ -45,7 +41,7 @@ pkg:
 	@mkdir pkg
 
 pkg/$(DEB_PACKAGE): release | pkg
-	@cargo deb --no-build && mv target/debian/$(DEB_PACKAGE) pkg
+	@cargo deb --no-build --target x86_64-unknown-linux-musl && mv target/x86_64-unknown-linux-musl/debian/$(DEB_PACKAGE) pkg
 
 pkg/$(DEB_PACKAGE).minisig: pkg/$(DEB_PACKAGE)
 	@minisign -Sm pkg/$(DEB_PACKAGE)
