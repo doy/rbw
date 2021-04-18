@@ -2,9 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+* Prebuilt binaries are now statically linked using musl, to prevent glibc
+  version issues once and for all (#47)
+* Standardize on RustCrypto in preference to ring or openssl
+
 ### Fixed
 
 * `rbw generate` can now choose the same character more than once (#54, rjc)
+* Improved handling of password history for entries with no password (#51/#53,
+  simias)
 
 ## [1.1.2] - 2021-03-06
 
