@@ -34,13 +34,20 @@ cleanall: clean
 	@cargo clean
 .PHONY: cleanall
 
+completion: release
+	@mkdir -p target/x86_64-unknown-linux-musl/release/completion
+	@./target/x86_64-unknown-linux-musl/release/rbw gen-completions bash > target/x86_64-unknown-linux-musl/release/completion/bash
+	@./target/x86_64-unknown-linux-musl/release/rbw gen-completions zsh > target/x86_64-unknown-linux-musl/release/completion/zsh
+	@./target/x86_64-unknown-linux-musl/release/rbw gen-completions fish > target/x86_64-unknown-linux-musl/release/completion/fish
+.PHONY: completion
+
 package: pkg/$(DEB_PACKAGE)
 .PHONY: package
 
 pkg:
 	@mkdir pkg
 
-pkg/$(DEB_PACKAGE): release | pkg
+pkg/$(DEB_PACKAGE): release completion | pkg
 	@cargo deb --no-build --target x86_64-unknown-linux-musl && mv target/x86_64-unknown-linux-musl/debian/$(DEB_PACKAGE) pkg
 
 pkg/$(DEB_PACKAGE).minisig: pkg/$(DEB_PACKAGE)

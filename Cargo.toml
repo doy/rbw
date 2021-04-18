@@ -57,3 +57,11 @@ zeroize = "1.2"
 [package.metadata.deb]
 depends = "pinentry"
 license-file = ["LICENSE"]
+assets = [
+    ["target/release/rbw", "usr/bin/", "755"],
+    ["target/release/rbw-agent", "usr/bin/", "755"],
+    ["target/release/completion/bash", "usr/share/bash-completion/completions/rbw", "644"],
+    ["target/release/completion/zsh", "usr/share/zsh/vendor-completions/_rbw", "644"],
+    ["target/release/completion/fish", "usr/share/fish/completions/rbw.fish", "644"],
+    ["README.md", "usr/share/doc/rbw/README", "644"],
+]
