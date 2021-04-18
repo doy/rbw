@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+* Shell completion for bash, zsh, and fish (#18)
+
 ### Changed
 
 * Prebuilt binaries are now statically linked using musl, to prevent glibc
