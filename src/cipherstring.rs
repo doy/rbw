@@ -1,8 +1,10 @@
 use crate::prelude::*;
 
 use block_modes::BlockMode as _;
+use block_padding::Padding as _;
 use hmac::{Mac as _, NewMac as _};
 use rand::RngCore as _;
+use zeroize::Zeroize as _;
 
 pub enum CipherString {
     Symmetric {
@@ -181,24 +183,24 @@ impl CipherString {
     ) -> Result<crate::locked::Vec> {
         match self {
             Self::Asymmetric { ciphertext } => {
-                let pkey = openssl::pkey::PKey::private_key_from_pkcs8(
-                    private_key.private_key(),
-                )
-                .map_err(|source| Error::OpenSsl { source })?;
-                let rsa =
-                    pkey.rsa().map_err(|source| Error::OpenSsl { source })?;
-
-                let mut res = crate::locked::Vec::new();
-                res.extend(std::iter::repeat(0).take(rsa.size() as usize));
-
-                let bytes = rsa
-                    .private_decrypt(
+                let privkey_data = private_key.private_key();
+                let privkey_data = block_padding::Pkcs7::unpad(privkey_data)
+                    .map_err(|_| Error::Padding)?;
+                let pkey = rsa::RSAPrivateKey::from_pkcs8(privkey_data)
+                    .map_err(|source| Error::Rsa { source })?;
+                let mut bytes = pkey
+                    .decrypt(
+                        rsa::padding::PaddingScheme::new_oaep::<sha1::Sha1>(),
                         ciphertext,
-                        res.data_mut(),
-                        openssl::rsa::Padding::PKCS1_OAEP,
                     )
-                    .map_err(|source| Error::OpenSsl { source })?;
-                res.truncate(bytes);
+                    .map_err(|source| Error::Rsa { source })?;
+
+                // XXX it'd be great if the rsa crate would let us decrypt
+                // into a preallocated buffer directly to avoid the
+                // intermediate vec that needs to be manually zeroized, etc
+                let mut res = crate::locked::Vec::new();
+                res.extend(bytes.iter().copied());
+                bytes.zeroize();
 
                 Ok(res)
             }

@@ -102,8 +102,8 @@ pub enum Error {
         file: std::path::PathBuf,
     },
 
-    #[error("openssl error")]
-    OpenSsl { source: openssl::error::ErrorStack },
+    #[error("invalid padding")]
+    Padding,
 
     #[error("failed to parse match type {s}")]
     ParseMatchType { s: String },
@@ -137,6 +137,9 @@ pub enum Error {
 
     #[error("error making api request")]
     Reqwest { source: reqwest::Error },
+
+    #[error("failed to decrypt")]
+    Rsa { source: rsa::errors::Error },
 
     #[error("failed to save config to {}", .file.display())]
     SaveConfig {
