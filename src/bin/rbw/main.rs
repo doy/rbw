@@ -2,6 +2,7 @@
 
 use anyhow::Context as _;
 use std::io::Write as _;
+use structopt::StructOpt as _;
 
 mod actions;
 mod commands;
@@ -200,6 +201,11 @@ enum Opt {
         about = "Terminate the background agent"
     )]
     StopAgent,
+    #[structopt(
+        name = "gen-completions",
+        about = "Generate completion script for the given shell"
+    )]
+    GenCompletions { shell: String },
 }
 
 impl Opt {
@@ -223,6 +229,7 @@ impl Opt {
             Self::Lock => "lock".to_string(),
             Self::Purge => "purge".to_string(),
             Self::StopAgent => "stop-agent".to_string(),
+            Self::GenCompletions { .. } => "gen-completions".to_string(),
         }
     }
 }
@@ -353,6 +360,7 @@ fn main(opt: Opt) {
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),
         Opt::StopAgent => commands::stop_agent(),
+        Opt::GenCompletions { shell } => gen_completions(&shell),
     }
     .context(format!("rbw {}", opt.subcommand_name()));
 
@@ -360,4 +368,17 @@ fn main(opt: Opt) {
         eprintln!("{:#}", e);
         std::process::exit(1);
     }
+}
+
+fn gen_completions(shell: &str) -> anyhow::Result<()> {
+    let shell = match shell {
+        "bash" => structopt::clap::Shell::Bash,
+        "zsh" => structopt::clap::Shell::Zsh,
+        "fish" => structopt::clap::Shell::Fish,
+        "powershell" => structopt::clap::Shell::PowerShell,
+        "elvish" => structopt::clap::Shell::Elvish,
+        _ => return Err(anyhow::anyhow!("unknown shell {}", shell)),
+    };
+    Opt::clap().gen_completions_to("rbw", shell, &mut std::io::stdout());
+    Ok(())
 }
