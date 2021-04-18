@@ -13,6 +13,8 @@
 * `rbw generate` can now choose the same character more than once (#54, rjc)
 * Improved handling of password history for entries with no password (#51/#53,
   simias)
+* Fix configuring base_url with a trailing slash when using a self-hosted
+  version of the official bitwarden server (#49, phylor)
 
 ## [1.1.2] - 2021-03-06
 

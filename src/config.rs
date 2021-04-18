@@ -126,7 +126,7 @@ impl Config {
     pub fn base_url(&self) -> String {
         self.base_url.clone().map_or_else(
             || "https://api.bitwarden.com".to_string(),
-            |url| format!("{}/api", url),
+            |url| format!("{}/api", url.trim_end_matches('/')),
         )
     }
 
@@ -134,7 +134,7 @@ impl Config {
         self.identity_url.clone().unwrap_or_else(|| {
             self.base_url.clone().map_or_else(
                 || "https://identity.bitwarden.com".to_string(),
-                |url| format!("{}/identity", url),
+                |url| format!("{}/identity", url.trim_end_matches('/')),
             )
         })
     }
