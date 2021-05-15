@@ -1494,7 +1494,7 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
     } else {
         secret.to_string()
     };
-    base32::decode(base32::Alphabet::RFC4648 { padding: false }, &secret_str)
+    base32::decode(base32::Alphabet::RFC4648 { padding: false }, &secret_str.replace(" ", ""))
         .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
 }
 
