@@ -48,6 +48,7 @@ pub enum TwoFactorProviderType {
     U2f = 4,
     Remember = 5,
     OrganizationDuo = 6,
+    WebAuthn = 7,
 }
 
 impl<'de> serde::Deserialize<'de> for TwoFactorProviderType {
@@ -104,6 +105,7 @@ impl std::convert::TryFrom<u64> for TwoFactorProviderType {
             4 => Ok(Self::U2f),
             5 => Ok(Self::Remember),
             6 => Ok(Self::OrganizationDuo),
+            7 => Ok(Self::WebAuthn),
             _ => Err(Error::InvalidTwoFactorProvider {
                 ty: format!("{}", ty),
             }),
@@ -123,6 +125,7 @@ impl std::str::FromStr for TwoFactorProviderType {
             "4" => Ok(Self::U2f),
             "5" => Ok(Self::Remember),
             "6" => Ok(Self::OrganizationDuo),
+            "7" => Ok(Self::WebAuthn),
             _ => Err(Error::InvalidTwoFactorProvider { ty: ty.to_string() }),
         }
     }
