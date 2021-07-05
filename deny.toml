@@ -1,0 +1,33 @@
+targets = [
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "x86_64-unknown-linux-gnu" },
+]
+
+[advisories]
+yanked = "deny"
+unsound = "deny"
+
+[bans]
+deny = [
+    { name = "openssl-sys" },
+]
+skip = [
+    # this is pulled in by rsa -> num-bigint-dig, but it's just a build dep so
+    # i don't care much
+    { name = "autocfg", version = "0.1.7" }
+]
+
+[licenses]
+allow = ["MIT", "BSD-3-Clause", "Apache-2.0", "ISC"]
+copyleft = "deny"
+exceptions = [
+    { name = "ring", allow = ["OpenSSL", "MIT", "ISC"] }
+]
+
+[[licenses.clarify]]
+name = "ring"
+version = "*"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
