@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+* Use the system's native TLS certificate store when making HTTP requests.
+
 ## [1.2.0] - 2021-04-18
 
 ### Added
