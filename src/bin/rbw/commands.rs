@@ -1500,9 +1500,13 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
 
 fn generate_totp(secret: &str) -> anyhow::Result<String> {
     let key = parse_totp_secret(secret)?;
-    Ok(format!(
-        "{:06}",
-        oath::totp_raw_now(&key, 6, 0, 30, &oath::HashType::SHA1)
+    Ok(totp_lite::totp_custom::<totp_lite::Sha1>(
+        totp_lite::DEFAULT_STEP,
+        6,
+        &key,
+        std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+            .as_secs(),
     ))
 }
 
