@@ -6,6 +6,10 @@
 
 * Use the system's native TLS certificate store when making HTTP requests.
 
+### Fixed
+
+* Correctly handle TOTP secret strings that copy with spaces (#56, TamasBarta, niki-on-github)
+
 ## [1.2.0] - 2021-04-18
 
 ### Added
