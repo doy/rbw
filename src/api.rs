@@ -1059,7 +1059,7 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                     error_res.two_factor_providers.as_ref()
                 {
                     return Error::TwoFactorRequired {
-                        providers: providers.to_vec(),
+                        providers: providers.clone(),
                     };
                 }
             }

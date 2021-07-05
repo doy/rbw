@@ -55,7 +55,7 @@ impl DecryptedCipher {
                         .iter()
                         .copied()
                         .cloned()
-                        .filter_map(|x| x)
+                        .flatten()
                         .collect();
                 if names.is_empty() {
                     eprintln!("entry for '{}' had no name", desc);
