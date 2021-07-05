@@ -38,15 +38,22 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
     drop(fh);
 
     args.push(file.as_os_str());
-    let res = std::process::Command::new(&editor)
-        .args(&args)
-        .status()
-        .unwrap();
-    if !res.success() {
-        return Err(Error::FailedToRunEditor {
-            editor: editor.to_owned(),
-            res,
-        });
+    let res = std::process::Command::new(&editor).args(&args).status();
+    match res {
+        Ok(res) => {
+            if !res.success() {
+                return Err(Error::FailedToRunEditor {
+                    editor: editor.to_owned(),
+                    res,
+                });
+            }
+        }
+        Err(err) => {
+            return Err(Error::FailedToFindEditor {
+                editor: editor.to_owned(),
+                err,
+            })
+        }
     }
 
     let mut fh = std::fs::File::open(&file).unwrap();

@@ -26,6 +26,15 @@ pub enum Error {
     FailedToParsePinentry { out: String },
 
     #[error(
+        "failed to run editor {}: {err}",
+        .editor.to_string_lossy(),
+    )]
+    FailedToFindEditor {
+        editor: std::path::PathBuf,
+        err: std::io::Error,
+    },
+
+    #[error(
         "failed to run editor {}: {res:?}",
         .editor.to_string_lossy(),
     )]
