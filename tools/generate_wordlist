@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+echo "pub const EFF_LONG: &[&str] = &["
+curl -s https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt | sed 's/\(.*\)\t\(.*\)/    "\2",/'
+echo "];"

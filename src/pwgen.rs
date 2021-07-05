@@ -1,4 +1,3 @@
-use chbs::scheme::ToScheme as _;
 use rand::seq::SliceRandom as _;
 
 const SYMBOLS: &[u8] = b"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
@@ -17,6 +16,8 @@ pub enum Type {
 }
 
 pub fn pwgen(ty: Type, len: usize) -> String {
+    let mut rng = rand::thread_rng();
+
     let alphabet = match ty {
         Type::AllChars => {
             let mut v = vec![];
@@ -42,17 +43,10 @@ pub fn pwgen(ty: Type, len: usize) -> String {
             v
         }
         Type::Diceware => {
-            let config = chbs::config::BasicConfig {
-                words: len,
-                capitalize_first: chbs::probability::Probability::Never,
-                capitalize_words: chbs::probability::Probability::Never,
-                ..chbs::config::BasicConfig::default()
-            };
-            return config.to_scheme().generate();
+            return diceware(&mut rng, len);
         }
     };
 
-    let mut rng = rand::thread_rng();
     let mut pass = vec![];
     pass.extend(
         std::iter::repeat_with(|| alphabet.choose(&mut rng).unwrap())
@@ -61,6 +55,15 @@ pub fn pwgen(ty: Type, len: usize) -> String {
     // unwrap is safe because the method of generating passwords guarantees
     // valid utf8
     String::from_utf8(pass).unwrap()
+}
+
+fn diceware(rng: &mut impl rand::RngCore, len: usize) -> String {
+    let mut words = vec![];
+    for _ in 0..len {
+        // unwrap is safe because choose only returns None for an empty slice
+        words.push(*crate::wordlist::EFF_LONG.choose(rng).unwrap());
+    }
+    words.join(" ")
 }
 
 #[cfg(test)]
