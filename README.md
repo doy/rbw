@@ -66,11 +66,17 @@ configuration options:
 ## Usage
 
 Commands can generally be used directly, and will handle logging in or
-unlocking as necessary. For instance, running `rbw ls` will unlock the password
-database before generating the list of entries (but will not attempt to log in
-to the server), `rbw sync` will log in to the server before downloading the
-password database (but will not unlock the database), and `rbw generate` will
-do both.
+unlocking as necessary. For instance, running `rbw ls` will run `rbw unlock` to
+unlock the password database before generating the list of entries (but will
+not attempt to log in to the server), `rbw sync` will automatically run `rbw
+login` to log in to the server before downloading the password database (but
+will not unlock the database), and `rbw add` will do both.
+
+Logging into the server and unlocking the database will only be done as
+necessary, so running `rbw login` when you are already logged in will do
+nothing, and similarly for `rbw unlock`. If necessary, you can explicitly log
+out by running `rbw purge`, and you can explicitly lock the database by running
+`rbw lock` or `rbw stop-agent`.
 
 `rbw help` can be used to get more information about the available
 functionality.
