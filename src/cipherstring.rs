@@ -100,12 +100,12 @@ impl CipherString {
         let cipher = block_modes::Cbc::<
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
-        >::new_var(keys.enc_key(), &iv)
+        >::new_from_slices(keys.enc_key(), &iv)
         .map_err(|source| Error::CreateBlockMode { source })?;
         let ciphertext = cipher.encrypt_vec(plaintext);
 
         let mut digest =
-            hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
+            hmac::Hmac::<sha2::Sha256>::new_from_slice(keys.mac_key())
                 .map_err(|source| Error::CreateHmac { source })?;
         digest.update(&iv);
         digest.update(&ciphertext);
@@ -221,8 +221,9 @@ fn decrypt_common_symmetric(
 ) -> Result<block_modes::Cbc<aes::Aes256, block_modes::block_padding::Pkcs7>>
 {
     if let Some(mac) = mac {
-        let mut key = hmac::Hmac::<sha2::Sha256>::new_varkey(keys.mac_key())
-            .map_err(|source| Error::CreateHmac { source })?;
+        let mut key =
+            hmac::Hmac::<sha2::Sha256>::new_from_slice(keys.mac_key())
+                .map_err(|source| Error::CreateHmac { source })?;
         key.update(iv);
         key.update(ciphertext);
 
@@ -234,7 +235,7 @@ fn decrypt_common_symmetric(
     block_modes::Cbc::<
             aes::Aes256,
             block_modes::block_padding::Pkcs7,
-        >::new_var(keys.enc_key(), iv)
+        >::new_from_slices(keys.enc_key(), iv)
         .map_err(|source| Error::CreateBlockMode { source })
 }
 
