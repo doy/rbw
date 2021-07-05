@@ -197,7 +197,7 @@ dependencies = [
  "bitflags",
  "strsim",
  "term_size",
- "textwrap 0.11.0",
+ "textwrap",
  "unicode-width",
  "vec_map",
 ]
@@ -1124,7 +1124,7 @@ dependencies = [
  "structopt",
  "tempfile",
  "term_size",
- "textwrap 0.14.2",
+ "textwrap",
  "thiserror",
  "tokio",
  "url",
@@ -1495,12 +1495,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe0f37c9e8f3c5a4a66ad655a93c74daac4ad00c441533bf5c6e7990bb42604e"
 
 [[package]]
-name = "smawk"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f67ad224767faa3c7d8b6d91985b78e70a1324408abcb1cfcc2be4c06bc06043"
-
-[[package]]
 name = "socket2"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1616,17 +1610,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 dependencies = [
  "term_size",
- "unicode-width",
-]
-
-[[package]]
-name = "textwrap"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0066c8d12af8b5acd21e00547c3797fde4e8677254a7ee429176ccebbe93dd80"
-dependencies = [
- "smawk",
- "unicode-linebreak",
  "unicode-width",
 ]
 
@@ -1766,15 +1749,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eeb8be209bb1c96b7c177c7420d26e04eccacb0eeae6b980e35fcb74678107e0"
 dependencies = [
  "matches",
-]
-
-[[package]]
-name = "unicode-linebreak"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05a31f45d18a3213b918019f78fe6a73a14ab896807f0aaf5622aa0684749455"
-dependencies = [
- "regex",
 ]
 
 [[package]]
