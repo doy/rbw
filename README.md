@@ -81,6 +81,9 @@ out by running `rbw purge`, and you can explicitly lock the database by running
 `rbw help` can be used to get more information about the available
 functionality.
 
+Run `rbw get <name>` to get your passwords. If you also want to get the username
+or the note associated, you can use the flag `--full`. 
+
 ## Related projects
 
 * [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden
