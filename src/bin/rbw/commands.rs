@@ -538,6 +538,44 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn get_user(
+    name: &str,
+    user: Option<&str>,
+    folder: Option<&str>,
+) -> anyhow::Result<()> {
+    unlock()?;
+
+    let db = load_db()?;
+
+    let desc = format!(
+        "{}{}",
+        user.map(|s| format!("{}@", s))
+            .unwrap_or_else(|| "".to_string()),
+        name
+    );
+
+    let (_, decrypted) = find_entry(&db, name, user, folder)
+        .with_context(|| format!("couldn't find entry for '{}'", desc))?;
+
+    match decrypted.data {
+        DecryptedData::Login { username, .. } => {
+            if let Some(username) = username {
+                println!("{}", username);
+                true;
+            } else {
+                eprintln!("entry for '{}' had no username", desc);
+                false;
+            }
+        }
+        _ => {
+                eprintln!("entry for '{}' had no username", desc);
+                false;
+        }
+    }
+
+    Ok(())
+}
+
 pub fn get(
     name: &str,
     user: Option<&str>,
