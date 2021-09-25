@@ -13,7 +13,7 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
     let mut args = vec![];
     match editor.file_name() {
         Some(editor) => match editor.to_str() {
-            Some("vim") => {
+            Some("vim") | Some("nvim") => {
                 // disable swap files and viminfo for password entry
                 args.push(std::ffi::OsStr::new("-ni"));
                 args.push(std::ffi::OsStr::new("NONE"));
