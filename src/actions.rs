@@ -5,7 +5,7 @@ pub async fn login(
     password: &crate::locked::Password,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
-) -> Result<(String, String, u32, String, crate::locked::Keys)> {
+) -> Result<(String, String, u32, String)> {
     let config = crate::config::Config::load_async().await?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
@@ -22,16 +22,8 @@ pub async fn login(
             two_factor_provider,
         )
         .await?;
-    let master_keys = crate::cipherstring::CipherString::new(&protected_key)?
-        .decrypt_locked_symmetric(&identity.keys)?;
 
-    Ok((
-        access_token,
-        refresh_token,
-        iterations,
-        protected_key,
-        crate::locked::Keys::new(master_keys),
-    ))
+    Ok((access_token, refresh_token, iterations, protected_key))
 }
 
 pub async fn unlock(

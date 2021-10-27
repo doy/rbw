@@ -46,7 +46,6 @@ pub async fn login(
                     refresh_token,
                     iterations,
                     protected_key,
-                    _,
                 )) => {
                     login_success(
                         sock,
@@ -148,13 +147,7 @@ async fn two_factor(
         match rbw::actions::login(email, password, Some(code), Some(provider))
             .await
         {
-            Ok((
-                access_token,
-                refresh_token,
-                iterations,
-                protected_key,
-                _,
-            )) => {
+            Ok((access_token, refresh_token, iterations, protected_key)) => {
                 return Ok((
                     access_token,
                     refresh_token,
