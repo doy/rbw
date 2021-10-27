@@ -150,6 +150,9 @@ pub enum Error {
     #[error("failed to decrypt")]
     Rsa { source: rsa::errors::Error },
 
+    #[error("failed to decrypt")]
+    RsaPkcs8 { source: rsa::pkcs8::Error },
+
     #[error("failed to save config to {}", .file.display())]
     SaveConfig {
         source: std::io::Error,

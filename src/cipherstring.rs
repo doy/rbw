@@ -4,6 +4,7 @@ use block_modes::BlockMode as _;
 use block_padding::Padding as _;
 use hmac::{Mac as _, NewMac as _};
 use rand::RngCore as _;
+use rsa::pkcs8::FromPrivateKey as _;
 use zeroize::Zeroize as _;
 
 pub enum CipherString {
@@ -186,8 +187,8 @@ impl CipherString {
                 let privkey_data = private_key.private_key();
                 let privkey_data = block_padding::Pkcs7::unpad(privkey_data)
                     .map_err(|_| Error::Padding)?;
-                let pkey = rsa::RSAPrivateKey::from_pkcs8(privkey_data)
-                    .map_err(|source| Error::Rsa { source })?;
+                let pkey = rsa::RsaPrivateKey::from_pkcs8_der(privkey_data)
+                    .map_err(|source| Error::RsaPkcs8 { source })?;
                 let mut bytes = pkey
                     .decrypt(
                         rsa::padding::PaddingScheme::new_oaep::<sha1::Sha1>(),
