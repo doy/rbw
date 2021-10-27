@@ -3,33 +3,33 @@ use crate::prelude::*;
 pub async fn login(
     email: &str,
     password: &crate::locked::Password,
+    client_id: &str,
+    client_secret: &str,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
-) -> Result<(String, String, u32, String, crate::locked::Keys)> {
+) -> Result<(String, u32, String, crate::locked::Keys)> {
     let config = crate::config::Config::load_async().await?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
 
-    let iterations = client.prelogin(email).await?;
+    let (access_token, protected_key, iterations) = client
+        .login_async(
+            client_id,
+            client_secret,
+            two_factor_token,
+            two_factor_provider,
+        ).await?;
+
     let identity =
         crate::identity::Identity::new(email, password, iterations)?;
 
-    let (access_token, refresh_token, protected_key) = client
-        .login(
-            &identity.email,
-            &identity.master_password_hash,
-            two_factor_token,
-            two_factor_provider,
-        )
-        .await?;
     let master_keys = crate::cipherstring::CipherString::new(&protected_key)?
         .decrypt_locked_symmetric(&identity.keys)?;
 
     Ok((
         access_token,
-        refresh_token,
         iterations,
-        protected_key,
+        protected_key.to_string(),
         crate::locked::Keys::new(master_keys),
     ))
 }
@@ -85,7 +85,6 @@ pub async fn unlock(
 
 pub async fn sync(
     access_token: &str,
-    refresh_token: &str,
 ) -> Result<(
     Option<String>,
     (
@@ -95,9 +94,8 @@ pub async fn sync(
         Vec<crate::db::Entry>,
     ),
 )> {
-    with_exchange_refresh_token_async(
+    with_exchange_token_async(
         access_token,
-        refresh_token,
         |access_token| {
             let access_token = access_token.to_string();
             Box::pin(async move { sync_once(&access_token).await })
@@ -122,13 +120,12 @@ async fn sync_once(
 
 pub fn add(
     access_token: &str,
-    refresh_token: &str,
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
 ) -> Result<(Option<String>, ())> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+    with_exchange_token(access_token, |access_token| {
         add_once(access_token, name, data, notes, folder_id)
     })
 }
@@ -149,7 +146,6 @@ fn add_once(
 
 pub fn edit(
     access_token: &str,
-    refresh_token: &str,
     id: &str,
     org_id: Option<&str>,
     name: &str,
@@ -158,7 +154,7 @@ pub fn edit(
     folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
 ) -> Result<(Option<String>, ())> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+    with_exchange_token(access_token, |access_token| {
         edit_once(
             access_token,
             id,
@@ -200,10 +196,9 @@ fn edit_once(
 
 pub fn remove(
     access_token: &str,
-    refresh_token: &str,
     id: &str,
 ) -> Result<(Option<String>, ())> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+    with_exchange_token(access_token, |access_token| {
         remove_once(access_token, id)
     })
 }
@@ -218,9 +213,8 @@ fn remove_once(access_token: &str, id: &str) -> Result<()> {
 
 pub fn list_folders(
     access_token: &str,
-    refresh_token: &str,
 ) -> Result<(Option<String>, Vec<(String, String)>)> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+    with_exchange_token(access_token, |access_token| {
         list_folders_once(access_token)
     })
 }
@@ -234,10 +228,9 @@ fn list_folders_once(access_token: &str) -> Result<Vec<(String, String)>> {
 
 pub fn create_folder(
     access_token: &str,
-    refresh_token: &str,
     name: &str,
 ) -> Result<(Option<String>, String)> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+    with_exchange_token(access_token, |access_token| {
         create_folder_once(access_token, name)
     })
 }
@@ -249,9 +242,8 @@ fn create_folder_once(access_token: &str, name: &str) -> Result<String> {
     client.create_folder(access_token, name)
 }
 
-fn with_exchange_refresh_token<F, T>(
+fn with_exchange_token<F, T>(
     access_token: &str,
-    refresh_token: &str,
     f: F,
 ) -> Result<(Option<String>, T)>
 where
@@ -260,7 +252,7 @@ where
     match f(access_token) {
         Ok(t) => Ok((None, t)),
         Err(Error::RequestUnauthorized) => {
-            let access_token = exchange_refresh_token(refresh_token)?;
+            let (access_token, _protected_key, _iterations) = exchange_token()?;
             let t = f(&access_token)?;
             Ok((Some(access_token), t))
         }
@@ -268,9 +260,8 @@ where
     }
 }
 
-async fn with_exchange_refresh_token_async<F, T>(
+async fn with_exchange_token_async<F, T>(
     access_token: &str,
-    refresh_token: &str,
     f: F,
 ) -> Result<(Option<String>, T)>
 where
@@ -285,8 +276,7 @@ where
     match f(access_token).await {
         Ok(t) => Ok((None, t)),
         Err(Error::RequestUnauthorized) => {
-            let access_token =
-                exchange_refresh_token_async(refresh_token).await?;
+            let (access_token, _protected_key, _iterations) = exchange_token_async().await?;
             let t = f(&access_token).await?;
             Ok((Some(access_token), t))
         }
@@ -294,16 +284,16 @@ where
     }
 }
 
-fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
+fn exchange_token() -> Result<(String, String, u32)> {
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.exchange_refresh_token(refresh_token)
+    client.login(&config.client_id.unwrap(), &config.client_secret.unwrap(), None, None)
 }
 
-async fn exchange_refresh_token_async(refresh_token: &str) -> Result<String> {
+async fn exchange_token_async() -> Result<(String, String, u32)> {
     let config = crate::config::Config::load_async().await?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.exchange_refresh_token_async(refresh_token).await
+    client.login_async(&config.client_id.unwrap(), &config.client_secret.unwrap(), None, None).await
 }

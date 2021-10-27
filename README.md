@@ -51,6 +51,10 @@ configuration options:
 
 * `email`: The email address to use as the account name when logging into the
   Bitwarden server. Required.
+* `client_id`: Client ID of your personal API key, used to bypass captcha.
+  Required.
+* `client_secret`: Client secret of your personal API key, used to bypass
+  captcha. Required.
 * `base_url`: The URL of the Bitwarden server to use. Defaults to the official
   server at `https://api.bitwarden.com/` if unset.
 * `identity_url`: The URL of the Bitwarden identity server to use. If unset,

@@ -132,25 +132,11 @@ impl std::str::FromStr for TwoFactorProviderType {
 }
 
 #[derive(serde::Serialize, Debug)]
-struct PreloginReq {
-    email: String,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct PreloginRes {
-    #[serde(rename = "Kdf")]
-    kdf: u32,
-    #[serde(rename = "KdfIterations")]
-    kdf_iterations: u32,
-}
-
-#[derive(serde::Serialize, Debug)]
-struct ConnectPasswordReq {
+struct ConnectReq {
     grant_type: String,
-    username: String,
-    password: String,
     scope: String,
     client_id: String,
+    client_secret: String,
     #[serde(rename = "deviceType")]
     device_type: u32,
     #[serde(rename = "deviceIdentifier")]
@@ -166,13 +152,16 @@ struct ConnectPasswordReq {
 }
 
 #[derive(serde::Deserialize, Debug)]
-struct ConnectPasswordRes {
+struct ConnectRes {
     access_token: String,
     expires_in: u32,
     token_type: String,
-    refresh_token: String,
     #[serde(rename = "Key")]
     key: String,
+    #[serde(rename = "Kdf")]
+    kdf: u32,
+    #[serde(rename = "KdfIterations")]
+    kdf_iterations: u32,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -189,21 +178,6 @@ struct ConnectErrorRes {
 struct ConnectErrorResErrorModel {
     #[serde(rename = "Message")]
     message: String,
-}
-
-#[derive(serde::Serialize, Debug)]
-struct ConnectRefreshTokenReq {
-    grant_type: String,
-    client_id: String,
-    refresh_token: String,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct ConnectRefreshTokenRes {
-    access_token: String,
-    expires_in: u32,
-    token_type: String,
-    refresh_token: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -560,34 +534,18 @@ impl Client {
         }
     }
 
-    pub async fn prelogin(&self, email: &str) -> Result<u32> {
-        let prelogin = PreloginReq {
-            email: email.to_string(),
-        };
-        let client = reqwest::Client::new();
-        let res = client
-            .post(&self.api_url("/accounts/prelogin"))
-            .json(&prelogin)
-            .send()
-            .await
-            .map_err(|source| Error::Reqwest { source })?;
-        let prelogin_res: PreloginRes = res.json_with_path().await?;
-        Ok(prelogin_res.kdf_iterations)
-    }
-
-    pub async fn login(
+    pub async fn login_async(
         &self,
-        email: &str,
-        master_password_hash: &crate::locked::PasswordHash,
+        client_id: &str,
+        client_secret: &str,
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
-    ) -> Result<(String, String, String)> {
-        let connect_req = ConnectPasswordReq {
-            grant_type: "password".to_string(),
-            username: email.to_string(),
-            password: base64::encode(master_password_hash.hash()),
-            scope: "api offline_access".to_string(),
-            client_id: "desktop".to_string(),
+    ) -> Result<(String, String, u32)> {
+        let connect_req = ConnectReq {
+            grant_type: "client_credentials".to_string(),
+            client_id: client_id.to_string(),
+            client_secret: client_secret.to_string(),
+            scope: "api".to_string(),
             device_type: 8,
             device_identifier: uuid::Uuid::new_v4()
                 .to_hyphenated()
@@ -606,16 +564,58 @@ impl Client {
             .await
             .map_err(|source| Error::Reqwest { source })?;
         if let reqwest::StatusCode::OK = res.status() {
-            let connect_res: ConnectPasswordRes =
+            let connect_res: ConnectRes =
                 res.json_with_path().await?;
             Ok((
                 connect_res.access_token,
-                connect_res.refresh_token,
                 connect_res.key,
+                connect_res.kdf_iterations,
             ))
         } else {
             let code = res.status().as_u16();
             Err(classify_login_error(&res.json_with_path().await?, code))
+        }
+    }
+
+    pub fn login(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+        two_factor_token: Option<&str>,
+        two_factor_provider: Option<TwoFactorProviderType>,
+    ) -> Result<(String, String, u32)> {
+        let connect_req = ConnectReq {
+            grant_type: "client_credentials".to_string(),
+            client_id: client_id.to_string(),
+            client_secret: client_secret.to_string(),
+            scope: "api".to_string(),
+            device_type: 8,
+            device_identifier: uuid::Uuid::new_v4()
+                .to_hyphenated()
+                .to_string(),
+            device_name: "rbw".to_string(),
+            device_push_token: "".to_string(),
+            two_factor_token: two_factor_token
+                .map(std::string::ToString::to_string),
+            two_factor_provider: two_factor_provider.map(|ty| ty as u32),
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(&self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        if let reqwest::StatusCode::OK = res.status() {
+            let connect_res: ConnectRes =
+                res.json_with_path()?;
+            Ok((
+                connect_res.access_token,
+                connect_res.key,
+                connect_res.kdf_iterations,
+            ))
+        } else {
+            let code = res.status().as_u16();
+            Err(classify_login_error(&res.json_with_path()?, code))
         }
     }
 
@@ -994,46 +994,6 @@ impl Client {
                 status: res.status().as_u16(),
             }),
         }
-    }
-
-    pub fn exchange_refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<String> {
-        let connect_req = ConnectRefreshTokenReq {
-            grant_type: "refresh_token".to_string(),
-            client_id: "desktop".to_string(),
-            refresh_token: refresh_token.to_string(),
-        };
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .post(&self.identity_url("/connect/token"))
-            .form(&connect_req)
-            .send()
-            .map_err(|source| Error::Reqwest { source })?;
-        let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
-        Ok(connect_res.access_token)
-    }
-
-    pub async fn exchange_refresh_token_async(
-        &self,
-        refresh_token: &str,
-    ) -> Result<String> {
-        let connect_req = ConnectRefreshTokenReq {
-            grant_type: "refresh_token".to_string(),
-            client_id: "desktop".to_string(),
-            refresh_token: refresh_token.to_string(),
-        };
-        let client = reqwest::Client::new();
-        let res = client
-            .post(&self.identity_url("/connect/token"))
-            .form(&connect_req)
-            .send()
-            .await
-            .map_err(|source| Error::Reqwest { source })?;
-        let connect_res: ConnectRefreshTokenRes =
-            res.json_with_path().await?;
-        Ok(connect_res.access_token)
     }
 
     fn api_url(&self, path: &str) -> String {

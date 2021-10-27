@@ -6,6 +6,8 @@ use tokio::io::AsyncReadExt as _;
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Config {
     pub email: Option<String>,
+    pub client_id : Option<String>,
+    pub client_secret : Option<String>,
     pub base_url: Option<String>,
     pub identity_url: Option<String>,
     #[serde(default = "default_lock_timeout")]
@@ -18,6 +20,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             email: Default::default(),
+            client_id: Default::default(),
+            client_secret: Default::default(),
             base_url: Default::default(),
             identity_url: Default::default(),
             lock_timeout: default_lock_timeout(),

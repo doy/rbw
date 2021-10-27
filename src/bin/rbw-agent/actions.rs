@@ -21,6 +21,8 @@ pub async fn login(
         };
 
         let email = config_email().await?;
+        let client_id = config_client_id().await?;
+        let client_secret = config_client_secret().await?;
 
         let mut err_msg = None;
         for i in 1_u8..=3 {
@@ -40,10 +42,9 @@ pub async fn login(
             )
             .await
             .context("failed to read password from pinentry")?;
-            match rbw::actions::login(&email, &password, None, None).await {
+            match rbw::actions::login(&email, &password, &client_id, &client_secret, None, None).await {
                 Ok((
                     access_token,
-                    refresh_token,
                     iterations,
                     protected_key,
                     _,
@@ -52,7 +53,6 @@ pub async fn login(
                         sock,
                         state,
                         access_token,
-                        refresh_token,
                         iterations,
                         protected_key,
                         password,
@@ -68,13 +68,14 @@ pub async fn login(
                     ) {
                         let (
                             access_token,
-                            refresh_token,
                             iterations,
                             protected_key,
                         ) = two_factor(
                             tty,
                             &email,
                             &password,
+                            &client_id,
+                            &client_secret,
                             rbw::api::TwoFactorProviderType::Authenticator,
                         )
                         .await?;
@@ -82,7 +83,6 @@ pub async fn login(
                             sock,
                             state,
                             access_token,
-                            refresh_token,
                             iterations,
                             protected_key,
                             password,
@@ -123,8 +123,10 @@ async fn two_factor(
     tty: Option<&str>,
     email: &str,
     password: &rbw::locked::Password,
+    client_id: &str,
+    client_secret: &str,
     provider: rbw::api::TwoFactorProviderType,
-) -> anyhow::Result<(String, String, u32, String)> {
+) -> anyhow::Result<(String, u32, String)> {
     let mut err_msg = None;
     for i in 1_u8..=3 {
         let err = if i > 1 {
@@ -146,8 +148,10 @@ async fn two_factor(
         let code = std::str::from_utf8(code.password())
             .context("code was not valid utf8")?;
         match rbw::actions::login(
-            &email,
-            &password,
+            email,
+            password,
+            client_id,
+            client_secret,
             Some(code),
             Some(provider),
         )
@@ -155,14 +159,12 @@ async fn two_factor(
         {
             Ok((
                 access_token,
-                refresh_token,
                 iterations,
                 protected_key,
                 _,
             )) => {
                 return Ok((
                     access_token,
-                    refresh_token,
                     iterations,
                     protected_key,
                 ))
@@ -205,7 +207,6 @@ async fn login_success(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     access_token: String,
-    refresh_token: String,
     iterations: u32,
     protected_key: String,
     password: rbw::locked::Password,
@@ -213,7 +214,6 @@ async fn login_success(
     email: String,
 ) -> anyhow::Result<()> {
     db.access_token = Some(access_token.to_string());
-    db.refresh_token = Some(refresh_token.to_string());
     db.iterations = Some(iterations);
     db.protected_key = Some(protected_key.to_string());
     save_db(&db).await?;
@@ -385,15 +385,10 @@ pub async fn sync(
     } else {
         return Err(anyhow::anyhow!("failed to find access token in db"));
     };
-    let refresh_token = if let Some(refresh_token) = &db.refresh_token {
-        refresh_token.clone()
-    } else {
-        return Err(anyhow::anyhow!("failed to find refresh token in db"));
-    };
     let (
         access_token,
         (protected_key, protected_private_key, protected_org_keys, entries),
-    ) = rbw::actions::sync(&access_token, &refresh_token)
+    ) = rbw::actions::sync(&access_token)
         .await
         .context("failed to sync database from server")?;
     if let Some(access_token) = access_token {
@@ -506,6 +501,24 @@ async fn config_email() -> anyhow::Result<String> {
         Ok(email)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
+    }
+}
+
+async fn config_client_id() -> anyhow::Result<String> {
+    let config = rbw::config::Config::load_async().await?;
+    if let Some(client_id) = config.client_id {
+        Ok(client_id)
+    } else {
+        Err(anyhow::anyhow!("failed to find client_id in config"))
+    }
+}
+
+async fn config_client_secret() -> anyhow::Result<String> {
+    let config = rbw::config::Config::load_async().await?;
+    if let Some(client_secret) = config.client_secret {
+        Ok(client_secret)
+    } else {
+        Err(anyhow::anyhow!("failed to find client_secret in config"))
     }
 }
 

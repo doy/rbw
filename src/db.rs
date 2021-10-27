@@ -162,7 +162,6 @@ pub struct HistoryEntry {
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct Db {
     pub access_token: Option<String>,
-    pub refresh_token: Option<String>,
 
     pub iterations: Option<u32>,
     pub protected_key: Option<String>,
@@ -289,7 +288,6 @@ impl Db {
 
     pub fn needs_login(&self) -> bool {
         self.access_token.is_none()
-            || self.refresh_token.is_none()
             || self.iterations.is_none()
             || self.protected_key.is_none()
     }
