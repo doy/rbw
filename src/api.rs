@@ -602,6 +602,10 @@ impl Client {
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
+            .header(
+                "auth-email",
+                base64::encode_config(email, base64::URL_SAFE_NO_PAD),
+            )
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
