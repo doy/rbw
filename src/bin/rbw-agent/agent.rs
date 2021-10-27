@@ -167,7 +167,7 @@ async fn handle_request(
             crate::actions::decrypt(
                 sock,
                 state.clone(),
-                &cipherstring,
+                cipherstring,
                 org_id.as_deref(),
             )
             .await?;
@@ -177,7 +177,7 @@ async fn handle_request(
             crate::actions::encrypt(
                 sock,
                 state.clone(),
-                &plaintext,
+                plaintext,
                 org_id.as_deref(),
             )
             .await?;

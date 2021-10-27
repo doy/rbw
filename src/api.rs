@@ -708,7 +708,7 @@ impl Client {
                     password: password.clone(),
                     totp: totp.clone(),
                     uris,
-                })
+                });
             }
             crate::db::EntryData::Card {
                 cardholder_name,

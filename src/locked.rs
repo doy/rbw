@@ -32,7 +32,7 @@ impl Vec {
 
     pub fn zero(&mut self) {
         self.truncate(0);
-        self.data.extend(std::iter::repeat(0).take(LEN))
+        self.data.extend(std::iter::repeat(0).take(LEN));
     }
 
     pub fn extend(&mut self, it: impl Iterator<Item = u8>) {

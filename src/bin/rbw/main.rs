@@ -281,22 +281,22 @@ fn main(opt: Opt) {
     let res = match &opt {
         Opt::Config { config } => match config {
             Config::Show => commands::config_show(),
-            Config::Set { key, value } => commands::config_set(&key, &value),
-            Config::Unset { key } => commands::config_unset(&key),
+            Config::Set { key, value } => commands::config_set(key, value),
+            Config::Unset { key } => commands::config_unset(key),
         },
         Opt::Login => commands::login(),
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),
-        Opt::List { fields } => commands::list(&fields),
+        Opt::List { fields } => commands::list(fields),
         Opt::Get {
             name,
             user,
             folder,
             full,
-        } => commands::get(&name, user.as_deref(), folder.as_deref(), *full),
+        } => commands::get(name, user.as_deref(), folder.as_deref(), *full),
         Opt::Code { name, user, folder } => {
-            commands::code(&name, user.as_deref(), folder.as_deref())
+            commands::code(name, user.as_deref(), folder.as_deref())
         }
         Opt::Add {
             name,
@@ -304,7 +304,7 @@ fn main(opt: Opt) {
             uri,
             folder,
         } => commands::add(
-            &name,
+            name,
             user.as_deref(),
             uri.iter()
                 // XXX not sure what the ui for specifying the match type
@@ -349,18 +349,18 @@ fn main(opt: Opt) {
             )
         }
         Opt::Edit { name, user, folder } => {
-            commands::edit(&name, user.as_deref(), folder.as_deref())
+            commands::edit(name, user.as_deref(), folder.as_deref())
         }
         Opt::Remove { name, user, folder } => {
-            commands::remove(&name, user.as_deref(), folder.as_deref())
+            commands::remove(name, user.as_deref(), folder.as_deref())
         }
         Opt::History { name, user, folder } => {
-            commands::history(&name, user.as_deref(), folder.as_deref())
+            commands::history(name, user.as_deref(), folder.as_deref())
         }
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),
         Opt::StopAgent => commands::stop_agent(),
-        Opt::GenCompletions { shell } => gen_completions(&shell),
+        Opt::GenCompletions { shell } => gen_completions(shell),
     }
     .context(format!("rbw {}", opt.subcommand_name()));
 

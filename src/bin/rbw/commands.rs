@@ -642,7 +642,7 @@ pub fn add(
     let mut folder_id = None;
     if let Some(folder_name) = folder {
         let (new_access_token, folders) =
-            rbw::actions::list_folders(&access_token, &refresh_token)?;
+            rbw::actions::list_folders(&access_token, refresh_token)?;
         if let Some(new_access_token) = new_access_token {
             access_token = new_access_token.clone();
             db.access_token = Some(new_access_token);
@@ -663,7 +663,7 @@ pub fn add(
         if folder_id.is_none() {
             let (new_access_token, id) = rbw::actions::create_folder(
                 &access_token,
-                &refresh_token,
+                refresh_token,
                 &crate::actions::encrypt(folder_name, None)?,
             )?;
             if let Some(new_access_token) = new_access_token {
@@ -677,7 +677,7 @@ pub fn add(
 
     if let (Some(access_token), ()) = rbw::actions::add(
         &access_token,
-        &refresh_token,
+        refresh_token,
         &name,
         &rbw::db::EntryData::Login {
             username,
@@ -735,7 +735,7 @@ pub fn generate(
         let mut folder_id = None;
         if let Some(folder_name) = folder {
             let (new_access_token, folders) =
-                rbw::actions::list_folders(&access_token, &refresh_token)?;
+                rbw::actions::list_folders(&access_token, refresh_token)?;
             if let Some(new_access_token) = new_access_token {
                 access_token = new_access_token.clone();
                 db.access_token = Some(new_access_token);
@@ -758,7 +758,7 @@ pub fn generate(
             if folder_id.is_none() {
                 let (new_access_token, id) = rbw::actions::create_folder(
                     &access_token,
-                    &refresh_token,
+                    refresh_token,
                     &crate::actions::encrypt(folder_name, None)?,
                 )?;
                 if let Some(new_access_token) = new_access_token {
@@ -772,7 +772,7 @@ pub fn generate(
 
         if let (Some(access_token), ()) = rbw::actions::add(
             &access_token,
-            &refresh_token,
+            refresh_token,
             &name,
             &rbw::db::EntryData::Login {
                 username,
@@ -880,8 +880,8 @@ pub fn edit(
     };
 
     if let (Some(access_token), ()) = rbw::actions::edit(
-        &access_token,
-        &refresh_token,
+        access_token,
+        refresh_token,
         &entry.id,
         entry.org_id.as_deref(),
         &entry.name,
@@ -921,7 +921,7 @@ pub fn remove(
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
 
     if let (Some(access_token), ()) =
-        rbw::actions::remove(&access_token, &refresh_token, &entry.id)?
+        rbw::actions::remove(access_token, refresh_token, &entry.id)?
     {
         db.access_token = Some(access_token);
         save_db(&db)?;
@@ -1053,7 +1053,7 @@ fn find_entry(
         Ok(_) => {
             for cipher in &db.entries {
                 if name == cipher.id {
-                    return Ok((cipher.clone(), decrypt_cipher(&cipher)?));
+                    return Ok((cipher.clone(), decrypt_cipher(cipher)?));
                 }
             }
             Err(anyhow::anyhow!("no entry found"))
@@ -1183,10 +1183,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .name
                     .as_ref()
                     .map(|name| {
-                        crate::actions::decrypt(
-                            &name,
-                            entry.org_id.as_deref(),
-                        )
+                        crate::actions::decrypt(name, entry.org_id.as_deref())
                     })
                     .transpose()?,
                 value: field
@@ -1194,7 +1191,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .as_ref()
                     .map(|value| {
                         crate::actions::decrypt(
-                            &value,
+                            value,
                             entry.org_id.as_deref(),
                         )
                     })
@@ -1444,7 +1441,7 @@ fn parse_editor(contents: &str) -> (Option<String>, Option<String>) {
 fn load_db() -> anyhow::Result<rbw::db::Db> {
     let config = rbw::config::Config::load()?;
     if let Some(email) = &config.email {
-        rbw::db::Db::load(&config.server_name(), &email)
+        rbw::db::Db::load(&config.server_name(), email)
             .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
@@ -1454,7 +1451,7 @@ fn load_db() -> anyhow::Result<rbw::db::Db> {
 fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
     if let Some(email) = &config.email {
-        db.save(&config.server_name(), &email)
+        db.save(&config.server_name(), email)
             .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
@@ -1464,7 +1461,7 @@ fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
 fn remove_db() -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
     if let Some(email) = &config.email {
-        rbw::db::Db::remove(&config.server_name(), &email)
+        rbw::db::Db::remove(&config.server_name(), email)
             .map_err(anyhow::Error::new)
     } else {
         Err(anyhow::anyhow!("failed to find email address in config"))
@@ -1494,8 +1491,11 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
     } else {
         secret.to_string()
     };
-    base32::decode(base32::Alphabet::RFC4648 { padding: false }, &secret_str.replace(" ", ""))
-        .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
+    base32::decode(
+        base32::Alphabet::RFC4648 { padding: false },
+        &secret_str.replace(" ", ""),
+    )
+    .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
 }
 
 fn generate_totp(secret: &str) -> anyhow::Result<String> {

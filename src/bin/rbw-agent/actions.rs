@@ -145,13 +145,8 @@ async fn two_factor(
         .context("failed to read code from pinentry")?;
         let code = std::str::from_utf8(code.password())
             .context("code was not valid utf8")?;
-        match rbw::actions::login(
-            &email,
-            &password,
-            Some(code),
-            Some(provider),
-        )
-        .await
+        match rbw::actions::login(email, password, Some(code), Some(provider))
+            .await
         {
             Ok((
                 access_token,
@@ -430,7 +425,7 @@ pub async fn decrypt(
         .context("failed to parse encrypted secret")?;
     let plaintext = String::from_utf8(
         cipherstring
-            .decrypt_symmetric(&keys)
+            .decrypt_symmetric(keys)
             .context("failed to decrypt encrypted secret")?,
     )
     .context("failed to parse decrypted secret")?;
@@ -512,7 +507,7 @@ async fn config_email() -> anyhow::Result<String> {
 async fn load_db() -> anyhow::Result<rbw::db::Db> {
     let config = rbw::config::Config::load_async().await?;
     if let Some(email) = &config.email {
-        rbw::db::Db::load_async(&config.server_name(), &email)
+        rbw::db::Db::load_async(&config.server_name(), email)
             .await
             .map_err(anyhow::Error::new)
     } else {
@@ -523,7 +518,7 @@ async fn load_db() -> anyhow::Result<rbw::db::Db> {
 async fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
     let config = rbw::config::Config::load_async().await?;
     if let Some(email) = &config.email {
-        db.save_async(&config.server_name(), &email)
+        db.save_async(&config.server_name(), email)
             .await
             .map_err(anyhow::Error::new)
     } else {

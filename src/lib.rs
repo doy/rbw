@@ -12,6 +12,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
+#![allow(clippy::unused_async)]
 
 pub mod actions;
 pub mod api;
