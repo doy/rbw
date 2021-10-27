@@ -465,16 +465,16 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn login() -> anyhow::Result<()> {
+pub fn login(apikey: bool) -> anyhow::Result<()> {
     ensure_agent()?;
-    crate::actions::login()?;
+    crate::actions::login(apikey)?;
 
     Ok(())
 }
 
 pub fn unlock() -> anyhow::Result<()> {
     ensure_agent()?;
-    crate::actions::login()?;
+    crate::actions::login(false)?;
     crate::actions::unlock()?;
 
     Ok(())
@@ -489,7 +489,7 @@ pub fn unlocked() -> anyhow::Result<()> {
 
 pub fn sync() -> anyhow::Result<()> {
     ensure_agent()?;
-    crate::actions::login()?;
+    crate::actions::login(false)?;
     crate::actions::sync()?;
 
     Ok(())

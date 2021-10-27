@@ -148,9 +148,10 @@ struct PreloginRes {
 struct ConnectPasswordReq {
     grant_type: String,
     username: String,
-    password: String,
+    password: Option<String>,
     scope: String,
     client_id: String,
+    client_secret: Option<String>,
     #[serde(rename = "deviceType")]
     device_type: u32,
     #[serde(rename = "deviceIdentifier")]
@@ -178,7 +179,7 @@ struct ConnectPasswordRes {
 #[derive(serde::Deserialize, Debug)]
 struct ConnectErrorRes {
     error: String,
-    error_description: String,
+    error_description: Option<String>,
     #[serde(rename = "ErrorModel")]
     error_model: Option<ConnectErrorResErrorModel>,
     #[serde(rename = "TwoFactorProviders")]
@@ -578,16 +579,38 @@ impl Client {
     pub async fn login(
         &self,
         email: &str,
-        master_password_hash: &crate::locked::PasswordHash,
+        creds: &crate::locked::HashedLoginCredentials,
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
     ) -> Result<(String, String, String)> {
+        let (grant_type, scope, password, client_id, client_secret) =
+            match creds {
+                crate::locked::HashedLoginCredentials::Password {
+                    password_hash,
+                } => (
+                    "password",
+                    "api offline_access",
+                    Some(base64::encode(password_hash.hash())),
+                    &b"desktop"[..],
+                    None,
+                ),
+                crate::locked::HashedLoginCredentials::ApiKey { apikey } => (
+                    "client_credentials",
+                    "api",
+                    None,
+                    apikey.client_id(),
+                    Some(apikey.client_secret()),
+                ),
+            };
         let connect_req = ConnectPasswordReq {
-            grant_type: "password".to_string(),
+            grant_type: grant_type.to_string(),
             username: email.to_string(),
-            password: base64::encode(master_password_hash.hash()),
-            scope: "api offline_access".to_string(),
-            client_id: "desktop".to_string(),
+            password,
+            scope: scope.to_string(),
+            // XXX unwraps here are not necessarily safe
+            client_id: String::from_utf8(client_id.to_vec()).unwrap(),
+            client_secret: client_secret
+                .map(|secret| String::from_utf8(secret.to_vec()).unwrap()),
             device_type: 8,
             device_identifier: uuid::Uuid::new_v4()
                 .to_hyphenated()
@@ -599,13 +622,24 @@ impl Client {
             two_factor_provider: two_factor_provider.map(|ty| ty as u32),
         };
         let client = reqwest::Client::new();
+        let mut headers = reqwest::header::HeaderMap::new();
+        if connect_req.client_secret.is_none()
+            && connect_req.password.is_some()
+        {
+            headers.insert(
+                "auth-email",
+                // unwrap is safe because url safe base64 strings are always
+                // valid header values
+                reqwest::header::HeaderValue::from_str(
+                    &base64::encode_config(email, base64::URL_SAFE_NO_PAD),
+                )
+                .unwrap(),
+            );
+        }
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
-            .header(
-                "auth-email",
-                base64::encode_config(email, base64::URL_SAFE_NO_PAD),
-            )
+            .headers(headers)
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
@@ -1050,15 +1084,17 @@ impl Client {
 }
 
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
+    let error_desc = error_res.error_description.clone();
+    let error_desc = error_desc.as_deref();
     match error_res.error.as_str() {
-        "invalid_grant" => match error_res.error_description.as_str() {
-            "invalid_username_or_password" => {
+        "invalid_grant" => match error_desc {
+            Some("invalid_username_or_password") => {
                 if let Some(error_model) = error_res.error_model.as_ref() {
                     let message = error_model.message.as_str().to_string();
                     return Error::IncorrectPassword { message };
                 }
             }
-            "Two factor required." => {
+            Some("Two factor required.") => {
                 if let Some(providers) =
                     error_res.two_factor_providers.as_ref()
                 {
@@ -1069,10 +1105,13 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
             }
             _ => {}
         },
+        "invalid_client" => {
+            return Error::IncorrectApiKey;
+        }
         "" => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_res.error_description.is_empty() {
+            if error_desc.is_none() || error_desc == Some("") {
                 if let Some(error_model) = error_res.error_model.as_ref() {
                     let message = error_model.message.as_str().to_string();
                     match message.as_str() {

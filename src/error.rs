@@ -46,6 +46,9 @@ pub enum Error {
     #[error("failed to expand with hkdf")]
     HkdfExpand,
 
+    #[error("incorrect api key")]
+    IncorrectApiKey,
+
     #[error("{message}")]
     IncorrectPassword { message: String },
 

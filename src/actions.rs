@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 pub async fn login(
     email: &str,
-    password: &crate::locked::Password,
+    creds: crate::locked::LoginCredentials,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
 ) -> Result<(String, String, u32, String)> {
@@ -11,13 +11,10 @@ pub async fn login(
         crate::api::Client::new(&config.base_url(), &config.identity_url());
 
     let iterations = client.prelogin(email).await?;
-    let identity =
-        crate::identity::Identity::new(email, password, iterations)?;
-
     let (access_token, refresh_token, protected_key) = client
         .login(
-            &identity.email,
-            &identity.master_password_hash,
+            email,
+            &creds.to_hashed(email, iterations)?,
             two_factor_token,
             two_factor_provider,
         )

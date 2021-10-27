@@ -1,8 +1,12 @@
 use anyhow::Context as _;
 use std::io::Read as _;
 
-pub fn login() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Login)
+pub fn login(apikey: bool) -> anyhow::Result<()> {
+    if apikey {
+        simple_action(rbw::protocol::Action::LoginApiKey)
+    } else {
+        simple_action(rbw::protocol::Action::Login)
+    }
 }
 
 pub fn unlock() -> anyhow::Result<()> {

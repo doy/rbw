@@ -4,6 +4,7 @@ pub async fn login(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     tty: Option<&str>,
+    apikey: bool,
 ) -> anyhow::Result<()> {
     let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
 
@@ -23,60 +24,45 @@ pub async fn login(
         let email = config_email().await?;
 
         let mut err_msg = None;
-        for i in 1_u8..=3 {
-            let err = if i > 1 {
-                // this unwrap is safe because we only ever continue the loop
-                // if we have set err_msg
-                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
-            } else {
-                None
-            };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                &format!("Log in to {}", host),
-                err.as_deref(),
-                tty,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
-            match rbw::actions::login(&email, &password, None, None).await {
-                Ok((
-                    access_token,
-                    refresh_token,
-                    iterations,
-                    protected_key,
-                )) => {
-                    login_success(
-                        sock,
-                        state,
+        if apikey {
+            for i in 1_u8..=3 {
+                let err = if i > 1 {
+                    // this unwrap is safe because we only ever continue the loop
+                    // if we have set err_msg
+                    Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+                } else {
+                    None
+                };
+                let client_id = rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "API key client_id",
+                    &format!("Log in to {}", host),
+                    err.as_deref(),
+                    tty,
+                )
+                .await
+                .context("failed to read client_id from pinentry")?;
+                let client_secret = rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "API key client_secret",
+                    &format!("Log in to {}", host),
+                    err.as_deref(),
+                    tty,
+                )
+                .await
+                .context("failed to read client_secret from pinentry")?;
+                let creds = rbw::locked::LoginCredentials::from_apikey(
+                    rbw::locked::ApiKey::new(client_id, client_secret),
+                );
+                match rbw::actions::login(&email, creds.clone(), None, None)
+                    .await
+                {
+                    Ok((
                         access_token,
                         refresh_token,
                         iterations,
                         protected_key,
-                        password,
-                        db,
-                        email,
-                    )
-                    .await?;
-                    break;
-                }
-                Err(rbw::error::Error::TwoFactorRequired { providers }) => {
-                    if providers.contains(
-                        &rbw::api::TwoFactorProviderType::Authenticator,
-                    ) {
-                        let (
-                            access_token,
-                            refresh_token,
-                            iterations,
-                            protected_key,
-                        ) = two_factor(
-                            tty,
-                            &email,
-                            &password,
-                            rbw::api::TwoFactorProviderType::Authenticator,
-                        )
-                        .await?;
+                    )) => {
                         login_success(
                             sock,
                             state,
@@ -84,30 +70,169 @@ pub async fn login(
                             refresh_token,
                             iterations,
                             protected_key,
-                            password,
+                            None,
                             db,
                             email,
                         )
                         .await?;
                         break;
-                    } else {
-                        return Err(anyhow::anyhow!("TODO"));
+                    }
+                    Err(rbw::error::Error::TwoFactorRequired {
+                        providers,
+                    }) => {
+                        if providers.contains(
+                            &rbw::api::TwoFactorProviderType::Authenticator,
+                        ) {
+                            let (
+                            access_token,
+                            refresh_token,
+                            iterations,
+                            protected_key,
+                        ) = two_factor(
+                            tty,
+                            &email,
+                            creds,
+                            rbw::api::TwoFactorProviderType::Authenticator,
+                        )
+                        .await?;
+                            login_success(
+                                sock,
+                                state,
+                                access_token,
+                                refresh_token,
+                                iterations,
+                                protected_key,
+                                None,
+                                db,
+                                email,
+                            )
+                            .await?;
+                            break;
+                        } else {
+                            return Err(anyhow::anyhow!("TODO"));
+                        }
+                    }
+                    Err(rbw::error::Error::IncorrectPassword { message }) => {
+                        if i == 3 {
+                            return Err(
+                                rbw::error::Error::IncorrectPassword {
+                                    message,
+                                },
+                            )
+                            .context(
+                                "failed to log in to bitwarden instance",
+                            );
+                        } else {
+                            err_msg = Some(message);
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        return Err(e).context(
+                            "failed to log in to bitwarden instance",
+                        )
                     }
                 }
-                Err(rbw::error::Error::IncorrectPassword { message }) => {
-                    if i == 3 {
-                        return Err(rbw::error::Error::IncorrectPassword {
-                            message,
-                        })
-                        .context("failed to log in to bitwarden instance");
-                    } else {
-                        err_msg = Some(message);
-                        continue;
+            }
+        } else {
+            for i in 1_u8..=3 {
+                let err = if i > 1 {
+                    // this unwrap is safe because we only ever continue the loop
+                    // if we have set err_msg
+                    Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+                } else {
+                    None
+                };
+                let password = rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "Master Password",
+                    &format!("Log in to {}", host),
+                    err.as_deref(),
+                    tty,
+                )
+                .await
+                .context("failed to read password from pinentry")?;
+                let creds = rbw::locked::LoginCredentials::from_password(
+                    password.clone(),
+                );
+                match rbw::actions::login(&email, creds.clone(), None, None)
+                    .await
+                {
+                    Ok((
+                        access_token,
+                        refresh_token,
+                        iterations,
+                        protected_key,
+                    )) => {
+                        login_success(
+                            sock,
+                            state,
+                            access_token,
+                            refresh_token,
+                            iterations,
+                            protected_key,
+                            Some(password),
+                            db,
+                            email,
+                        )
+                        .await?;
+                        break;
                     }
-                }
-                Err(e) => {
-                    return Err(e)
-                        .context("failed to log in to bitwarden instance")
+                    Err(rbw::error::Error::TwoFactorRequired {
+                        providers,
+                    }) => {
+                        if providers.contains(
+                            &rbw::api::TwoFactorProviderType::Authenticator,
+                        ) {
+                            let (
+                            access_token,
+                            refresh_token,
+                            iterations,
+                            protected_key,
+                        ) = two_factor(
+                            tty,
+                            &email,
+                            creds.clone(),
+                            rbw::api::TwoFactorProviderType::Authenticator,
+                        )
+                        .await?;
+                            login_success(
+                                sock,
+                                state,
+                                access_token,
+                                refresh_token,
+                                iterations,
+                                protected_key,
+                                Some(password),
+                                db,
+                                email,
+                            )
+                            .await?;
+                            break;
+                        } else {
+                            return Err(anyhow::anyhow!("TODO"));
+                        }
+                    }
+                    Err(rbw::error::Error::IncorrectPassword { message }) => {
+                        if i == 3 {
+                            return Err(
+                                rbw::error::Error::IncorrectPassword {
+                                    message,
+                                },
+                            )
+                            .context(
+                                "failed to log in to bitwarden instance",
+                            );
+                        } else {
+                            err_msg = Some(message);
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        return Err(e).context(
+                            "failed to log in to bitwarden instance",
+                        )
+                    }
                 }
             }
         }
@@ -121,7 +246,7 @@ pub async fn login(
 async fn two_factor(
     tty: Option<&str>,
     email: &str,
-    password: &rbw::locked::Password,
+    creds: rbw::locked::LoginCredentials,
     provider: rbw::api::TwoFactorProviderType,
 ) -> anyhow::Result<(String, String, u32, String)> {
     let mut err_msg = None;
@@ -144,8 +269,13 @@ async fn two_factor(
         .context("failed to read code from pinentry")?;
         let code = std::str::from_utf8(code.password())
             .context("code was not valid utf8")?;
-        match rbw::actions::login(email, password, Some(code), Some(provider))
-            .await
+        match rbw::actions::login(
+            email,
+            creds.clone(),
+            Some(code),
+            Some(provider),
+        )
+        .await
         {
             Ok((access_token, refresh_token, iterations, protected_key)) => {
                 return Ok((
@@ -196,7 +326,7 @@ async fn login_success(
     refresh_token: String,
     iterations: u32,
     protected_key: String,
-    password: rbw::locked::Password,
+    password: Option<rbw::locked::Password>,
     mut db: rbw::db::Db,
     email: String,
 ) -> anyhow::Result<()> {
@@ -218,23 +348,25 @@ async fn login_success(
             ));
         };
 
-    let res = rbw::actions::unlock(
-        &email,
-        &password,
-        iterations,
-        &protected_key,
-        &protected_private_key,
-        &db.protected_org_keys,
-    )
-    .await;
+    if let Some(password) = password {
+        let res = rbw::actions::unlock(
+            &email,
+            &password,
+            iterations,
+            &protected_key,
+            &protected_private_key,
+            &db.protected_org_keys,
+        )
+        .await;
 
-    match res {
-        Ok((keys, org_keys)) => {
-            let mut state = state.write().await;
-            state.priv_key = Some(keys);
-            state.org_keys = Some(org_keys);
+        match res {
+            Ok((keys, org_keys)) => {
+                let mut state = state.write().await;
+                state.priv_key = Some(keys);
+                state.org_keys = Some(org_keys);
+            }
+            Err(e) => return Err(e).context("failed to unlock database"),
         }
-        Err(e) => return Err(e).context("failed to unlock database"),
     }
 
     Ok(())

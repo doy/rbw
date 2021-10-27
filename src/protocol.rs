@@ -23,6 +23,7 @@ pub struct Request {
 #[serde(tag = "type")]
 pub enum Action {
     Login,
+    LoginApiKey,
     Unlock,
     CheckLock,
     Lock,

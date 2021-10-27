@@ -1,3 +1,5 @@
+use crate::prelude::*;
+
 use zeroize::Zeroize;
 
 const LEN: usize = 4096;
@@ -51,6 +53,15 @@ impl Drop for Vec {
     }
 }
 
+impl Clone for Vec {
+    fn clone(&self) -> Self {
+        let mut new_vec = Self::new();
+        new_vec.extend(self.data().iter().copied());
+        new_vec
+    }
+}
+
+#[derive(Clone)]
 pub struct Password {
     password: Vec,
 }
@@ -65,6 +76,7 @@ impl Password {
     }
 }
 
+#[derive(Clone)]
 pub struct Keys {
     keys: Vec,
 }
@@ -83,6 +95,7 @@ impl Keys {
     }
 }
 
+#[derive(Clone)]
 pub struct PasswordHash {
     hash: Vec,
 }
@@ -97,6 +110,7 @@ impl PasswordHash {
     }
 }
 
+#[derive(Clone)]
 pub struct PrivateKey {
     private_key: Vec,
 }
@@ -109,4 +123,69 @@ impl PrivateKey {
     pub fn private_key(&self) -> &[u8] {
         self.private_key.data()
     }
+}
+
+#[derive(Clone)]
+pub struct ApiKey {
+    client_id: Password,
+    client_secret: Password,
+}
+
+impl ApiKey {
+    pub fn new(client_id: Password, client_secret: Password) -> Self {
+        Self {
+            client_id,
+            client_secret,
+        }
+    }
+
+    pub fn client_id(&self) -> &[u8] {
+        self.client_id.password()
+    }
+
+    pub fn client_secret(&self) -> &[u8] {
+        self.client_secret.password()
+    }
+}
+
+#[derive(Clone)]
+pub enum LoginCredentials {
+    Password { password: Password },
+    ApiKey { apikey: ApiKey },
+}
+
+impl LoginCredentials {
+    pub fn from_password(password: Password) -> Self {
+        Self::Password { password }
+    }
+
+    pub fn from_apikey(apikey: ApiKey) -> Self {
+        Self::ApiKey { apikey }
+    }
+
+    pub fn to_hashed(
+        self,
+        email: &str,
+        iterations: u32,
+    ) -> Result<HashedLoginCredentials> {
+        match self {
+            Self::Password { password } => {
+                let identity = crate::identity::Identity::new(
+                    email, &password, iterations,
+                )?;
+                Ok(HashedLoginCredentials::Password {
+                    password_hash: identity.master_password_hash,
+                })
+            }
+            Self::ApiKey { apikey } => {
+                Ok(HashedLoginCredentials::ApiKey { apikey })
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum HashedLoginCredentials {
+    Password { password_hash: PasswordHash },
+    ApiKey { apikey: ApiKey },
 }
