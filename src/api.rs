@@ -579,6 +579,7 @@ impl Client {
     pub async fn login(
         &self,
         email: &str,
+        device_id: &str,
         creds: &crate::locked::HashedLoginCredentials,
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
@@ -612,9 +613,7 @@ impl Client {
             client_secret: client_secret
                 .map(|secret| String::from_utf8(secret.to_vec()).unwrap()),
             device_type: 8,
-            device_identifier: uuid::Uuid::new_v4()
-                .to_hyphenated()
-                .to_string(),
+            device_identifier: device_id.to_string(),
             device_name: "rbw".to_string(),
             device_push_token: "".to_string(),
             two_factor_token: two_factor_token

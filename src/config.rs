@@ -12,6 +12,8 @@ pub struct Config {
     pub lock_timeout: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
+    #[serde(default = "stub_device_id")]
+    pub device_id: String,
 }
 
 impl Default for Config {
@@ -22,6 +24,7 @@ impl Default for Config {
             identity_url: Default::default(),
             lock_timeout: default_lock_timeout(),
             pinentry: default_pinentry(),
+            device_id: default_device_id(),
         }
     }
 }
@@ -32,6 +35,14 @@ pub fn default_lock_timeout() -> u64 {
 
 pub fn default_pinentry() -> String {
     "pinentry".to_string()
+}
+
+fn default_device_id() -> String {
+    uuid::Uuid::new_v4().to_hyphenated().to_string()
+}
+
+fn stub_device_id() -> String {
+    String::from("fix")
 }
 
 impl Config {
@@ -116,9 +127,13 @@ impl Config {
     }
 
     pub fn validate() -> Result<()> {
-        let config = Self::load()?;
+        let mut config = Self::load()?;
         if config.email.is_none() {
             return Err(Error::ConfigMissingEmail);
+        }
+        if config.device_id == stub_device_id() {
+            config.device_id = default_device_id();
+            config.save()?;
         }
         Ok(())
     }

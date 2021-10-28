@@ -14,6 +14,7 @@ pub async fn login(
     let (access_token, refresh_token, protected_key) = client
         .login(
             email,
+            &config.device_id,
             &creds.to_hashed(email, iterations)?,
             two_factor_token,
             two_factor_provider,
