@@ -17,7 +17,15 @@ enum Opt {
         config: Config,
     },
 
-    #[structopt(about = "Register this device with the Bitwarden server")]
+    #[structopt(
+        about = "Register this device with the Bitwarden server",
+        long_about = "Register this device with the Bitwarden server\n\n\
+            The official Bitwarden server includes bot detection to prevent \
+            brute force attacks. In order to avoid being detected as bot \
+            traffic, you will need to use this command to log in with your \
+            personal API key (instead of your password) first before regular \
+            logins will work."
+    )]
     Register,
 
     #[structopt(about = "Log in to the Bitwarden server")]

@@ -81,6 +81,14 @@ out by running `rbw purge`, and you can explicitly lock the database by running
 `rbw help` can be used to get more information about the available
 functionality.
 
+*Note to users of the official Bitwarden server (at bitwarden.com)*: The
+official server has a tendency to detect command line traffic as bot traffic
+(see [this issue](https://github.com/bitwarden/cli/issues/383) for details). In
+order to use `rbw` with the official Bitwarden server, you will need to first
+run `rbw register` to register each device using `rbw` with the Bitwarden
+server. This will prompt you for your personal API key which you can find using
+the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
+
 ## Related projects
 
 * [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden
