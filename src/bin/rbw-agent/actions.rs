@@ -32,7 +32,7 @@ pub async fn register(
             };
             let client_id = rbw::pinentry::getpin(
                 &config_pinentry().await?,
-                "API key client_id",
+                "API key client__id",
                 &format!("Log in to {}", host),
                 err.as_deref(),
                 tty,
@@ -41,7 +41,7 @@ pub async fn register(
             .context("failed to read client_id from pinentry")?;
             let client_secret = rbw::pinentry::getpin(
                 &config_pinentry().await?,
-                "API key client_secret",
+                "API key client__secret",
                 &format!("Log in to {}", host),
                 err.as_deref(),
                 tty,
