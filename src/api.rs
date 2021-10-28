@@ -1109,6 +1109,9 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                     };
                 }
             }
+            Some("Captcha required.") => {
+                return Error::RegistrationRequired;
+            }
             _ => {}
         },
         "invalid_client" => {
