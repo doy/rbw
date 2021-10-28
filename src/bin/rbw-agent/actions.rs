@@ -36,6 +36,7 @@ pub async fn register(
                 &format!("Log in to {}", host),
                 err.as_deref(),
                 tty,
+                false,
             )
             .await
             .context("failed to read client_id from pinentry")?;
@@ -45,6 +46,7 @@ pub async fn register(
                 &format!("Log in to {}", host),
                 err.as_deref(),
                 tty,
+                false,
             )
             .await
             .context("failed to read client_secret from pinentry")?;
@@ -114,6 +116,7 @@ pub async fn login(
                 &format!("Log in to {}", host),
                 err.as_deref(),
                 tty,
+                true,
             )
             .await
             .context("failed to read password from pinentry")?;
@@ -218,6 +221,7 @@ async fn two_factor(
             "Enter the 6 digit verification code from your authenticator app.",
             err.as_deref(),
             tty,
+            true,
         )
         .await
         .context("failed to read code from pinentry")?;
@@ -372,6 +376,7 @@ pub async fn unlock(
                 "Unlock the local database",
                 err.as_deref(),
                 tty,
+                true,
             )
             .await
             .context("failed to read password from pinentry")?;
