@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0] - 2021-10-27
+
+### Fixed
+
+* Add `rbw register` to allow `rbw` to work with the official Bitwarden server
+  again - see the README for details (#71)
+
 ## [1.3.0] - 2021-07-05
 
 ### Changed
