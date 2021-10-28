@@ -1,8 +1,21 @@
 use crate::prelude::*;
 
+pub async fn register(
+    email: &str,
+    apikey: crate::locked::ApiKey,
+) -> Result<()> {
+    let config = crate::config::Config::load_async().await?;
+    let client =
+        crate::api::Client::new(&config.base_url(), &config.identity_url());
+
+    client.register(email, &config.device_id, &apikey).await?;
+
+    Ok(())
+}
+
 pub async fn login(
     email: &str,
-    creds: crate::locked::LoginCredentials,
+    password: crate::locked::Password,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
 ) -> Result<(String, String, u32, String)> {
@@ -11,11 +24,13 @@ pub async fn login(
         crate::api::Client::new(&config.base_url(), &config.identity_url());
 
     let iterations = client.prelogin(email).await?;
+    let identity =
+        crate::identity::Identity::new(email, &password, iterations)?;
     let (access_token, refresh_token, protected_key) = client
         .login(
             email,
             &config.device_id,
-            &creds.to_hashed(email, iterations)?,
+            &identity.master_password_hash,
             two_factor_token,
             two_factor_provider,
         )

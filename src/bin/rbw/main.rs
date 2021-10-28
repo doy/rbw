@@ -17,14 +17,11 @@ enum Opt {
         config: Config,
     },
 
+    #[structopt(about = "Register this device with the Bitwarden server")]
+    Register,
+
     #[structopt(about = "Log in to the Bitwarden server")]
-    Login {
-        #[structopt(
-            long,
-            help = "Log in to the Bitwarden server using your user API key (see https://bitwarden.com/help/article/personal-api-key/)"
-        )]
-        apikey: bool,
-    },
+    Login,
 
     #[structopt(about = "Unlock the local Bitwarden database")]
     Unlock,
@@ -220,7 +217,8 @@ impl Opt {
             Self::Config { config } => {
                 format!("config {}", config.subcommand_name())
             }
-            Self::Login { .. } => "login".to_string(),
+            Self::Register => "register".to_string(),
+            Self::Login => "login".to_string(),
             Self::Unlock => "unlock".to_string(),
             Self::Unlocked => "unlocked".to_string(),
             Self::Sync => "sync".to_string(),
@@ -290,7 +288,8 @@ fn main(opt: Opt) {
             Config::Set { key, value } => commands::config_set(key, value),
             Config::Unset { key } => commands::config_unset(key),
         },
-        Opt::Login { apikey } => commands::login(*apikey),
+        Opt::Register => commands::register(),
+        Opt::Login => commands::login(),
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),

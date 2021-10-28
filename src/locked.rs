@@ -1,5 +1,3 @@
-use crate::prelude::*;
-
 use zeroize::Zeroize;
 
 const LEN: usize = 4096;
@@ -146,46 +144,4 @@ impl ApiKey {
     pub fn client_secret(&self) -> &[u8] {
         self.client_secret.password()
     }
-}
-
-#[derive(Clone)]
-pub enum LoginCredentials {
-    Password { password: Password },
-    ApiKey { apikey: ApiKey },
-}
-
-impl LoginCredentials {
-    pub fn from_password(password: Password) -> Self {
-        Self::Password { password }
-    }
-
-    pub fn from_apikey(apikey: ApiKey) -> Self {
-        Self::ApiKey { apikey }
-    }
-
-    pub fn to_hashed(
-        self,
-        email: &str,
-        iterations: u32,
-    ) -> Result<HashedLoginCredentials> {
-        match self {
-            Self::Password { password } => {
-                let identity = crate::identity::Identity::new(
-                    email, &password, iterations,
-                )?;
-                Ok(HashedLoginCredentials::Password {
-                    password_hash: identity.master_password_hash,
-                })
-            }
-            Self::ApiKey { apikey } => {
-                Ok(HashedLoginCredentials::ApiKey { apikey })
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum HashedLoginCredentials {
-    Password { password_hash: PasswordHash },
-    ApiKey { apikey: ApiKey },
 }

@@ -576,42 +576,60 @@ impl Client {
         Ok(prelogin_res.kdf_iterations)
     }
 
+    pub async fn register(
+        &self,
+        email: &str,
+        device_id: &str,
+        apikey: &crate::locked::ApiKey,
+    ) -> Result<()> {
+        let connect_req = ConnectPasswordReq {
+            grant_type: "client_credentials".to_string(),
+            username: email.to_string(),
+            password: None,
+            scope: "api".to_string(),
+            // XXX unwraps here are not necessarily safe
+            client_id: String::from_utf8(apikey.client_id().to_vec())
+                .unwrap(),
+            client_secret: Some(
+                String::from_utf8(apikey.client_secret().to_vec()).unwrap(),
+            ),
+            device_type: 8,
+            device_identifier: device_id.to_string(),
+            device_name: "rbw".to_string(),
+            device_push_token: "".to_string(),
+            two_factor_token: None,
+            two_factor_provider: None,
+        };
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .send()
+            .await
+            .map_err(|source| Error::Reqwest { source })?;
+        if let reqwest::StatusCode::OK = res.status() {
+            Ok(())
+        } else {
+            let code = res.status().as_u16();
+            Err(classify_login_error(&res.json_with_path().await?, code))
+        }
+    }
+
     pub async fn login(
         &self,
         email: &str,
         device_id: &str,
-        creds: &crate::locked::HashedLoginCredentials,
+        password_hash: &crate::locked::PasswordHash,
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
     ) -> Result<(String, String, String)> {
-        let (grant_type, scope, password, client_id, client_secret) =
-            match creds {
-                crate::locked::HashedLoginCredentials::Password {
-                    password_hash,
-                } => (
-                    "password",
-                    "api offline_access",
-                    Some(base64::encode(password_hash.hash())),
-                    &b"desktop"[..],
-                    None,
-                ),
-                crate::locked::HashedLoginCredentials::ApiKey { apikey } => (
-                    "client_credentials",
-                    "api",
-                    None,
-                    apikey.client_id(),
-                    Some(apikey.client_secret()),
-                ),
-            };
         let connect_req = ConnectPasswordReq {
-            grant_type: grant_type.to_string(),
+            grant_type: "password".to_string(),
             username: email.to_string(),
-            password,
-            scope: scope.to_string(),
-            // XXX unwraps here are not necessarily safe
-            client_id: String::from_utf8(client_id.to_vec()).unwrap(),
-            client_secret: client_secret
-                .map(|secret| String::from_utf8(secret.to_vec()).unwrap()),
+            password: Some(base64::encode(password_hash.hash())),
+            scope: "api offline_access".to_string(),
+            client_id: "desktop".to_string(),
+            client_secret: None,
             device_type: 8,
             device_identifier: device_id.to_string(),
             device_name: "rbw".to_string(),
@@ -621,24 +639,13 @@ impl Client {
             two_factor_provider: two_factor_provider.map(|ty| ty as u32),
         };
         let client = reqwest::Client::new();
-        let mut headers = reqwest::header::HeaderMap::new();
-        if connect_req.client_secret.is_none()
-            && connect_req.password.is_some()
-        {
-            headers.insert(
-                "auth-email",
-                // unwrap is safe because url safe base64 strings are always
-                // valid header values
-                reqwest::header::HeaderValue::from_str(
-                    &base64::encode_config(email, base64::URL_SAFE_NO_PAD),
-                )
-                .unwrap(),
-            );
-        }
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
-            .headers(headers)
+            .header(
+                "auth-email",
+                base64::encode_config(email, base64::URL_SAFE_NO_PAD),
+            )
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;

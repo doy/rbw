@@ -133,24 +133,13 @@ async fn handle_request(
         }
     };
     let set_timeout = match &req.action {
-        rbw::protocol::Action::Login => {
-            crate::actions::login(
-                sock,
-                state.clone(),
-                req.tty.as_deref(),
-                false,
-            )
-            .await?;
+        rbw::protocol::Action::Register => {
+            crate::actions::register(sock, req.tty.as_deref()).await?;
             true
         }
-        rbw::protocol::Action::LoginApiKey => {
-            crate::actions::login(
-                sock,
-                state.clone(),
-                req.tty.as_deref(),
-                true,
-            )
-            .await?;
+        rbw::protocol::Action::Login => {
+            crate::actions::login(sock, state.clone(), req.tty.as_deref())
+                .await?;
             true
         }
         rbw::protocol::Action::Unlock => {
