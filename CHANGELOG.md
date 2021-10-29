@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.1] - 2021-10-28
+
+### Added
+
+* `bin/git-credential-rbw` to be used as a
+  [git credential helper](https://git-scm.com/docs/gitcredentials#_custom_helpers)
+  (#41, xPMo)
+
+### Changed
+
+* Also disable swap and viminfo files when using `EDITOR=nvim` (#70, Dophin2009)
+
+### Fixed
+
+* Properly handle a couple folder name edge cases in `bin/rbw-fzf` (#66,
+  mattalexx)
+* Support passing command line arguments via `EDITOR`/`VISUAL` (#61, xPMo)
+
 ## [1.4.0] - 2021-10-27
 
 ### Fixed
