@@ -23,11 +23,11 @@ and merge pull requests implementing those features.
 
 ### Arch Linux
 
-`rbw` is available via the AUR as either
-[`rbw`](https://aur.archlinux.org/packages/rbw/),
-[`rbw-git`](https://aur.archlinux.org/packages/rbw-git/), or
-[`rbw-bin`](https://aur.archlinux.org/packages/rbw-bin/). `rbw-git` will always
-build from the latest master commit, and `rbw-bin` installs pre-built binaries.
+`rbw` is available in the [community
+repository](https://archlinux.org/packages/community/x86_64/rbw/).
+Alternatively, you can install
+[`rbw-git`](https://aur.archlinux.org/packages/rbw-git/) from the AUR, which
+will always build from the latest master commit.
 
 ### Debian/Ubuntu
 
