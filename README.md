@@ -81,6 +81,9 @@ out by running `rbw purge`, and you can explicitly lock the database by running
 `rbw help` can be used to get more information about the available
 functionality.
 
+Run `rbw get <name>` to get your passwords. If you also want to get the username
+or the note associated, you can use the flag `--full`. 
+
 *Note to users of the official Bitwarden server (at bitwarden.com)*: The
 official server has a tendency to detect command line traffic as bot traffic
 (see [this issue](https://github.com/bitwarden/cli/issues/383) for details). In
