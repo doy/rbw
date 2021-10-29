@@ -35,11 +35,13 @@ pub enum Error {
     },
 
     #[error(
-        "failed to run editor {}: {res:?}",
+        "failed to run editor {} {}: {res:?}",
         .editor.to_string_lossy(),
+        .args.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ")
     )]
     FailedToRunEditor {
         editor: std::path::PathBuf,
+        args: Vec<std::ffi::OsString>,
         res: std::process::ExitStatus,
     },
 
