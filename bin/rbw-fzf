@@ -2,4 +2,4 @@
 set -eu
 set -o pipefail
 
-rbw ls --fields name,user,folder | perl -plE'/^([^\t]*)\t([^\t]*)\t([^\t]*)$/; $_ = join("/", grep { length } ($3, $1, $2)) . "\t$_"' | sort | fzf --with-nth=1 | perl -ple'/^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$/; $_ = "$2 $3"' | xargs -r rbw get
+rbw ls --fields name,user,folder | perl -plE'/^([^\t]*)\t([^\t]*)\t([^\t]*)$/; $_ = join("/", grep { length } ($3, $1, $2)) . "\0$_"' | sort | fzf --with-nth=1 -d '\x00' | perl -ple'/^([^\0]*)\0([^\t]*)\t([^\t]*)\t([^\t]*)$/; $_ = "$2 $3"; $_ .= " --folder=\"$4\"" if length $4' | xargs -r rbw get
