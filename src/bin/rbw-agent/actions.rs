@@ -172,8 +172,36 @@ pub async fn login(
                         )
                         .await?;
                         break;
-                    } else {
-                        return Err(anyhow::anyhow!("TODO"));
+                    } else if providers.contains(
+                        &rbw::api::TwoFactorProviderType::Yubikey,
+                    ){
+                        let (
+                            access_token,
+                            refresh_token,
+                            iterations,
+                            protected_key,
+                        ) = yubikey_auth(
+                            tty,
+                            &email,
+                            password.clone(),
+                        )
+                        .await?;
+                        login_success(
+                            sock,
+                            state,
+                            access_token,
+                            refresh_token,
+                            iterations,
+                            protected_key,
+                            password,
+                            db,
+                            email,
+                        )
+                        .await?;
+                        break;
+                    }
+                    else {
+                        return Err(anyhow::anyhow!("no supported 2fa method found in {:?}", providers));
                     }
                 }
                 Err(rbw::error::Error::IncorrectPassword { message }) => {
@@ -257,6 +285,69 @@ async fn two_factor(
             // can get this if the user passes an empty string
             Err(rbw::error::Error::TwoFactorRequired { .. }) => {
                 let message = "TOTP code is not a number".to_string();
+                if i == 3 {
+                    return Err(rbw::error::Error::IncorrectPassword {
+                        message,
+                    })
+                    .context("failed to log in to bitwarden instance");
+                } else {
+                    err_msg = Some(message);
+                    continue;
+                }
+            }
+            Err(e) => {
+                return Err(e)
+                    .context("failed to log in to bitwarden instance")
+            }
+        }
+    }
+
+    unreachable!()
+}
+
+async fn yubikey_auth(
+    tty: Option<&str>,
+    email: &str,
+    password: rbw::locked::Password,
+) -> anyhow::Result<(String, String, u32, String)> {
+    let mut err_msg = None;
+    for i in 1_u8..=3 {
+        let err = if i > 1 {
+            // this unwrap is safe because we only ever continue the loop if
+            // we have set err_msg
+            Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+        } else {
+            None
+        };
+        let code = rbw::pinentry::getpin(
+            &config_pinentry().await?,
+            "Authenticator App",
+            "Touch your Security Key",
+            err.as_deref(),
+            tty,
+            true,
+        )
+        .await
+        .context("failed to read code from pinentry")?;
+        let code = std::str::from_utf8(code.password())
+            .context("code was not valid utf8")?;
+        match rbw::actions::login(
+            email,
+            password.clone(),
+            Some(code),
+            Some(rbw::api::TwoFactorProviderType::Yubikey),
+        )
+        .await
+        {
+            Ok((access_token, refresh_token, iterations, protected_key)) => {
+                return Ok((
+                    access_token,
+                    refresh_token,
+                    iterations,
+                    protected_key,
+                ))
+            }
+            Err(rbw::error::Error::IncorrectPassword { message }) => {
                 if i == 3 {
                     return Err(rbw::error::Error::IncorrectPassword {
                         message,
