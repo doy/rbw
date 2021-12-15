@@ -15,6 +15,7 @@ pub enum Type {
     Diceware,
 }
 
+#[must_use]
 pub fn pwgen(ty: Type, len: usize) -> String {
     let mut rng = rand::thread_rng();
 
@@ -101,6 +102,6 @@ mod test {
         for c in s.chars() {
             set.insert(c);
         }
-        assert!(set.len() < s.len())
+        assert!(set.len() < s.len());
     }
 }

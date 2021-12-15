@@ -18,10 +18,12 @@ impl Default for Vec {
 }
 
 impl Vec {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn data(&self) -> &[u8] {
         self.data.as_slice()
     }
@@ -65,10 +67,12 @@ pub struct Password {
 }
 
 impl Password {
+    #[must_use]
     pub fn new(password: Vec) -> Self {
         Self { password }
     }
 
+    #[must_use]
     pub fn password(&self) -> &[u8] {
         self.password.data()
     }
@@ -80,14 +84,17 @@ pub struct Keys {
 }
 
 impl Keys {
+    #[must_use]
     pub fn new(keys: Vec) -> Self {
         Self { keys }
     }
 
+    #[must_use]
     pub fn enc_key(&self) -> &[u8] {
         &self.keys.data()[0..32]
     }
 
+    #[must_use]
     pub fn mac_key(&self) -> &[u8] {
         &self.keys.data()[32..64]
     }
@@ -99,10 +106,12 @@ pub struct PasswordHash {
 }
 
 impl PasswordHash {
+    #[must_use]
     pub fn new(hash: Vec) -> Self {
         Self { hash }
     }
 
+    #[must_use]
     pub fn hash(&self) -> &[u8] {
         self.hash.data()
     }
@@ -114,10 +123,12 @@ pub struct PrivateKey {
 }
 
 impl PrivateKey {
+    #[must_use]
     pub fn new(private_key: Vec) -> Self {
         Self { private_key }
     }
 
+    #[must_use]
     pub fn private_key(&self) -> &[u8] {
         self.private_key.data()
     }
@@ -130,6 +141,7 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
+    #[must_use]
     pub fn new(client_id: Password, client_secret: Password) -> Self {
         Self {
             client_id,
@@ -137,10 +149,12 @@ impl ApiKey {
         }
     }
 
+    #[must_use]
     pub fn client_id(&self) -> &[u8] {
         self.client_id.password()
     }
 
+    #[must_use]
     pub fn client_secret(&self) -> &[u8] {
         self.client_secret.password()
     }

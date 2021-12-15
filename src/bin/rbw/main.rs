@@ -1,4 +1,15 @@
-#![allow(clippy::large_enum_variant)]
+#![warn(clippy::cargo)]
+#![warn(clippy::pedantic)]
+#![warn(clippy::nursery)]
+#![warn(clippy::as_conversions)]
+#![warn(clippy::get_unwrap)]
+#![allow(clippy::cognitive_complexity)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::type_complexity)]
 
 use anyhow::Context as _;
 use std::io::Write as _;
@@ -319,7 +330,7 @@ fn main(opt: Opt) {
         } => commands::add(
             name,
             user.as_deref(),
-            uri.iter()
+            &uri.iter()
                 // XXX not sure what the ui for specifying the match type
                 // should be
                 .map(|uri| (uri.clone(), None))
@@ -351,7 +362,7 @@ fn main(opt: Opt) {
             commands::generate(
                 name.as_deref(),
                 user.as_deref(),
-                uri.iter()
+                &uri.iter()
                     // XXX not sure what the ui for specifying the match type
                     // should be
                     .map(|uri| (uri.clone(), None))

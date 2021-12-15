@@ -19,9 +19,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            email: Default::default(),
-            base_url: Default::default(),
-            identity_url: Default::default(),
+            email: None,
+            base_url: None,
+            identity_url: None,
             lock_timeout: default_lock_timeout(),
             pinentry: default_pinentry(),
             device_id: default_device_id(),
@@ -29,23 +29,28 @@ impl Default for Config {
     }
 }
 
+#[must_use]
 pub fn default_lock_timeout() -> u64 {
     3600
 }
 
+#[must_use]
 pub fn default_pinentry() -> String {
     "pinentry".to_string()
 }
 
+#[must_use]
 fn default_device_id() -> String {
     uuid::Uuid::new_v4().to_hyphenated().to_string()
 }
 
+#[must_use]
 fn stub_device_id() -> String {
     String::from("fix")
 }
 
 impl Config {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -138,6 +143,7 @@ impl Config {
         Ok(())
     }
 
+    #[must_use]
     pub fn base_url(&self) -> String {
         self.base_url.clone().map_or_else(
             || "https://api.bitwarden.com".to_string(),
@@ -145,6 +151,7 @@ impl Config {
         )
     }
 
+    #[must_use]
     pub fn identity_url(&self) -> String {
         self.identity_url.clone().unwrap_or_else(|| {
             self.base_url.clone().map_or_else(
@@ -154,6 +161,7 @@ impl Config {
         })
     }
 
+    #[must_use]
     pub fn server_name(&self) -> String {
         self.base_url
             .clone()

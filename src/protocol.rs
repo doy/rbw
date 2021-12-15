@@ -3,6 +3,7 @@
 
 // eventually it would be nice to make this a const function so that we could
 // just get the version from a variable directly, but this is fine for now
+#[must_use]
 pub fn version() -> u32 {
     let major = env!("CARGO_PKG_VERSION_MAJOR");
     let minor = env!("CARGO_PKG_VERSION_MINOR");

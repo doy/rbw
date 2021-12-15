@@ -26,22 +26,28 @@ impl DecryptedCipher {
     fn display_short(&self, desc: &str) -> bool {
         match &self.data {
             DecryptedData::Login { password, .. } => {
-                if let Some(password) = password {
-                    println!("{}", password);
-                    true
-                } else {
-                    eprintln!("entry for '{}' had no password", desc);
-                    false
-                }
+                password.as_ref().map_or_else(
+                    || {
+                        eprintln!("entry for '{}' had no password", desc);
+                        false
+                    },
+                    |password| {
+                        println!("{}", password);
+                        true
+                    },
+                )
             }
             DecryptedData::Card { number, .. } => {
-                if let Some(number) = number {
-                    println!("{}", number);
-                    true
-                } else {
-                    eprintln!("entry for '{}' had no card number", desc);
-                    false
-                }
+                number.as_ref().map_or_else(
+                    || {
+                        eprintln!("entry for '{}' had no card number", desc);
+                        false
+                    },
+                    |number| {
+                        println!("{}", number);
+                        true
+                    },
+                )
             }
             DecryptedData::Identity {
                 title,
@@ -65,15 +71,16 @@ impl DecryptedCipher {
                     true
                 }
             }
-            DecryptedData::SecureNote {} => {
-                if let Some(notes) = &self.notes {
-                    println!("{}", notes);
-                    true
-                } else {
+            DecryptedData::SecureNote {} => self.notes.as_ref().map_or_else(
+                || {
                     eprintln!("entry for '{}' had no notes", desc);
                     false
-                }
-            }
+                },
+                |notes| {
+                    println!("{}", notes);
+                    true
+                },
+            ),
         }
     }
 
@@ -86,18 +93,15 @@ impl DecryptedCipher {
                 ..
             } => {
                 let mut displayed = self.display_short(desc);
-                displayed |=
-                    self.display_field("Username", username.as_deref());
-                displayed |=
-                    self.display_field("TOTP Secret", totp.as_deref());
+                displayed |= display_field("Username", username.as_deref());
+                displayed |= display_field("TOTP Secret", totp.as_deref());
 
                 if let Some(uris) = uris {
                     for uri in uris {
-                        displayed |=
-                            self.display_field("URI", Some(&uri.uri));
+                        displayed |= display_field("URI", Some(&uri.uri));
                         let match_type =
                             uri.match_type.map(|ty| format!("{}", ty));
-                        displayed |= self.display_field(
+                        displayed |= display_field(
                             "Match type",
                             match_type.as_deref(),
                         );
@@ -105,7 +109,7 @@ impl DecryptedCipher {
                 }
 
                 for field in &self.fields {
-                    displayed |= self.display_field(
+                    displayed |= display_field(
                         field.name.as_deref().unwrap_or("(null)"),
                         Some(field.value.as_deref().unwrap_or("")),
                     );
@@ -134,10 +138,10 @@ impl DecryptedCipher {
                     println!("Expiration: {}/{}", exp_month, exp_year);
                     displayed = true;
                 }
-                displayed |= self.display_field("CVV", code.as_deref());
+                displayed |= display_field("CVV", code.as_deref());
                 displayed |=
-                    self.display_field("Name", cardholder_name.as_deref());
-                displayed |= self.display_field("Brand", brand.as_deref());
+                    display_field("Name", cardholder_name.as_deref());
+                displayed |= display_field("Brand", brand.as_deref());
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -164,27 +168,22 @@ impl DecryptedCipher {
             } => {
                 let mut displayed = self.display_short(desc);
 
+                displayed |= display_field("Address", address1.as_deref());
+                displayed |= display_field("Address", address2.as_deref());
+                displayed |= display_field("Address", address3.as_deref());
+                displayed |= display_field("City", city.as_deref());
+                displayed |= display_field("State", state.as_deref());
                 displayed |=
-                    self.display_field("Address", address1.as_deref());
+                    display_field("Postcode", postal_code.as_deref());
+                displayed |= display_field("Country", country.as_deref());
+                displayed |= display_field("Phone", phone.as_deref());
+                displayed |= display_field("Email", email.as_deref());
+                displayed |= display_field("SSN", ssn.as_deref());
                 displayed |=
-                    self.display_field("Address", address2.as_deref());
+                    display_field("License", license_number.as_deref());
                 displayed |=
-                    self.display_field("Address", address3.as_deref());
-                displayed |= self.display_field("City", city.as_deref());
-                displayed |= self.display_field("State", state.as_deref());
-                displayed |=
-                    self.display_field("Postcode", postal_code.as_deref());
-                displayed |=
-                    self.display_field("Country", country.as_deref());
-                displayed |= self.display_field("Phone", phone.as_deref());
-                displayed |= self.display_field("Email", email.as_deref());
-                displayed |= self.display_field("SSN", ssn.as_deref());
-                displayed |=
-                    self.display_field("License", license_number.as_deref());
-                displayed |= self
-                    .display_field("Passport", passport_number.as_deref());
-                displayed |=
-                    self.display_field("Username", username.as_deref());
+                    display_field("Passport", passport_number.as_deref());
+                displayed |= display_field("Username", username.as_deref());
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -199,23 +198,13 @@ impl DecryptedCipher {
         }
     }
 
-    fn display_field(&self, name: &str, field: Option<&str>) -> bool {
-        if let Some(field) = field {
-            println!("{}: {}", name, field);
-            true
-        } else {
-            false
-        }
-    }
-
     fn display_name(&self) -> String {
         match &self.data {
             DecryptedData::Login { username, .. } => {
-                if let Some(username) = username {
-                    format!("{}@{}", username, self.name)
-                } else {
-                    self.name.clone()
-                }
+                username.as_ref().map_or_else(
+                    || self.name.clone(),
+                    |username| format!("{}@{}", username, self.name),
+                )
             }
             _ => self.name.clone(),
         }
@@ -314,6 +303,7 @@ impl DecryptedCipher {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
+#[allow(clippy::large_enum_variant)]
 enum DecryptedData {
     Login {
         username: Option<String>,
@@ -448,7 +438,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
         "base_url" => config.base_url = None,
         "identity_url" => config.identity_url = None,
         "lock_timeout" => {
-            config.lock_timeout = rbw::config::default_lock_timeout()
+            config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
         _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
@@ -526,17 +516,18 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
                 ListField::Name => cipher.name.clone(),
                 ListField::Id => cipher.id.clone(),
                 ListField::User => match &cipher.data {
-                    DecryptedData::Login { username, .. } => username
-                        .as_ref()
-                        .map(std::string::ToString::to_string)
-                        .unwrap_or_else(|| "".to_string()),
+                    DecryptedData::Login { username, .. } => {
+                        username.as_ref().map_or_else(
+                            || "".to_string(),
+                            std::string::ToString::to_string,
+                        )
+                    }
                     _ => "".to_string(),
                 },
-                ListField::Folder => cipher
-                    .folder
-                    .as_ref()
-                    .map(std::string::ToString::to_string)
-                    .unwrap_or_else(|| "".to_string()),
+                ListField::Folder => cipher.folder.as_ref().map_or_else(
+                    || "".to_string(),
+                    std::string::ToString::to_string,
+                ),
             })
             .collect();
         println!("{}", values.join("\t"));
@@ -557,8 +548,7 @@ pub fn get(
 
     let desc = format!(
         "{}{}",
-        user.map(|s| format!("{}@", s))
-            .unwrap_or_else(|| "".to_string()),
+        user.map_or_else(|| "".to_string(), |s| format!("{}@", s)),
         name
     );
 
@@ -584,8 +574,7 @@ pub fn code(
 
     let desc = format!(
         "{}{}",
-        user.map(|s| format!("{}@", s))
-            .unwrap_or_else(|| "".to_string()),
+        user.map_or_else(|| "".to_string(), |s| format!("{}@", s)),
         name
     );
 
@@ -594,7 +583,7 @@ pub fn code(
 
     if let DecryptedData::Login { totp, .. } = decrypted.data {
         if let Some(totp) = totp {
-            println!("{}", generate_totp(&totp)?)
+            println!("{}", generate_totp(&totp)?);
         } else {
             return Err(anyhow::anyhow!(
                 "entry does not contain a totp secret"
@@ -610,7 +599,7 @@ pub fn code(
 pub fn add(
     name: &str,
     username: Option<&str>,
-    uris: Vec<(String, Option<rbw::api::UriMatchType>)>,
+    uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
 ) -> anyhow::Result<()> {
     unlock()?;
@@ -707,7 +696,7 @@ pub fn add(
 pub fn generate(
     name: Option<&str>,
     username: Option<&str>,
-    uris: Vec<(String, Option<rbw::api::UriMatchType>)>,
+    uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
     len: usize,
     ty: rbw::pwgen::Type,
@@ -813,9 +802,7 @@ pub fn edit(
 
     let desc = format!(
         "{}{}",
-        username
-            .map(|s| format!("{}@", s))
-            .unwrap_or_else(|| "".to_string()),
+        username.map_or_else(|| "".to_string(), |s| format!("{}@", s)),
         name
     );
 
@@ -874,7 +861,7 @@ pub fn edit(
             let data = rbw::db::EntryData::Login {
                 username: entry_username.clone(),
                 password,
-                uris: entry_uris.to_vec(),
+                uris: entry_uris.clone(),
                 totp: entry_totp.clone(),
             };
             (data, notes, history)
@@ -918,9 +905,7 @@ pub fn remove(
 
     let desc = format!(
         "{}{}",
-        username
-            .map(|s| format!("{}@", s))
-            .unwrap_or_else(|| "".to_string()),
+        username.map_or_else(|| "".to_string(), |s| format!("{}@", s)),
         name
     );
 
@@ -950,9 +935,7 @@ pub fn history(
 
     let desc = format!(
         "{}{}",
-        username
-            .map(|s| format!("{}@", s))
-            .unwrap_or_else(|| "".to_string()),
+        username.map_or_else(|| "".to_string(), |s| format!("{}@", s)),
         name
     );
 
@@ -1017,7 +1000,7 @@ fn ensure_agent_once() -> anyhow::Result<()> {
     let agent_path = std::env::var("RBW_AGENT");
     let agent_path = agent_path
         .as_ref()
-        .map(|s| s.as_str())
+        .map(std::string::String::as_str)
         .unwrap_or("rbw-agent");
     let status = std::process::Command::new(agent_path)
         .status()
@@ -1045,6 +1028,8 @@ fn check_config() -> anyhow::Result<()> {
 
 fn version_or_quit() -> anyhow::Result<u32> {
     crate::actions::version().map_err(|e| {
+        // https://github.com/rust-lang/rust-clippy/issues/8003
+        #[allow(clippy::let_underscore_drop)]
         let _ = crate::actions::quit();
         e
     })
@@ -1056,26 +1041,23 @@ fn find_entry(
     username: Option<&str>,
     folder: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    match uuid::Uuid::parse_str(name) {
-        Ok(_) => {
-            for cipher in &db.entries {
-                if name == cipher.id {
-                    return Ok((cipher.clone(), decrypt_cipher(cipher)?));
-                }
+    if uuid::Uuid::parse_str(name).is_ok() {
+        for cipher in &db.entries {
+            if name == cipher.id {
+                return Ok((cipher.clone(), decrypt_cipher(cipher)?));
             }
-            Err(anyhow::anyhow!("no entry found"))
         }
-        Err(_) => {
-            let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
-                .entries
-                .iter()
-                .cloned()
-                .map(|entry| {
-                    decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
-                })
-                .collect::<anyhow::Result<_>>()?;
-            find_entry_raw(&ciphers, name, username, folder)
-        }
+        Err(anyhow::anyhow!("no entry found"))
+    } else {
+        let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
+            .entries
+            .iter()
+            .cloned()
+            .map(|entry| {
+                decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
+            })
+            .collect::<anyhow::Result<_>>()?;
+        find_entry_raw(&ciphers, name, username, folder)
     }
 }
 
@@ -1447,32 +1429,35 @@ fn parse_editor(contents: &str) -> (Option<String>, Option<String>) {
 
 fn load_db() -> anyhow::Result<rbw::db::Db> {
     let config = rbw::config::Config::load()?;
-    if let Some(email) = &config.email {
-        rbw::db::Db::load(&config.server_name(), email)
-            .map_err(anyhow::Error::new)
-    } else {
-        Err(anyhow::anyhow!("failed to find email address in config"))
-    }
+    config.email.as_ref().map_or_else(
+        || Err(anyhow::anyhow!("failed to find email address in config")),
+        |email| {
+            rbw::db::Db::load(&config.server_name(), email)
+                .map_err(anyhow::Error::new)
+        },
+    )
 }
 
 fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
-    if let Some(email) = &config.email {
-        db.save(&config.server_name(), email)
-            .map_err(anyhow::Error::new)
-    } else {
-        Err(anyhow::anyhow!("failed to find email address in config"))
-    }
+    config.email.as_ref().map_or_else(
+        || Err(anyhow::anyhow!("failed to find email address in config")),
+        |email| {
+            db.save(&config.server_name(), email)
+                .map_err(anyhow::Error::new)
+        },
+    )
 }
 
 fn remove_db() -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
-    if let Some(email) = &config.email {
-        rbw::db::Db::remove(&config.server_name(), email)
-            .map_err(anyhow::Error::new)
-    } else {
-        Err(anyhow::anyhow!("failed to find email address in config"))
-    }
+    config.email.as_ref().map_or_else(
+        || Err(anyhow::anyhow!("failed to find email address in config")),
+        |email| {
+            rbw::db::Db::remove(&config.server_name(), email)
+                .map_err(anyhow::Error::new)
+        },
+    )
 }
 
 fn parse_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
@@ -1679,4 +1664,14 @@ mod test {
             },
         )
     }
+}
+
+fn display_field(name: &str, field: Option<&str>) -> bool {
+    field.map_or_else(
+        || false,
+        |field| {
+            println!("{}: {}", name, field);
+            true
+        },
+    )
 }

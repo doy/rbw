@@ -106,6 +106,7 @@ impl<'de> serde::Deserialize<'de> for Uri {
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
 )]
+#[allow(clippy::large_enum_variant)]
 pub enum EntryData {
     Login {
         username: Option<String>,
@@ -173,6 +174,7 @@ pub struct Db {
 }
 
 impl Db {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -287,6 +289,7 @@ impl Db {
         Ok(())
     }
 
+    #[must_use]
     pub fn needs_login(&self) -> bool {
         self.access_token.is_none()
             || self.refresh_token.is_none()

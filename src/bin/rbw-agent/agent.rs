@@ -32,7 +32,7 @@ impl State {
 
     pub fn clear(&mut self) {
         self.priv_key = None;
-        self.org_keys = Default::default();
+        self.org_keys = None;
         // no real better option to unwrap here
         self.timeout_chan.send(TimeoutEvent::Clear).unwrap();
     }
@@ -57,7 +57,7 @@ impl Agent {
             timeout_chan: r,
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
                 priv_key: None,
-                org_keys: Default::default(),
+                org_keys: None,
                 timeout_chan: w,
             })),
         })
@@ -81,11 +81,7 @@ impl Agent {
             tokio::time::Duration::from_secs(60 * 60 * 24 * 365 * 2),
         ));
         loop {
-            let timeout = if let Some(timeout) = &mut self.timeout {
-                timeout
-            } else {
-                &mut forever
-            };
+            let timeout = self.timeout.as_mut().unwrap_or(&mut forever);
             tokio::select! {
                 sock = listener.accept() => {
                     let mut sock = crate::sock::Sock::new(

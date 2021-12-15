@@ -35,7 +35,7 @@ pub fn quit() -> anyhow::Result<()> {
             sock.send(&rbw::protocol::Request {
                 tty: nix::unistd::ttyname(0)
                     .ok()
-                    .and_then(|p| p.to_str().map(|s| s.to_string())),
+                    .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
                 action: rbw::protocol::Action::Quit,
             })?;
             wait_for_exit(pid);
@@ -59,7 +59,7 @@ pub fn decrypt(
     sock.send(&rbw::protocol::Request {
         tty: nix::unistd::ttyname(0)
             .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string())),
+            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action: rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -84,7 +84,7 @@ pub fn encrypt(
     sock.send(&rbw::protocol::Request {
         tty: nix::unistd::ttyname(0)
             .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string())),
+            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action: rbw::protocol::Action::Encrypt {
             plaintext: plaintext.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -106,7 +106,7 @@ pub fn version() -> anyhow::Result<u32> {
     sock.send(&rbw::protocol::Request {
         tty: nix::unistd::ttyname(0)
             .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string())),
+            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action: rbw::protocol::Action::Version,
     })?;
 
@@ -126,7 +126,7 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Request {
         tty: nix::unistd::ttyname(0)
             .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string())),
+            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action,
     })?;
 

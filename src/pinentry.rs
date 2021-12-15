@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+use std::convert::TryFrom as _;
 use tokio::io::AsyncWriteExt as _;
 
 pub async fn getpin(
@@ -163,7 +164,10 @@ fn percent_decode(buf: &mut [u8]) -> usize {
             if let Some(h) = char::from(buf[read_idx + 1]).to_digit(16) {
                 #[allow(clippy::cast_possible_truncation)]
                 if let Some(l) = char::from(buf[read_idx + 2]).to_digit(16) {
-                    c = h as u8 * 0x10 + l as u8;
+                    // h and l were parsed from a single hex digit, so they
+                    // must be in the range 0-15, so these unwraps are safe
+                    c = u8::try_from(h).unwrap() * 0x10
+                        + u8::try_from(l).unwrap();
                     read_idx += 2;
                 }
             }

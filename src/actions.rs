@@ -39,13 +39,13 @@ pub async fn login(
     Ok((access_token, refresh_token, iterations, protected_key))
 }
 
-pub async fn unlock(
+pub fn unlock<S: std::hash::BuildHasher>(
     email: &str,
     password: &crate::locked::Password,
     iterations: u32,
     protected_key: &str,
     protected_private_key: &str,
-    protected_org_keys: &std::collections::HashMap<String, String>,
+    protected_org_keys: &std::collections::HashMap<String, String, S>,
 ) -> Result<(
     crate::locked::Keys,
     std::collections::HashMap<String, crate::locked::Keys>,
@@ -148,7 +148,7 @@ fn add_once(
     let config = crate::config::Config::load()?;
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
-    client.add(access_token, name, data, notes, folder_id.as_deref())?;
+    client.add(access_token, name, data, notes, folder_id)?;
     Ok(())
 }
 

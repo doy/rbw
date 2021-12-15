@@ -1,3 +1,7 @@
+// serde_repr generates some as conversions that we can't seem to silence from
+// here, unfortunately
+#![allow(clippy::as_conversions)]
+
 use crate::prelude::*;
 
 use crate::json::{
@@ -138,8 +142,6 @@ struct PreloginReq {
 
 #[derive(serde::Deserialize, Debug)]
 struct PreloginRes {
-    #[serde(rename = "Kdf")]
-    kdf: u32,
     #[serde(rename = "KdfIterations")]
     kdf_iterations: u32,
 }
@@ -169,8 +171,6 @@ struct ConnectPasswordReq {
 #[derive(serde::Deserialize, Debug)]
 struct ConnectPasswordRes {
     access_token: String,
-    expires_in: u32,
-    token_type: String,
     refresh_token: String,
     #[serde(rename = "Key")]
     key: String,
@@ -202,9 +202,6 @@ struct ConnectRefreshTokenReq {
 #[derive(serde::Deserialize, Debug)]
 struct ConnectRefreshTokenRes {
     access_token: String,
-    expires_in: u32,
-    token_type: String,
-    refresh_token: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -253,32 +250,37 @@ impl SyncResCipher {
         if self.deleted_date.is_some() {
             return None;
         }
-        let history = if let Some(history) = &self.password_history {
-            history
-                .iter()
-                .filter_map(|entry| {
-                    // Gets rid of entries with a non-existent password
-                    entry.password.clone().map(|p| crate::db::HistoryEntry {
-                        last_used_date: entry.last_used_date.clone(),
-                        password: p,
-                    })
-                })
-                .collect()
-        } else {
-            vec![]
-        };
+        let history =
+            self.password_history
+                .as_ref()
+                .map_or_else(Vec::new, |history| {
+                    history
+                        .iter()
+                        .filter_map(|entry| {
+                            // Gets rid of entries with a non-existent
+                            // password
+                            entry.password.clone().map(|p| {
+                                crate::db::HistoryEntry {
+                                    last_used_date: entry
+                                        .last_used_date
+                                        .clone(),
+                                    password: p,
+                                }
+                            })
+                        })
+                        .collect()
+                });
 
-        let (folder, folder_id) = if let Some(folder_id) = &self.folder_id {
-            let mut folder_name = None;
-            for folder in folders {
-                if &folder.id == folder_id {
-                    folder_name = Some(folder.name.clone());
+        let (folder, folder_id) =
+            self.folder_id.as_ref().map_or((None, None), |folder_id| {
+                let mut folder_name = None;
+                for folder in folders {
+                    if &folder.id == folder_id {
+                        folder_name = Some(folder.name.clone());
+                    }
                 }
-            }
-            (folder_name, Some(folder_id))
-        } else {
-            (None, None)
-        };
+                (folder_name, Some(folder_id))
+            });
         let data = if let Some(login) = &self.login {
             crate::db::EntryData::Login {
                 username: login.username.clone(),
@@ -332,7 +334,7 @@ impl SyncResCipher {
         } else {
             return None;
         };
-        let fields = if let Some(fields) = &self.fields {
+        let fields = self.fields.as_ref().map_or_else(Vec::new, |fields| {
             fields
                 .iter()
                 .map(|field| crate::db::Field {
@@ -340,9 +342,7 @@ impl SyncResCipher {
                     value: field.value.clone(),
                 })
                 .collect()
-        } else {
-            vec![]
-        };
+        });
         Some(crate::db::Entry {
             id: self.id.clone(),
             org_id: self.organization_id.clone(),
@@ -554,6 +554,7 @@ pub struct Client {
 }
 
 impl Client {
+    #[must_use]
     pub fn new(base_url: &str, identity_url: &str) -> Self {
         Self {
             base_url: base_url.to_string(),
@@ -607,7 +608,7 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
-        if let reqwest::StatusCode::OK = res.status() {
+        if res.status() == reqwest::StatusCode::OK {
             Ok(())
         } else {
             let code = res.status().as_u16();
@@ -636,6 +637,9 @@ impl Client {
             device_push_token: "".to_string(),
             two_factor_token: two_factor_token
                 .map(std::string::ToString::to_string),
+            // enum casts are safe, and i don't think there's a better way to
+            // write it without some explicit impls
+            #[allow(clippy::as_conversions)]
             two_factor_provider: two_factor_provider.map(|ty| ty as u32),
         };
         let client = reqwest::Client::new();
@@ -649,7 +653,7 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
-        if let reqwest::StatusCode::OK = res.status() {
+        if res.status() == reqwest::StatusCode::OK {
             let connect_res: ConnectPasswordRes =
                 res.json_with_path().await?;
             Ok((

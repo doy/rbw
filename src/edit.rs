@@ -30,6 +30,7 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
         let editor = std::path::Path::new(&editor);
         let mut editor_args = vec![];
 
+        #[allow(clippy::single_match)] // more to come
         match editor.file_name() {
             Some(editor) => match editor.to_str() {
                 Some("vim" | "nvim") => {
