@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.2] - Unreleased
+
+### Fixed
+
+* Fix api renaming in official bitwarden server (#80)
+
 ## [1.4.1] - 2021-10-28
 
 ### Added

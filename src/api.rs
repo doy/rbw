@@ -142,7 +142,7 @@ struct PreloginReq {
 
 #[derive(serde::Deserialize, Debug)]
 struct PreloginRes {
-    #[serde(rename = "KdfIterations")]
+    #[serde(rename = "KdfIterations", alias = "kdfIterations")]
     kdf_iterations: u32,
 }
 
@@ -172,7 +172,7 @@ struct ConnectPasswordReq {
 struct ConnectPasswordRes {
     access_token: String,
     refresh_token: String,
-    #[serde(rename = "Key")]
+    #[serde(rename = "Key", alias = "key")]
     key: String,
 }
 
@@ -180,15 +180,15 @@ struct ConnectPasswordRes {
 struct ConnectErrorRes {
     error: String,
     error_description: Option<String>,
-    #[serde(rename = "ErrorModel")]
+    #[serde(rename = "ErrorModel", alias = "errorModel")]
     error_model: Option<ConnectErrorResErrorModel>,
-    #[serde(rename = "TwoFactorProviders")]
+    #[serde(rename = "TwoFactorProviders", alias = "twoFactorProviders")]
     two_factor_providers: Option<Vec<TwoFactorProviderType>>,
 }
 
 #[derive(serde::Deserialize, Debug)]
 struct ConnectErrorResErrorModel {
-    #[serde(rename = "Message")]
+    #[serde(rename = "Message", alias = "message")]
     message: String,
 }
 
@@ -206,39 +206,39 @@ struct ConnectRefreshTokenRes {
 
 #[derive(serde::Deserialize, Debug)]
 struct SyncRes {
-    #[serde(rename = "Ciphers")]
+    #[serde(rename = "Ciphers", alias = "ciphers")]
     ciphers: Vec<SyncResCipher>,
-    #[serde(rename = "Profile")]
+    #[serde(rename = "Profile", alias = "profile")]
     profile: SyncResProfile,
-    #[serde(rename = "Folders")]
+    #[serde(rename = "Folders", alias = "folders")]
     folders: Vec<SyncResFolder>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResCipher {
-    #[serde(rename = "Id")]
+    #[serde(rename = "Id", alias = "id")]
     id: String,
-    #[serde(rename = "FolderId")]
+    #[serde(rename = "FolderId", alias = "folderId")]
     folder_id: Option<String>,
-    #[serde(rename = "OrganizationId")]
+    #[serde(rename = "OrganizationId", alias = "organizationId")]
     organization_id: Option<String>,
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", alias = "name")]
     name: String,
-    #[serde(rename = "Login")]
+    #[serde(rename = "Login", alias = "login")]
     login: Option<CipherLogin>,
-    #[serde(rename = "Card")]
+    #[serde(rename = "Card", alias = "card")]
     card: Option<CipherCard>,
-    #[serde(rename = "Identity")]
+    #[serde(rename = "Identity", alias = "identity")]
     identity: Option<CipherIdentity>,
-    #[serde(rename = "SecureNote")]
+    #[serde(rename = "SecureNote", alias = "secureNote")]
     secure_note: Option<CipherSecureNote>,
-    #[serde(rename = "Notes")]
+    #[serde(rename = "Notes", alias = "notes")]
     notes: Option<String>,
-    #[serde(rename = "PasswordHistory")]
+    #[serde(rename = "PasswordHistory", alias = "passwordHistory")]
     password_history: Option<Vec<SyncResPasswordHistory>>,
-    #[serde(rename = "Fields")]
+    #[serde(rename = "Fields", alias = "fields")]
     fields: Option<Vec<SyncResField>>,
-    #[serde(rename = "DeletedDate")]
+    #[serde(rename = "DeletedDate", alias = "deletedDate")]
     deleted_date: Option<String>,
 }
 
@@ -359,101 +359,101 @@ impl SyncResCipher {
 
 #[derive(serde::Deserialize, Debug)]
 struct SyncResProfile {
-    #[serde(rename = "Key")]
+    #[serde(rename = "Key", alias = "key")]
     key: String,
-    #[serde(rename = "PrivateKey")]
+    #[serde(rename = "PrivateKey", alias = "privateKey")]
     private_key: String,
-    #[serde(rename = "Organizations")]
+    #[serde(rename = "Organizations", alias = "organizations")]
     organizations: Vec<SyncResProfileOrganization>,
 }
 
 #[derive(serde::Deserialize, Debug)]
 struct SyncResProfileOrganization {
-    #[serde(rename = "Id")]
+    #[serde(rename = "Id", alias = "id")]
     id: String,
-    #[serde(rename = "Key")]
+    #[serde(rename = "Key", alias = "key")]
     key: String,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
 struct SyncResFolder {
-    #[serde(rename = "Id")]
+    #[serde(rename = "Id", alias = "id")]
     id: String,
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", alias = "name")]
     name: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherLogin {
-    #[serde(rename = "Username")]
+    #[serde(rename = "Username", alias = "username")]
     username: Option<String>,
-    #[serde(rename = "Password")]
+    #[serde(rename = "Password", alias = "password")]
     password: Option<String>,
-    #[serde(rename = "Totp")]
+    #[serde(rename = "Totp", alias = "totp")]
     totp: Option<String>,
-    #[serde(rename = "Uris")]
+    #[serde(rename = "Uris", alias = "uris")]
     uris: Option<Vec<CipherLoginUri>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherLoginUri {
-    #[serde(rename = "Uri")]
+    #[serde(rename = "Uri", alias = "uri")]
     uri: Option<String>,
-    #[serde(rename = "Match")]
+    #[serde(rename = "Match", alias = "match")]
     match_type: Option<UriMatchType>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherCard {
-    #[serde(rename = "CardholderName")]
+    #[serde(rename = "CardholderName", alias = "cardHolderName")]
     cardholder_name: Option<String>,
-    #[serde(rename = "Number")]
+    #[serde(rename = "Number", alias = "number")]
     number: Option<String>,
-    #[serde(rename = "Brand")]
+    #[serde(rename = "Brand", alias = "brand")]
     brand: Option<String>,
-    #[serde(rename = "ExpMonth")]
+    #[serde(rename = "ExpMonth", alias = "expMonth")]
     exp_month: Option<String>,
-    #[serde(rename = "ExpYear")]
+    #[serde(rename = "ExpYear", alias = "expYear")]
     exp_year: Option<String>,
-    #[serde(rename = "Code")]
+    #[serde(rename = "Code", alias = "code")]
     code: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherIdentity {
-    #[serde(rename = "Title")]
+    #[serde(rename = "Title", alias = "title")]
     title: Option<String>,
-    #[serde(rename = "FirstName")]
+    #[serde(rename = "FirstName", alias = "firstName")]
     first_name: Option<String>,
-    #[serde(rename = "MiddleName")]
+    #[serde(rename = "MiddleName", alias = "middleName")]
     middle_name: Option<String>,
-    #[serde(rename = "LastName")]
+    #[serde(rename = "LastName", alias = "lastName")]
     last_name: Option<String>,
-    #[serde(rename = "Address1")]
+    #[serde(rename = "Address1", alias = "address1")]
     address1: Option<String>,
-    #[serde(rename = "Address2")]
+    #[serde(rename = "Address2", alias = "address2")]
     address2: Option<String>,
-    #[serde(rename = "Address3")]
+    #[serde(rename = "Address3", alias = "address3")]
     address3: Option<String>,
-    #[serde(rename = "City")]
+    #[serde(rename = "City", alias = "city")]
     city: Option<String>,
-    #[serde(rename = "State")]
+    #[serde(rename = "State", alias = "state")]
     state: Option<String>,
-    #[serde(rename = "PostalCode")]
+    #[serde(rename = "PostalCode", alias = "postalCode")]
     postal_code: Option<String>,
-    #[serde(rename = "Country")]
+    #[serde(rename = "Country", alias = "country")]
     country: Option<String>,
-    #[serde(rename = "Phone")]
+    #[serde(rename = "Phone", alias = "phone")]
     phone: Option<String>,
-    #[serde(rename = "Email")]
+    #[serde(rename = "Email", alias = "email")]
     email: Option<String>,
-    #[serde(rename = "SSN")]
+    #[serde(rename = "SSN", alias = "ssn")]
     ssn: Option<String>,
-    #[serde(rename = "LicenseNumber")]
+    #[serde(rename = "LicenseNumber", alias = "licenseNumber")]
     license_number: Option<String>,
-    #[serde(rename = "PassportNumber")]
+    #[serde(rename = "PassportNumber", alias = "passportNumber")]
     passport_number: Option<String>,
-    #[serde(rename = "Username")]
+    #[serde(rename = "Username", alias = "username")]
     username: Option<String>,
 }
 
@@ -464,19 +464,19 @@ struct CipherSecureNote {}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResPasswordHistory {
-    #[serde(rename = "LastUsedDate")]
+    #[serde(rename = "LastUsedDate", alias = "lastUsedDate")]
     last_used_date: String,
-    #[serde(rename = "Password")]
+    #[serde(rename = "Password", alias = "password")]
     password: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResField {
-    #[serde(rename = "Type")]
+    #[serde(rename = "Type", alias = "type")]
     ty: u32,
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", alias = "name")]
     name: Option<String>,
-    #[serde(rename = "Value")]
+    #[serde(rename = "Value", alias = "value")]
     value: Option<String>,
 }
 
@@ -530,15 +530,15 @@ struct CiphersPutReqHistory {
 
 #[derive(serde::Deserialize, Debug)]
 struct FoldersRes {
-    #[serde(rename = "Data")]
+    #[serde(rename = "Data", alias = "data")]
     data: Vec<FoldersResData>,
 }
 
 #[derive(serde::Deserialize, Debug)]
 struct FoldersResData {
-    #[serde(rename = "Id")]
+    #[serde(rename = "Id", alias = "id")]
     id: String,
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", alias = "name")]
     name: String,
 }
 
