@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 use std::io::{Read as _, Write as _};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Config {
@@ -12,8 +12,9 @@ pub struct Config {
     pub lock_timeout: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
-    #[serde(default = "stub_device_id")]
-    pub device_id: String,
+    // backcompat, no longer generated in new configs
+    #[serde(skip_serializing)]
+    pub device_id: Option<String>,
 }
 
 impl Default for Config {
@@ -24,7 +25,7 @@ impl Default for Config {
             identity_url: None,
             lock_timeout: default_lock_timeout(),
             pinentry: default_pinentry(),
-            device_id: default_device_id(),
+            device_id: None,
         }
     }
 }
@@ -37,16 +38,6 @@ pub fn default_lock_timeout() -> u64 {
 #[must_use]
 pub fn default_pinentry() -> String {
     "pinentry".to_string()
-}
-
-#[must_use]
-fn default_device_id() -> String {
-    uuid::Uuid::new_v4().to_hyphenated().to_string()
-}
-
-#[must_use]
-fn stub_device_id() -> String {
-    String::from("fix")
 }
 
 impl Config {
@@ -132,13 +123,9 @@ impl Config {
     }
 
     pub fn validate() -> Result<()> {
-        let mut config = Self::load()?;
+        let config = Self::load()?;
         if config.email.is_none() {
             return Err(Error::ConfigMissingEmail);
-        }
-        if config.device_id == stub_device_id() {
-            config.device_id = default_device_id();
-            config.save()?;
         }
         Ok(())
     }
@@ -166,5 +153,37 @@ impl Config {
         self.base_url
             .clone()
             .unwrap_or_else(|| "default".to_string())
+    }
+}
+
+pub async fn device_id(config: &Config) -> Result<String> {
+    let file = crate::dirs::device_id_file();
+    if let Ok(mut fh) = tokio::fs::File::open(&file).await {
+        let mut s = String::new();
+        fh.read_to_string(&mut s)
+            .await
+            .map_err(|e| Error::LoadDeviceId {
+                source: e,
+                file: file.clone(),
+            })?;
+        Ok(s.trim().to_string())
+    } else {
+        let id = config.device_id.as_ref().map_or_else(
+            || uuid::Uuid::new_v4().to_hyphenated().to_string(),
+            String::to_string,
+        );
+        let mut fh = tokio::fs::File::create(&file).await.map_err(|e| {
+            Error::LoadDeviceId {
+                source: e,
+                file: file.clone(),
+            }
+        })?;
+        fh.write_all(id.as_bytes()).await.map_err(|e| {
+            Error::LoadDeviceId {
+                source: e,
+                file: file.clone(),
+            }
+        })?;
+        Ok(id)
     }
 }

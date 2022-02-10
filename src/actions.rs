@@ -8,7 +8,9 @@ pub async fn register(
     let client =
         crate::api::Client::new(&config.base_url(), &config.identity_url());
 
-    client.register(email, &config.device_id, &apikey).await?;
+    client
+        .register(email, &crate::config::device_id(&config).await?, &apikey)
+        .await?;
 
     Ok(())
 }
@@ -29,7 +31,7 @@ pub async fn login(
     let (access_token, refresh_token, protected_key) = client
         .login(
             email,
-            &config.device_id,
+            &crate::config::device_id(&config).await?,
             &identity.master_password_hash,
             two_factor_token,
             two_factor_provider,

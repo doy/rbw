@@ -2,6 +2,11 @@
 
 ## [1.4.2] - Unreleased
 
+### Changed
+
+* Device id is now stored in a separate file in the local data directory
+  instead of as part of the config (#74)
+
 ### Fixed
 
 * Fix api renaming in official bitwarden server (#80)

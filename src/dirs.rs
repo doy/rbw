@@ -68,6 +68,11 @@ pub fn agent_stderr_file() -> std::path::PathBuf {
 }
 
 #[must_use]
+pub fn device_id_file() -> std::path::PathBuf {
+    data_dir().join("device_id")
+}
+
+#[must_use]
 pub fn socket_file() -> std::path::PathBuf {
     runtime_dir().join("socket")
 }
