@@ -14,7 +14,7 @@ include = ["src/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
 
 [dependencies]
 aes = "0.7.5"
-anyhow = "1.0.51"
+anyhow = "1.0.53"
 arrayvec = "0.7.2"
 async-trait = "0.1.52"
 base32 = "0.4.0"
@@ -27,28 +27,28 @@ env_logger = "0.9.0"
 hkdf = "0.11.0"
 hmac = { version = "0.11.0", features = ["std"] }
 humantime = "2.1.0"
-libc = "0.2.112"
+libc = "0.2.117"
 log = "0.4.14"
-nix = "0.23.0"
+nix = "0.23.1"
 paw = "1.0.0"
 pbkdf2 = "0.9.0"
 percent-encoding = "2.1.0"
 rand = "0.8.4"
 region = "3.0.0"
-reqwest = { version = "0.11.7", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+reqwest = { version = "0.11.9", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
 rsa = "0.5.0"
-serde = { version = "1.0.131", features = ["derive"] }
-serde_json = "1.0.73"
-serde_path_to_error = "0.1.5"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.78"
+serde_path_to_error = "0.1.7"
 serde_repr = "0.1.7"
 sha-1 = "0.9.8"
-sha2 = "0.9.8"
-structopt = { version = "0.3.25", features = ["paw", "wrap_help"] }
-tempfile = "3.2.0"
+sha2 = "0.9.9"
+structopt = { version = "0.3.26", features = ["paw", "wrap_help"] }
+tempfile = "3.3.0"
 term_size = "0.3.2"
 textwrap = "0.11.0"
 thiserror = "1.0.30"
-tokio = { version = "1.14.0", features = ["full"] }
+tokio = { version = "1.16.1", features = ["full"] }
 totp-lite = "1.0.3"
 url = "2.2.2"
 uuid = { version = "0.8.2", features = ["v4"] }
