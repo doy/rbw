@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3] - Unreleased
+
+### Fixed
+
+* Restored packaged scripts to the crate bundle, since they are used by some
+  downstream packages (no functional changes) (#81)
+
 ## [1.4.2] - 2022-02-10
 
 ### Changed

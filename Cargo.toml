@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["bitwarden"]
 categories = ["command-line-utilities", "cryptography"]
 license = "MIT"
-include = ["src/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
+include = ["src/**/*", "bin/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
 
 [dependencies]
 aes = "0.7.5"
