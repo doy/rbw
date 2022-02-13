@@ -1,4 +1,6 @@
 use anyhow::Context as _;
+use std::io;
+use std::io::prelude::Write;
 
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
@@ -530,7 +532,13 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
                 ),
             })
             .collect();
-        println!("{}", values.join("\t"));
+
+        // write to stdout but don't panic when pipe get's closed
+        // this happens when piping stdout in a shell
+        match writeln!(&mut io::stdout(), "{}", values.join("\t")) {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+            res => res,
+        }?;
     }
 
     Ok(())
