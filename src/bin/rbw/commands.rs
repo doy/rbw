@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use anyhow::Context as _;
 
 const MISSING_CONFIG_HELP: &str =
@@ -93,17 +94,18 @@ impl DecryptedCipher {
                 ..
             } => {
                 let mut displayed = self.display_short(desc);
-                displayed |= display_field("Username", username.as_deref());
-                displayed |= display_field("TOTP Secret", totp.as_deref());
+                displayed |= display_field("Username", username.as_deref(), &FieldType::Text);
+                displayed |= display_field("TOTP Secret", totp.as_deref(), &FieldType::Text);
 
                 if let Some(uris) = uris {
                     for uri in uris {
-                        displayed |= display_field("URI", Some(&uri.uri));
+                        displayed |= display_field("URI", Some(&uri.uri), &FieldType::Text);
                         let match_type =
                             uri.match_type.map(|ty| format!("{}", ty));
                         displayed |= display_field(
                             "Match type",
                             match_type.as_deref(),
+                            &FieldType::Text
                         );
                     }
                 }
@@ -112,6 +114,7 @@ impl DecryptedCipher {
                     displayed |= display_field(
                         field.name.as_deref().unwrap_or("(null)"),
                         Some(field.value.as_deref().unwrap_or("")),
+                        &field.ty,
                     );
                 }
 
@@ -138,10 +141,10 @@ impl DecryptedCipher {
                     println!("Expiration: {}/{}", exp_month, exp_year);
                     displayed = true;
                 }
-                displayed |= display_field("CVV", code.as_deref());
+                displayed |= display_field("CVV", code.as_deref(), &FieldType::Text);
                 displayed |=
-                    display_field("Name", cardholder_name.as_deref());
-                displayed |= display_field("Brand", brand.as_deref());
+                    display_field("Name", cardholder_name.as_deref(), &FieldType::Text);
+                displayed |= display_field("Brand", brand.as_deref(), &FieldType::Text);
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -168,22 +171,22 @@ impl DecryptedCipher {
             } => {
                 let mut displayed = self.display_short(desc);
 
-                displayed |= display_field("Address", address1.as_deref());
-                displayed |= display_field("Address", address2.as_deref());
-                displayed |= display_field("Address", address3.as_deref());
-                displayed |= display_field("City", city.as_deref());
-                displayed |= display_field("State", state.as_deref());
+                displayed |= display_field("Address", address1.as_deref(), &FieldType::Text);
+                displayed |= display_field("Address", address2.as_deref(), &FieldType::Text);
+                displayed |= display_field("Address", address3.as_deref(), &FieldType::Text);
+                displayed |= display_field("City", city.as_deref(), &FieldType::Text);
+                displayed |= display_field("State", state.as_deref(), &FieldType::Text);
                 displayed |=
-                    display_field("Postcode", postal_code.as_deref());
-                displayed |= display_field("Country", country.as_deref());
-                displayed |= display_field("Phone", phone.as_deref());
-                displayed |= display_field("Email", email.as_deref());
-                displayed |= display_field("SSN", ssn.as_deref());
+                    display_field("Postcode", postal_code.as_deref(), &FieldType::Text);
+                displayed |= display_field("Country", country.as_deref(), &FieldType::Text);
+                displayed |= display_field("Phone", phone.as_deref(), &FieldType::Text);
+                displayed |= display_field("Email", email.as_deref(), &FieldType::Text);
+                displayed |= display_field("SSN", ssn.as_deref(), &FieldType::Text);
                 displayed |=
-                    display_field("License", license_number.as_deref());
+                    display_field("License", license_number.as_deref(), &FieldType::Text);
                 displayed |=
-                    display_field("Passport", passport_number.as_deref());
-                displayed |= display_field("Username", username.as_deref());
+                    display_field("Passport", passport_number.as_deref(), &FieldType::Text);
+                displayed |= display_field("Username", username.as_deref(), &FieldType::Text);
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -346,6 +349,38 @@ enum DecryptedData {
 struct DecryptedField {
     name: Option<String>,
     value: Option<String>,
+    ty: FieldType,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub enum FieldType {
+    Text,
+    Hidden,
+    Boolean,
+}
+
+impl FieldType {
+    pub fn from_int(input: &u32) -> FieldType {
+        match input {
+            0 => FieldType::Text,
+            1 => FieldType::Hidden,
+            2 => FieldType::Boolean,
+            _ => FieldType::Text
+        }
+    }
+}
+
+impl Display for FieldType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let text = match &self {
+            FieldType::Text => "",
+            FieldType::Hidden => "Hidden",
+            FieldType::Boolean => "Bool?",
+        };
+        write!(f, "{}", text)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1185,6 +1220,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                         )
                     })
                     .transpose()?,
+                ty: FieldType::from_int(&field.ty)
             })
         })
         .collect::<anyhow::Result<_>>()?;
@@ -1666,11 +1702,11 @@ mod test {
     }
 }
 
-fn display_field(name: &str, field: Option<&str>) -> bool {
+fn display_field(name: &str, field: Option<&str>, ty: &FieldType) -> bool {
     field.map_or_else(
         || false,
         |field| {
-            println!("{}: {}", name, field);
+            println!("{} ({}): {}", name, ty, field);
             true
         },
     )

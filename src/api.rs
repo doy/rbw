@@ -340,6 +340,7 @@ impl SyncResCipher {
                 .map(|field| crate::db::Field {
                     name: field.name.clone(),
                     value: field.value.clone(),
+                    ty: field.ty.clone(),
                 })
                 .collect()
         });

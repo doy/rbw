@@ -1,7 +1,8 @@
-use crate::prelude::*;
-
 use std::io::{Read as _, Write as _};
+
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+use crate::prelude::*;
 
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
@@ -150,6 +151,8 @@ pub enum EntryData {
 pub struct Field {
     pub name: Option<String>,
     pub value: Option<String>,
+    #[serde(rename = "Type")]
+    pub ty: u32,
 }
 
 #[derive(
