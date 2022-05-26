@@ -12,6 +12,7 @@ pub struct Config {
     pub lock_timeout: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
+    pub client_cert_path: Option<String>,
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
@@ -25,6 +26,7 @@ impl Default for Config {
             identity_url: None,
             lock_timeout: default_lock_timeout(),
             pinentry: default_pinentry(),
+            client_cert_path: None,
             device_id: None,
         }
     }
@@ -146,6 +148,12 @@ impl Config {
                 |url| format!("{}/identity", url.trim_end_matches('/')),
             )
         })
+    }
+
+    #[must_use]
+    pub fn client_cert_path(&self) -> String {
+        self.client_cert_path.clone()
+            .unwrap_or_else(|| "".to_string())
     }
 
     #[must_use]

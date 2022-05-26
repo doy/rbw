@@ -8,6 +8,9 @@ use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
 
+use std::fs::File;
+use std::io::Read;
+
 #[derive(
     serde_repr::Serialize_repr,
     serde_repr::Deserialize_repr,
@@ -551,22 +554,36 @@ struct FoldersPostReq {
 pub struct Client {
     base_url: String,
     identity_url: String,
+    client_cert_path: String,
 }
 
 impl Client {
     #[must_use]
-    pub fn new(base_url: &str, identity_url: &str) -> Self {
+    pub fn new(base_url: &str, identity_url: &str, client_cert_path: &str) -> Self {
         Self {
             base_url: base_url.to_string(),
             identity_url: identity_url.to_string(),
+            client_cert_path: client_cert_path.to_string(),
         }
+    }
+
+    fn reqwest_client(&self) -> reqwest::Client {
+        return if self.client_cert_path == "" {
+            reqwest::Client::new()
+        } else {
+            let mut buf = Vec::new();
+            let mut f = File::open(self.client_cert_path.to_string()).expect("cert not found");
+            f.read_to_end(&mut buf).expect("cert read failed");
+            let pem = reqwest::Identity::from_pem(&buf).expect("invalid cert");
+            reqwest::Client::builder().identity(pem).build().expect("wtv")
+        };
     }
 
     pub async fn prelogin(&self, email: &str) -> Result<u32> {
         let prelogin = PreloginReq {
             email: email.to_string(),
         };
-        let client = reqwest::Client::new();
+        let client = self.reqwest_client();
         let res = client
             .post(&self.api_url("/accounts/prelogin"))
             .json(&prelogin)
@@ -601,7 +618,7 @@ impl Client {
             two_factor_token: None,
             two_factor_provider: None,
         };
-        let client = reqwest::Client::new();
+        let client = self.reqwest_client();
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
@@ -642,7 +659,7 @@ impl Client {
             #[allow(clippy::as_conversions)]
             two_factor_provider: two_factor_provider.map(|ty| ty as u32),
         };
-        let client = reqwest::Client::new();
+        let client = self.reqwest_client();
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
@@ -676,7 +693,7 @@ impl Client {
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
     )> {
-        let client = reqwest::Client::new();
+        let client = self.reqwest_client();
         let res = client
             .get(&self.api_url("/sync"))
             .header("Authorization", format!("Bearer {}", access_token))
@@ -1072,7 +1089,7 @@ impl Client {
             client_id: "desktop".to_string(),
             refresh_token: refresh_token.to_string(),
         };
-        let client = reqwest::Client::new();
+        let client = self.reqwest_client();
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
