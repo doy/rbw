@@ -84,6 +84,215 @@ impl DecryptedCipher {
         }
     }
 
+    fn display_field(&self, desc: &str, field: &str) {
+        // Convert the field name to lowercase
+        let field = field.to_lowercase();
+        let field = field.as_str();
+        match &self.data {
+            DecryptedData::Login {
+                username,
+                totp,
+                uris,
+                ..
+            } => match field {
+                "notes" => {
+                    if let Some(notes) = &self.notes {
+                        println!("{}", notes);
+                    }
+                }
+                "username" | "user" => {
+                    display_field("Username", username.as_deref());
+                }
+                "totp" | "code" => {
+                    if let Some(totp) = totp {
+                        if let Ok(code) = generate_totp(&totp) {
+                            println!("{}", code);
+                        }
+                    }
+                }
+                "uris" | "urls" | "sites" => {
+                    if let Some(uris) = uris {
+                        for uri in uris {
+                            display_field("URI", Some(uri.uri.as_str()));
+                        }
+                    }
+                }
+                "password" => {
+                    self.display_short(&desc);
+                }
+                _ => {
+                    for f in &self.fields {
+                        if f.name
+                            .as_ref()
+                            .unwrap()
+                            .to_lowercase()
+                            .as_str()
+                            .contains(field)
+                        {
+                            display_field(
+                                f.name.as_deref().unwrap_or("(null)"),
+                                Some(f.value.as_deref().unwrap_or("")),
+                            );
+                        }
+                    }
+                }
+            },
+            DecryptedData::Card {
+                cardholder_name,
+                brand,
+                exp_month,
+                exp_year,
+                code,
+                ..
+            } => match field {
+                "number" | "card" => {
+                    self.display_short(&desc);
+                }
+                "exp" => {
+                    if let (Some(month), Some(year)) = (exp_month, exp_year) {
+                        display_field(
+                            "Exp",
+                            Some(format!("{}/{}", month, year).as_str()),
+                        );
+                    }
+                }
+                "exp_month" | "month" => {
+                    display_field("Month", exp_month.as_deref());
+                }
+                "exp_year" | "year" => {
+                    display_field("Year", exp_year.as_deref());
+                }
+                "cvv" => {
+                    display_field("CVV", code.as_deref());
+                }
+                "name" | "cardholder" => {
+                    display_field("Name", cardholder_name.as_deref());
+                }
+                "brand" | "type" => {
+                    display_field("Brand", brand.as_deref());
+                }
+                "notes" => {
+                    if let Some(notes) = &self.notes {
+                        println!("{}", notes);
+                    }
+                }
+                _ => {
+                    for f in &self.fields {
+                        if f.name
+                            .as_ref()
+                            .unwrap()
+                            .to_lowercase()
+                            .as_str()
+                            .contains(field)
+                        {
+                            display_field(
+                                f.name.as_deref().unwrap_or("(null)"),
+                                Some(f.value.as_deref().unwrap_or("")),
+                            );
+                        }
+                    }
+                }
+            },
+            DecryptedData::Identity {
+                address1,
+                address2,
+                address3,
+                city,
+                state,
+                postal_code,
+                country,
+                phone,
+                email,
+                ssn,
+                license_number,
+                passport_number,
+                username,
+                ..
+            } => match field {
+                "name" => {
+                    self.display_short(&desc);
+                }
+                "email" => {
+                    display_field("Email", email.as_deref());
+                }
+                "address" => {
+                    display_field("Address", address1.as_deref());
+                    display_field("Address", address2.as_deref());
+                    display_field("Address", address3.as_deref());
+                }
+                "city" => {
+                    display_field("City", city.as_deref());
+                }
+                "state" => {
+                    display_field("State", state.as_deref());
+                }
+                "postcode" | "zipcode" | "zip" => {
+                    display_field("Zip", postal_code.as_deref());
+                }
+                "country" => {
+                    display_field("Country", country.as_deref());
+                }
+                "phone" => {
+                    display_field("Phone", phone.as_deref());
+                }
+                "ssn" => {
+                    display_field("SSN", ssn.as_deref());
+                }
+                "license" => {
+                    display_field("License", license_number.as_deref());
+                }
+                "passport" => {
+                    display_field("Passport", passport_number.as_deref());
+                }
+                "username" => {
+                    display_field("Username", username.as_deref());
+                }
+                "notes" => {
+                    if let Some(notes) = &self.notes {
+                        println!("{}", notes);
+                    }
+                }
+                _ => {
+                    for f in &self.fields {
+                        if f.name
+                            .as_ref()
+                            .unwrap()
+                            .to_lowercase()
+                            .as_str()
+                            .contains(field)
+                        {
+                            display_field(
+                                f.name.as_deref().unwrap_or("(null)"),
+                                Some(f.value.as_deref().unwrap_or("")),
+                            );
+                        }
+                    }
+                }
+            },
+            DecryptedData::SecureNote {} => match field {
+                "note" | "notes" => {
+                    self.display_short(desc);
+                }
+                _ => {
+                    for f in &self.fields {
+                        if f.name
+                            .as_ref()
+                            .unwrap()
+                            .to_lowercase()
+                            .as_str()
+                            .contains(field)
+                        {
+                            display_field(
+                                f.name.as_deref().unwrap_or("(null)"),
+                                Some(f.value.as_deref().unwrap_or("")),
+                            );
+                        }
+                    }
+                }
+            },
+        }
+    }
+
     fn display_long(&self, desc: &str) {
         match &self.data {
             DecryptedData::Login {
@@ -540,6 +749,7 @@ pub fn get(
     name: &str,
     user: Option<&str>,
     folder: Option<&str>,
+    field: Option<&str>,
     full: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
@@ -556,6 +766,8 @@ pub fn get(
         .with_context(|| format!("couldn't find entry for '{}'", desc))?;
     if full {
         decrypted.display_long(&desc);
+    } else if field != None {
+        decrypted.display_field(&desc, field.unwrap());
     } else {
         decrypted.display_short(&desc);
     }
