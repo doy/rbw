@@ -61,6 +61,37 @@ impl Clone for Vec {
     }
 }
 
+impl Vec {
+    pub async fn read_to_end<
+        R: tokio::io::AsyncRead + tokio::io::AsyncReadExt + Unpin,
+    >(
+        &mut self,
+        mut r: R,
+    ) -> anyhow::Result<usize>
+    where
+        R: Send,
+    {
+        self.zero();
+
+        let data = self.data_mut();
+
+        let mut len = 0;
+        while len < data.len() {
+            let bytes = r
+                .read(&mut data[len..])
+                .await?;
+            if bytes == 0 {
+                break;
+            }
+            len += bytes;
+        }
+
+        self.truncate(len);
+
+        Ok(len)
+    }
+}
+
 #[derive(Clone)]
 pub struct Password {
     password: Vec,

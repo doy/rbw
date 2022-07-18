@@ -78,6 +78,49 @@ pub async fn register(
     Ok(())
 }
 
+async fn read_master_password(text: &str, err: Option<&str>, tty: Option<&str>) -> anyhow::Result<rbw::locked::Password> {
+    if let Some(cmd) = config_master_password_command().await? {
+        let mut opts = tokio::process::Command::new("sh");
+        opts.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped());
+        opts.args(&["-c", &cmd]);
+
+        let mut child = opts.spawn().map_err(|source| rbw::error::Error::Spawn { source })?;
+
+        let mut buf = rbw::locked::Vec::new();
+        // unwrap is safe because we specified stdout as piped in the command opts
+        // above
+        buf.read_to_end(child.stdout.as_mut().unwrap()).await?;
+
+        // remove everything starting from the first newline
+        if let Some(idx) = buf.data().iter().position(|c| *c == b'\n') {
+            buf.truncate(idx);
+        }
+
+        let status = child
+            .wait()
+            .await?;
+
+        if !status.success() {
+            anyhow::bail!("master_password_command exited with an error: {:#}", status);
+        }
+
+        Ok(rbw::locked::Password::new(buf))
+    } else {
+        let password = rbw::pinentry::getpin(
+            &config_pinentry().await?,
+            "Master Password",
+            text,
+            err,
+            tty,
+            true,
+        )
+        .await
+        .context("failed to read password from pinentry")?;
+        Ok(password)
+    }
+}
+
 pub async fn login(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
@@ -109,16 +152,9 @@ pub async fn login(
             } else {
                 None
             };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                &format!("Log in to {}", host),
-                err.as_deref(),
-                tty,
-                true,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
+
+            let password = read_master_password(&format!("Log in to {}", host), err.as_deref(), tty).await?;
+
             match rbw::actions::login(&email, password.clone(), None, None)
                 .await
             {
@@ -364,16 +400,9 @@ pub async fn unlock(
             } else {
                 None
             };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                "Unlock the local database",
-                err.as_deref(),
-                tty,
-                true,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
+
+            let password = read_master_password("Unlock the local database", err.as_deref(), tty).await?;
+
             match rbw::actions::unlock(
                 &email,
                 &password,
@@ -606,4 +635,9 @@ async fn config_base_url() -> anyhow::Result<String> {
 async fn config_pinentry() -> anyhow::Result<String> {
     let config = rbw::config::Config::load_async().await?;
     Ok(config.pinentry)
+}
+
+async fn config_master_password_command() -> anyhow::Result<Option<String>> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.master_password_command)
 }

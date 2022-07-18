@@ -12,6 +12,7 @@ pub struct Config {
     pub lock_timeout: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
+    pub master_password_command: Option<String>,
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
@@ -25,6 +26,7 @@ impl Default for Config {
             identity_url: None,
             lock_timeout: default_lock_timeout(),
             pinentry: default_pinentry(),
+            master_password_command: None,
             device_id: None,
         }
     }
