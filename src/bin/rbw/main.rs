@@ -81,6 +81,8 @@ enum Opt {
         field: Option<String>,
         #[arg(long, help = "Display the notes in addition to the password")]
         full: bool,
+        #[structopt(long, help = "Display output as JSON")]
+        raw: bool,
     },
 
     #[command(about = "Display the authenticator code for a given entry")]
@@ -319,12 +321,14 @@ fn main() {
             folder,
             field,
             full,
+            raw,
         } => commands::get(
             name,
             user.as_deref(),
             folder.as_deref(),
             field.as_deref(),
             *full,
+            *raw,
         ),
         Opt::Code { name, user, folder } => {
             commands::code(name, user.as_deref(), folder.as_deref())

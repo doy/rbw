@@ -1,6 +1,7 @@
 use anyhow::Context as _;
 use std::io;
 use std::io::prelude::Write;
+use serde::Serialize;
 
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
@@ -12,7 +13,7 @@ const MISSING_CONFIG_HELP: &str =
     and, if your server has a non-default identity url:\n\n    \
         rbw config set identity_url <url>\n";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
     id: String,
@@ -421,6 +422,14 @@ impl DecryptedCipher {
         }
     }
 
+    fn display_json(&self, desc: &str) -> anyhow::Result<()> {
+        serde_json::to_writer_pretty(std::io::stdout(), &self)
+            .context(format!("failed to write entry '{desc}' to stdout"))?;
+        println!();
+
+        Ok(())
+    }
+
     fn exact_match(
         &self,
         name: &str,
@@ -512,7 +521,8 @@ impl DecryptedCipher {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 enum DecryptedData {
     Login {
@@ -551,21 +561,21 @@ enum DecryptedData {
     SecureNote,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedField {
     name: Option<String>,
     value: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedHistoryEntry {
     last_used_date: String,
     password: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedUri {
     uri: String,
@@ -763,6 +773,7 @@ pub fn get(
     folder: Option<&str>,
     field: Option<&str>,
     full: bool,
+    raw: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -776,7 +787,9 @@ pub fn get(
 
     let (_, decrypted) = find_entry(&db, name, user, folder)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
-    if full {
+    if raw {
+        decrypted.display_json(&desc)?;
+    } else if full {
         decrypted.display_long(&desc);
     } else if field.is_some() {
         decrypted.display_field(&desc, field.unwrap());
