@@ -11,11 +11,6 @@ unsound = "deny"
 deny = [
     { name = "openssl-sys" },
 ]
-skip = [
-    # this is pulled in by rsa -> num-bigint-dig, but it's just a build dep so
-    # i don't care much
-    { name = "autocfg", version = "0.1.7" }
-]
 
 [licenses]
 allow = ["MIT", "BSD-3-Clause", "Apache-2.0", "ISC", "Unicode-DFS-2016"]
