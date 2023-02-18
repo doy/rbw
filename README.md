@@ -96,3 +96,4 @@ the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
 ## Related projects
 
 * [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden
+* [bw-ssh](https://framagit.org/Glandos/bw-ssh/): Manage SSH key passphrases in Bitwarden
