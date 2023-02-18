@@ -4,14 +4,10 @@ pub enum Error {
     ConfigMissingEmail,
 
     #[error("failed to create block mode decryptor")]
-    CreateBlockMode {
-        source: block_modes::InvalidKeyIvLength,
-    },
+    CreateBlockMode { source: aes::cipher::InvalidLength },
 
     #[error("failed to create block mode decryptor")]
-    CreateHmac {
-        source: hmac::crypto_mac::InvalidKeyLength,
-    },
+    CreateHmac { source: aes::cipher::InvalidLength },
 
     #[error("failed to create directory at {}", .file.display())]
     CreateDirectory {
@@ -20,7 +16,7 @@ pub enum Error {
     },
 
     #[error("failed to decrypt")]
-    Decrypt { source: block_modes::BlockModeError },
+    Decrypt { source: block_padding::UnpadError },
 
     #[error("failed to parse pinentry output ({out:?})")]
     FailedToParsePinentry { out: String },

@@ -1,10 +1,11 @@
 use crate::prelude::*;
 
-use block_modes::BlockMode as _;
-use block_padding::Padding as _;
-use hmac::{Mac as _, NewMac as _};
+use aes::cipher::{
+    BlockDecryptMut as _, BlockEncryptMut as _, KeyIvInit as _,
+};
+use hmac::Mac as _;
+use pkcs8::DecodePrivateKey as _;
 use rand::RngCore as _;
-use rsa::pkcs8::FromPrivateKey as _;
 use zeroize::Zeroize as _;
 
 pub enum CipherString {
@@ -51,15 +52,15 @@ impl CipherString {
                     });
                 }
 
-                let iv = base64::decode(parts[0])
+                let iv = crate::base64::decode(parts[0])
                     .map_err(|source| Error::InvalidBase64 { source })?;
-                let ciphertext = base64::decode(parts[1])
+                let ciphertext = crate::base64::decode(parts[1])
                     .map_err(|source| Error::InvalidBase64 { source })?;
                 let mac =
                     if parts.len() > 2 {
-                        Some(base64::decode(parts[2]).map_err(|source| {
-                            Error::InvalidBase64 { source }
-                        })?)
+                        Some(crate::base64::decode(parts[2]).map_err(
+                            |source| Error::InvalidBase64 { source },
+                        )?)
                     } else {
                         None
                     };
@@ -76,7 +77,7 @@ impl CipherString {
                 // https://github.com/bitwarden/jslib/blob/785b681f61f81690de6df55159ab07ae710bcfad/src/enums/encryptionType.ts#L8
                 // format is: <cipher_text_b64>|<hmac_sig>
                 let contents = contents.split('|').next().unwrap();
-                let ciphertext = base64::decode(contents)
+                let ciphertext = crate::base64::decode(contents)
                     .map_err(|source| Error::InvalidBase64 { source })?;
                 Ok(Self::Asymmetric { ciphertext })
             }
@@ -98,12 +99,12 @@ impl CipherString {
     ) -> Result<Self> {
         let iv = random_iv();
 
-        let cipher = block_modes::Cbc::<
-            aes::Aes256,
-            block_modes::block_padding::Pkcs7,
-        >::new_from_slices(keys.enc_key(), &iv)
-        .map_err(|source| Error::CreateBlockMode { source })?;
-        let ciphertext = cipher.encrypt_vec(plaintext);
+        let cipher = cbc::Encryptor::<aes::Aes256>::new(
+            keys.enc_key().into(),
+            iv.as_slice().into(),
+        );
+        let ciphertext =
+            cipher.encrypt_padded_vec_mut::<block_padding::Pkcs7>(plaintext);
 
         let mut digest =
             hmac::Hmac::<sha2::Sha256>::new_from_slice(keys.mac_key())
@@ -136,7 +137,7 @@ impl CipherString {
                 mac.as_deref(),
             )?;
             cipher
-                .decrypt_vec(ciphertext)
+                .decrypt_padded_vec_mut::<block_padding::Pkcs7>(ciphertext)
                 .map_err(|source| Error::Decrypt { source })
         } else {
             Err(Error::InvalidCipherString {
@@ -166,7 +167,7 @@ impl CipherString {
                 mac.as_deref(),
             )?;
             cipher
-                .decrypt(res.data_mut())
+                .decrypt_padded_mut::<block_padding::Pkcs7>(res.data_mut())
                 .map_err(|source| Error::Decrypt { source })?;
             Ok(res)
         } else {
@@ -184,15 +185,12 @@ impl CipherString {
     ) -> Result<crate::locked::Vec> {
         if let Self::Asymmetric { ciphertext } = self {
             let privkey_data = private_key.private_key();
-            let privkey_data = block_padding::Pkcs7::unpad(privkey_data)
-                .map_err(|_| Error::Padding)?;
+            let privkey_data =
+                pkcs7_unpad(privkey_data).ok_or(Error::Padding)?;
             let pkey = rsa::RsaPrivateKey::from_pkcs8_der(privkey_data)
                 .map_err(|source| Error::RsaPkcs8 { source })?;
             let mut bytes = pkey
-                .decrypt(
-                    rsa::padding::PaddingScheme::new_oaep::<sha1::Sha1>(),
-                    ciphertext,
-                )
+                .decrypt(rsa::Oaep::new::<sha1::Sha1>(), ciphertext)
                 .map_err(|source| Error::Rsa { source })?;
 
             // XXX it'd be great if the rsa crate would let us decrypt
@@ -218,8 +216,7 @@ fn decrypt_common_symmetric(
     iv: &[u8],
     ciphertext: &[u8],
     mac: Option<&[u8]>,
-) -> Result<block_modes::Cbc<aes::Aes256, block_modes::block_padding::Pkcs7>>
-{
+) -> Result<cbc::Decryptor<aes::Aes256>> {
     if let Some(mac) = mac {
         let mut key =
             hmac::Hmac::<sha2::Sha256>::new_from_slice(keys.mac_key())
@@ -227,15 +224,12 @@ fn decrypt_common_symmetric(
         key.update(iv);
         key.update(ciphertext);
 
-        if key.verify(mac).is_err() {
+        if key.verify(mac.into()).is_err() {
             return Err(Error::InvalidMac);
         }
     }
 
-    block_modes::Cbc::<
-            aes::Aes256,
-            block_modes::block_padding::Pkcs7,
-        >::new_from_slices(keys.enc_key(), iv)
+    cbc::Decryptor::<aes::Aes256>::new_from_slices(keys.enc_key(), iv)
         .map_err(|source| Error::CreateBlockMode { source })
 }
 
@@ -247,17 +241,17 @@ impl std::fmt::Display for CipherString {
                 ciphertext,
                 mac,
             } => {
-                let iv = base64::encode(iv);
-                let ciphertext = base64::encode(ciphertext);
+                let iv = crate::base64::encode(iv);
+                let ciphertext = crate::base64::encode(ciphertext);
                 if let Some(mac) = &mac {
-                    let mac = base64::encode(mac);
+                    let mac = crate::base64::encode(mac);
                     write!(f, "2.{iv}|{ciphertext}|{mac}")
                 } else {
                     write!(f, "2.{iv}|{ciphertext}")
                 }
             }
             Self::Asymmetric { ciphertext } => {
-                let ciphertext = base64::encode(ciphertext);
+                let ciphertext = crate::base64::encode(ciphertext);
                 write!(f, "4.{ciphertext}")
             }
         }
@@ -269,4 +263,30 @@ fn random_iv() -> Vec<u8> {
     let mut rng = rand::thread_rng();
     rng.fill_bytes(&mut iv);
     iv
+}
+
+// XXX this should ideally just be block_padding::Pkcs7::unpad, but i can't
+// figure out how to get the generic types to work out
+fn pkcs7_unpad(b: &[u8]) -> Option<&[u8]> {
+    if b.is_empty() {
+        return None;
+    }
+
+    let padding_val = b[b.len() - 1];
+    if padding_val == 0 {
+        return None;
+    }
+
+    let padding_len = usize::from(padding_val);
+    if padding_len > b.len() {
+        return None;
+    }
+
+    for c in b.iter().copied().skip(b.len() - padding_len) {
+        if c != padding_val {
+            return None;
+        }
+    }
+
+    Some(&b[..b.len() - padding_len])
 }

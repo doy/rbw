@@ -653,7 +653,7 @@ impl Client {
         let connect_req = ConnectPasswordReq {
             grant_type: "password".to_string(),
             username: email.to_string(),
-            password: Some(base64::encode(password_hash.hash())),
+            password: Some(crate::base64::encode(password_hash.hash())),
             scope: "api offline_access".to_string(),
             client_id: "desktop".to_string(),
             client_secret: None,
@@ -674,7 +674,7 @@ impl Client {
             .form(&connect_req)
             .header(
                 "auth-email",
-                base64::encode_config(email, base64::URL_SAFE_NO_PAD),
+                crate::base64::encode_url_safe_no_pad(email),
             )
             .send()
             .await

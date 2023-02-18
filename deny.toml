@@ -18,7 +18,7 @@ skip = [
 ]
 
 [licenses]
-allow = ["MIT", "BSD-3-Clause", "Apache-2.0", "ISC"]
+allow = ["MIT", "BSD-3-Clause", "Apache-2.0", "ISC", "Unicode-DFS-2016"]
 copyleft = "deny"
 exceptions = [
     { name = "ring", allow = ["OpenSSL", "MIT", "ISC"] }
