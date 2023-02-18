@@ -288,9 +288,11 @@ fn main() {
         env_logger::Env::default().default_filter_or("info"),
     )
     .format(|buf, record| {
-        if let Some((w, _)) = term_size::dimensions() {
+        if let Some((terminal_size::Width(w), _)) =
+            terminal_size::terminal_size()
+        {
             let out = format!("{}: {}", record.level(), record.args());
-            writeln!(buf, "{}", textwrap::fill(&out, w - 1))
+            writeln!(buf, "{}", textwrap::fill(&out, usize::from(w) - 1))
         } else {
             writeln!(buf, "{}: {}", record.level(), record.args())
         }

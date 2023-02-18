@@ -46,7 +46,7 @@ serde_repr = "0.1.10"
 sha1 = "0.10.5"
 sha2 = "0.10.6"
 tempfile = "3.3.0"
-term_size = "0.3.2"
+terminal_size = "0.2.5"
 textwrap = "0.16.0"
 thiserror = "1.0.38"
 tokio = { version = "1.25.0", features = ["full"] }
