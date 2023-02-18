@@ -290,3 +290,25 @@ fn pkcs7_unpad(b: &[u8]) -> Option<&[u8]> {
 
     Some(&b[..b.len() - padding_len])
 }
+
+#[test]
+fn test_pkcs7_unpad() {
+    let tests = [
+        (&[][..], None),
+        (&[0x01][..], Some(&[][..])),
+        (&[0x02, 0x02][..], Some(&[][..])),
+        (&[0x03, 0x03, 0x03][..], Some(&[][..])),
+        (&[0x69, 0x01][..], Some(&[0x69][..])),
+        (&[0x69, 0x02, 0x02][..], Some(&[0x69][..])),
+        (&[0x69, 0x03, 0x03, 0x03][..], Some(&[0x69][..])),
+        (&[0x02][..], None),
+        (&[0x03][..], None),
+        (&[0x69, 0x69, 0x03, 0x03][..], None),
+        (&[0x00][..], None),
+        (&[0x02, 0x00][..], None),
+    ];
+    for (input, expected) in tests {
+        let got = pkcs7_unpad(input);
+        assert_eq!(got, expected);
+    }
+}
