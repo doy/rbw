@@ -34,18 +34,18 @@ pub async fn getpin(
         .map_err(|source| Error::WriteStdin { source })?;
     ncommands += 1;
     stdin
-        .write_all(format!("SETPROMPT {}\n", prompt).as_bytes())
+        .write_all(format!("SETPROMPT {prompt}\n").as_bytes())
         .await
         .map_err(|source| Error::WriteStdin { source })?;
     ncommands += 1;
     stdin
-        .write_all(format!("SETDESC {}\n", desc).as_bytes())
+        .write_all(format!("SETDESC {desc}\n").as_bytes())
         .await
         .map_err(|source| Error::WriteStdin { source })?;
     ncommands += 1;
     if let Some(err) = err {
         stdin
-            .write_all(format!("SETERROR {}\n", err).as_bytes())
+            .write_all(format!("SETERROR {err}\n").as_bytes())
             .await
             .map_err(|source| Error::WriteStdin { source })?;
         ncommands += 1;
@@ -77,15 +77,13 @@ pub async fn getpin(
     Ok(crate::locked::Password::new(buf))
 }
 
-async fn read_password<
-    R: tokio::io::AsyncRead + tokio::io::AsyncReadExt + Unpin,
->(
+async fn read_password<R>(
     mut ncommands: u8,
     data: &mut [u8],
     mut r: R,
 ) -> Result<usize>
 where
-    R: Send,
+    R: tokio::io::AsyncRead + tokio::io::AsyncReadExt + Unpin + Send,
 {
     let mut len = 0;
     loop {
@@ -120,7 +118,7 @@ where
                             });
                         }
                         return Err(Error::PinentryErrorMessage {
-                            error: format!("unknown error ({})", code),
+                            error: format!("unknown error ({code})"),
                         });
                     }
                     None => {

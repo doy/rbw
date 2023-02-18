@@ -247,18 +247,18 @@ impl std::fmt::Display for CipherString {
                 ciphertext,
                 mac,
             } => {
-                let iv = base64::encode(&iv);
-                let ciphertext = base64::encode(&ciphertext);
+                let iv = base64::encode(iv);
+                let ciphertext = base64::encode(ciphertext);
                 if let Some(mac) = &mac {
-                    let mac = base64::encode(&mac);
-                    write!(f, "2.{}|{}|{}", iv, ciphertext, mac)
+                    let mac = base64::encode(mac);
+                    write!(f, "2.{iv}|{ciphertext}|{mac}")
                 } else {
-                    write!(f, "2.{}|{}", iv, ciphertext)
+                    write!(f, "2.{iv}|{ciphertext}")
                 }
             }
             Self::Asymmetric { ciphertext } => {
-                let ciphertext = base64::encode(&ciphertext);
-                write!(f, "4.{}", ciphertext)
+                let ciphertext = base64::encode(ciphertext);
+                write!(f, "4.{ciphertext}")
             }
         }
     }

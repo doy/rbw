@@ -15,10 +15,9 @@ pub struct State {
 
 impl State {
     pub fn key(&self, org_id: Option<&str>) -> Option<&rbw::locked::Keys> {
-        match org_id {
-            Some(id) => self.org_keys.as_ref().and_then(|h| h.get(id)),
-            None => self.priv_key.as_ref(),
-        }
+        org_id.map_or(self.priv_key.as_ref(), |id| {
+            self.org_keys.as_ref().and_then(|h| h.get(id))
+        })
     }
 
     pub fn needs_unlock(&self) -> bool {
@@ -94,7 +93,7 @@ impl Agent {
                         if let Err(e) = res {
                             // unwrap is the only option here
                             sock.send(&rbw::protocol::Response::Error {
-                                error: format!("{:#}", e),
+                                error: format!("{e:#}"),
                             }).await.unwrap();
                         }
                     });

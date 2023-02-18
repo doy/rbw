@@ -78,7 +78,7 @@ fn main() {
 
     if let Err(e) = res {
         // XXX log file?
-        eprintln!("{:#}", e);
+        eprintln!("{e:#}");
         std::process::exit(1);
     }
 }

@@ -49,7 +49,7 @@ pub fn db_file(server: &str, email: &str) -> std::path::PathBuf {
     let server =
         percent_encoding::percent_encode(server.as_bytes(), INVALID_PATH)
             .to_string();
-    cache_dir().join(format!("{}:{}.json", server, email))
+    cache_dir().join(format!("{server}:{email}.json"))
 }
 
 #[must_use]
@@ -102,22 +102,24 @@ fn data_dir() -> std::path::PathBuf {
 fn runtime_dir() -> std::path::PathBuf {
     let project_dirs =
         directories::ProjectDirs::from("", "", &profile()).unwrap();
-    match project_dirs.runtime_dir() {
-        Some(dir) => dir.to_path_buf(),
-        None => format!(
-            "{}/{}-{}",
-            std::env::temp_dir().to_string_lossy(),
-            &profile(),
-            nix::unistd::getuid().as_raw()
-        )
-        .into(),
-    }
+    project_dirs.runtime_dir().map_or_else(
+        || {
+            format!(
+                "{}/{}-{}",
+                std::env::temp_dir().to_string_lossy(),
+                &profile(),
+                nix::unistd::getuid().as_raw()
+            )
+            .into()
+        },
+        std::path::Path::to_path_buf,
+    )
 }
 
 #[must_use]
 pub fn profile() -> String {
     match std::env::var("RBW_PROFILE") {
-        Ok(profile) if !profile.is_empty() => format!("rbw-{}", profile),
+        Ok(profile) if !profile.is_empty() => format!("rbw-{profile}"),
         _ => "rbw".to_string(),
     }
 }

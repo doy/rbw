@@ -53,7 +53,7 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
         (editor, editor_args)
     };
 
-    let res = std::process::Command::new(&cmd).args(&args).status();
+    let res = std::process::Command::new(cmd).args(&args).status();
     match res {
         Ok(res) => {
             if !res.success() {
@@ -81,8 +81,6 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
 }
 
 fn contains_shell_metacharacters(cmd: &std::ffi::OsStr) -> bool {
-    match cmd.to_str() {
-        Some(s) => s.contains(&[' ', '$', '\'', '"'][..]),
-        None => false,
-    }
+    cmd.to_str()
+        .map_or(false, |s| s.contains(&[' ', '$', '\'', '"'][..]))
 }

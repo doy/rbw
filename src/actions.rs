@@ -2,8 +2,11 @@ use crate::prelude::*;
 
 fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
     let config = crate::config::Config::load()?;
-    let client =
-        crate::api::Client::new(&config.base_url(), &config.identity_url(), &config.client_cert_path());
+    let client = crate::api::Client::new(
+        &config.base_url(),
+        &config.identity_url(),
+        &config.client_cert_path(),
+    );
     Ok((client, config))
 }
 

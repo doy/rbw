@@ -398,7 +398,7 @@ fn main(opt: Opt) {
     .context(format!("rbw {}", opt.subcommand_name()));
 
     if let Err(e) = res {
-        eprintln!("{:#}", e);
+        eprintln!("{e:#}");
         std::process::exit(1);
     }
 }

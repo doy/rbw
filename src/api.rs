@@ -42,7 +42,7 @@ impl std::fmt::Display for UriMatchType {
             RegularExpression => "regular_expression",
             Never => "never",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -114,7 +114,7 @@ impl std::convert::TryFrom<u64> for TwoFactorProviderType {
             6 => Ok(Self::OrganizationDuo),
             7 => Ok(Self::WebAuthn),
             _ => Err(Error::InvalidTwoFactorProvider {
-                ty: format!("{}", ty),
+                ty: format!("{ty}"),
             }),
         }
     }
@@ -559,7 +559,11 @@ pub struct Client {
 
 impl Client {
     #[must_use]
-    pub fn new(base_url: &str, identity_url: &str, client_cert_path: &str) -> Self {
+    pub fn new(
+        base_url: &str,
+        identity_url: &str,
+        client_cert_path: &str,
+    ) -> Self {
         Self {
             base_url: base_url.to_string(),
             identity_url: identity_url.to_string(),
@@ -568,15 +572,20 @@ impl Client {
     }
 
     fn reqwest_client(&self) -> reqwest::Client {
-        return if self.client_cert_path == "" {
+        if self.client_cert_path.is_empty() {
             reqwest::Client::new()
         } else {
             let mut buf = Vec::new();
-            let mut f = File::open(self.client_cert_path.to_string()).expect("cert not found");
+            let mut f =
+                File::open(&self.client_cert_path).expect("cert not found");
             f.read_to_end(&mut buf).expect("cert read failed");
-            let pem = reqwest::Identity::from_pem(&buf).expect("invalid cert");
-            reqwest::Client::builder().identity(pem).build().expect("wtv")
-        };
+            let pem =
+                reqwest::Identity::from_pem(&buf).expect("invalid cert");
+            reqwest::Client::builder()
+                .identity(pem)
+                .build()
+                .expect("wtv")
+        }
     }
 
     pub async fn prelogin(&self, email: &str) -> Result<u32> {
@@ -614,7 +623,7 @@ impl Client {
             device_type: 8,
             device_identifier: device_id.to_string(),
             device_name: "rbw".to_string(),
-            device_push_token: "".to_string(),
+            device_push_token: String::new(),
             two_factor_token: None,
             two_factor_provider: None,
         };
@@ -651,7 +660,7 @@ impl Client {
             device_type: 8,
             device_identifier: device_id.to_string(),
             device_name: "rbw".to_string(),
-            device_push_token: "".to_string(),
+            device_push_token: String::new(),
             two_factor_token: two_factor_token
                 .map(std::string::ToString::to_string),
             // enum casts are safe, and i don't think there's a better way to
@@ -696,7 +705,7 @@ impl Client {
         let client = self.reqwest_client();
         let res = client
             .get(&self.api_url("/sync"))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
@@ -837,8 +846,8 @@ impl Client {
         }
         let client = reqwest::blocking::Client::new();
         let res = client
-            .post(&self.api_url("/ciphers"))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .post(self.api_url("/ciphers"))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
@@ -970,8 +979,8 @@ impl Client {
         }
         let client = reqwest::blocking::Client::new();
         let res = client
-            .put(&self.api_url(&format!("/ciphers/{}", id)))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .put(self.api_url(&format!("/ciphers/{id}")))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
@@ -989,8 +998,8 @@ impl Client {
     pub fn remove(&self, access_token: &str, id: &str) -> Result<()> {
         let client = reqwest::blocking::Client::new();
         let res = client
-            .delete(&self.api_url(&format!("/ciphers/{}", id)))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .delete(self.api_url(&format!("/ciphers/{id}")))
+            .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
@@ -1010,8 +1019,8 @@ impl Client {
     ) -> Result<Vec<(String, String)>> {
         let client = reqwest::blocking::Client::new();
         let res = client
-            .get(&self.api_url("/folders"))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .get(self.api_url("/folders"))
+            .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .map_err(|source| Error::Reqwest { source })?;
         match res.status() {
@@ -1042,8 +1051,8 @@ impl Client {
         };
         let client = reqwest::blocking::Client::new();
         let res = client
-            .post(&self.api_url("/folders"))
-            .header("Authorization", format!("Bearer {}", access_token))
+            .post(self.api_url("/folders"))
+            .header("Authorization", format!("Bearer {access_token}"))
             .json(&req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
@@ -1072,7 +1081,7 @@ impl Client {
         };
         let client = reqwest::blocking::Client::new();
         let res = client
-            .post(&self.identity_url("/connect/token"))
+            .post(self.identity_url("/connect/token"))
             .form(&connect_req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;

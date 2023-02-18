@@ -152,8 +152,7 @@ impl Config {
 
     #[must_use]
     pub fn client_cert_path(&self) -> String {
-        self.client_cert_path.clone()
-            .unwrap_or_else(|| "".to_string())
+        self.client_cert_path.clone().unwrap_or_default()
     }
 
     #[must_use]

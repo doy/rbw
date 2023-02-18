@@ -10,9 +10,8 @@ pub async fn register(
         let url_str = config_base_url().await?;
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
-        let host = if let Some(host) = url.host_str() {
-            host
-        } else {
+        let Some(host) = url.host_str()
+        else {
             return Err(anyhow::anyhow!(
                 "couldn't find host in rbw base url {}",
                 url_str
@@ -33,7 +32,7 @@ pub async fn register(
             let client_id = rbw::pinentry::getpin(
                 &config_pinentry().await?,
                 "API key client__id",
-                &format!("Log in to {}", host),
+                &format!("Log in to {host}"),
                 err.as_deref(),
                 tty,
                 false,
@@ -43,7 +42,7 @@ pub async fn register(
             let client_secret = rbw::pinentry::getpin(
                 &config_pinentry().await?,
                 "API key client__secret",
-                &format!("Log in to {}", host),
+                &format!("Log in to {host}"),
                 err.as_deref(),
                 tty,
                 false,
@@ -89,9 +88,8 @@ pub async fn login(
         let url_str = config_base_url().await?;
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
-        let host = if let Some(host) = url.host_str() {
-            host
-        } else {
+        let Some(host) = url.host_str()
+        else {
             return Err(anyhow::anyhow!(
                 "couldn't find host in rbw base url {}",
                 url_str
@@ -112,7 +110,7 @@ pub async fn login(
             let password = rbw::pinentry::getpin(
                 &config_pinentry().await?,
                 "Master Password",
-                &format!("Log in to {}", host),
+                &format!("Log in to {host}"),
                 err.as_deref(),
                 tty,
                 true,
@@ -292,14 +290,12 @@ async fn login_success(
     sync(sock, false).await?;
     let db = load_db().await?;
 
-    let protected_private_key =
-        if let Some(protected_private_key) = db.protected_private_key {
-            protected_private_key
-        } else {
-            return Err(anyhow::anyhow!(
-                "failed to find protected private key in db"
-            ));
-        };
+    let Some(protected_private_key) = db.protected_private_key
+    else {
+        return Err(anyhow::anyhow!(
+            "failed to find protected private key in db"
+        ));
+    };
 
     let res = rbw::actions::unlock(
         &email,
@@ -330,28 +326,24 @@ pub async fn unlock(
     if state.read().await.needs_unlock() {
         let db = load_db().await?;
 
-        let iterations = if let Some(iterations) = db.iterations {
-            iterations
-        } else {
+        let Some(iterations) = db.iterations
+        else {
             return Err(anyhow::anyhow!(
                 "failed to find number of iterations in db"
             ));
         };
-        let protected_key = if let Some(protected_key) = db.protected_key {
-            protected_key
-        } else {
+        let Some(protected_key) = db.protected_key
+        else {
             return Err(anyhow::anyhow!(
                 "failed to find protected key in db"
             ));
         };
-        let protected_private_key =
-            if let Some(protected_private_key) = db.protected_private_key {
-                protected_private_key
-            } else {
-                return Err(anyhow::anyhow!(
-                    "failed to find protected private key in db"
-                ));
-            };
+        let Some(protected_private_key) = db.protected_private_key
+        else {
+            return Err(anyhow::anyhow!(
+                "failed to find protected private key in db"
+            ));
+        };
 
         let email = config_email().await?;
 
@@ -367,7 +359,10 @@ pub async fn unlock(
             let password = rbw::pinentry::getpin(
                 &config_pinentry().await?,
                 "Master Password",
-                &format!("Unlock the local database for '{}'", rbw::dirs::profile()),
+                &format!(
+                    "Unlock the local database for '{}'",
+                    rbw::dirs::profile()
+                ),
                 err.as_deref(),
                 tty,
                 true,
@@ -487,9 +482,8 @@ pub async fn decrypt(
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.read().await;
-    let keys = if let Some(keys) = state.key(org_id) {
-        keys
-    } else {
+    let Some(keys) = state.key(org_id)
+    else {
         return Err(anyhow::anyhow!(
             "failed to find decryption keys in in-memory state"
         ));
@@ -515,9 +509,8 @@ pub async fn encrypt(
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.read().await;
-    let keys = if let Some(keys) = state.key(org_id) {
-        keys
-    } else {
+    let Some(keys) = state.key(org_id)
+    else {
         return Err(anyhow::anyhow!(
             "failed to find encryption keys in in-memory state"
         ));
