@@ -79,32 +79,45 @@ pub fn socket_file() -> std::path::PathBuf {
 
 #[must_use]
 fn config_dir() -> std::path::PathBuf {
-    let project_dirs = directories::ProjectDirs::from("", "", "rbw").unwrap();
+    let project_dirs =
+        directories::ProjectDirs::from("", "", &profile()).unwrap();
     project_dirs.config_dir().to_path_buf()
 }
 
 #[must_use]
 fn cache_dir() -> std::path::PathBuf {
-    let project_dirs = directories::ProjectDirs::from("", "", "rbw").unwrap();
+    let project_dirs =
+        directories::ProjectDirs::from("", "", &profile()).unwrap();
     project_dirs.cache_dir().to_path_buf()
 }
 
 #[must_use]
 fn data_dir() -> std::path::PathBuf {
-    let project_dirs = directories::ProjectDirs::from("", "", "rbw").unwrap();
+    let project_dirs =
+        directories::ProjectDirs::from("", "", &profile()).unwrap();
     project_dirs.data_dir().to_path_buf()
 }
 
 #[must_use]
 fn runtime_dir() -> std::path::PathBuf {
-    let project_dirs = directories::ProjectDirs::from("", "", "rbw").unwrap();
+    let project_dirs =
+        directories::ProjectDirs::from("", "", &profile()).unwrap();
     match project_dirs.runtime_dir() {
         Some(dir) => dir.to_path_buf(),
         None => format!(
-            "{}/rbw-{}",
+            "{}/{}-{}",
             std::env::temp_dir().to_string_lossy(),
+            &profile(),
             nix::unistd::getuid().as_raw()
         )
         .into(),
+    }
+}
+
+#[must_use]
+pub fn profile() -> String {
+    match std::env::var("RBW_PROFILE") {
+        Ok(profile) if !profile.is_empty() => format!("rbw-{}", profile),
+        _ => "rbw".to_string(),
     }
 }

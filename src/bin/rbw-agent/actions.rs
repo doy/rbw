@@ -367,7 +367,7 @@ pub async fn unlock(
             let password = rbw::pinentry::getpin(
                 &config_pinentry().await?,
                 "Master Password",
-                "Unlock the local database",
+                &format!("Unlock the local database for '{}'", rbw::dirs::profile()),
                 err.as_deref(),
                 tty,
                 true,
