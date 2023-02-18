@@ -75,6 +75,8 @@ enum Opt {
         user: Option<String>,
         #[structopt(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[structopt(short, long, help = "Field to get")]
+        field: Option<String>,
         #[structopt(
             long,
             help = "Display the notes in addition to the password"
@@ -317,8 +319,15 @@ fn main(opt: Opt) {
             name,
             user,
             folder,
+            field,
             full,
-        } => commands::get(name, user.as_deref(), folder.as_deref(), *full),
+        } => commands::get(
+            name,
+            user.as_deref(),
+            folder.as_deref(),
+            field.as_deref(),
+            *full,
+        ),
         Opt::Code { name, user, folder } => {
             commands::code(name, user.as_deref(), folder.as_deref())
         }
