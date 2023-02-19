@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0] - 2023-02-18
+
+### Added
+
+* Support for authenticating to self-hosted Bitwarden servers using client
+  certificates (#92, Filipe Pina)
+* Support multiple independent profiles via the `RBW_PROFILE` environment
+  variable (#93, Skia)
+* Add `rbw get --field` (#95, Jericho Keyne)
+
+### Fixed
+
+* Don't panic when not all stdout is read (#82, witcher)
+* Fixed duplicated alias names in help output (#46)
+
 ## [1.4.3] - 2022-02-10
 
 ### Fixed
