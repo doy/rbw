@@ -106,7 +106,6 @@ impl<'de> serde::Deserialize<'de> for Uri {
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
 )]
-#[allow(clippy::large_enum_variant)]
 pub enum EntryData {
     Login {
         username: Option<String>,

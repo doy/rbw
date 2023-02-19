@@ -514,7 +514,6 @@ impl DecryptedCipher {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
-#[allow(clippy::large_enum_variant)]
 enum DecryptedData {
     Login {
         username: Option<String>,
@@ -1252,8 +1251,6 @@ fn check_config() -> anyhow::Result<()> {
 
 fn version_or_quit() -> anyhow::Result<u32> {
     crate::actions::version().map_err(|e| {
-        // https://github.com/rust-lang/rust-clippy/issues/8003
-        #[allow(let_underscore_drop)]
         let _ = crate::actions::quit();
         e
     })

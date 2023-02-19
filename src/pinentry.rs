@@ -160,7 +160,6 @@ fn percent_decode(buf: &mut [u8]) -> usize {
 
         if c == b'%' && read_idx + 2 < len {
             if let Some(h) = char::from(buf[read_idx + 1]).to_digit(16) {
-                #[allow(clippy::cast_possible_truncation)]
                 if let Some(l) = char::from(buf[read_idx + 2]).to_digit(16) {
                     // h and l were parsed from a single hex digit, so they
                     // must be in the range 0-15, so these unwraps are safe

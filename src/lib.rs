@@ -11,6 +11,7 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
 #![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::large_enum_variant)]
 // we aren't really documenting apis anyway
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]

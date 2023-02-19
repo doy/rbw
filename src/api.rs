@@ -678,9 +678,6 @@ impl Client {
             device_push_token: String::new(),
             two_factor_token: two_factor_token
                 .map(std::string::ToString::to_string),
-            // enum casts are safe, and i don't think there's a better way to
-            // write it without some explicit impls
-            #[allow(clippy::as_conversions)]
             two_factor_provider: two_factor_provider.map(|ty| ty as u32),
         };
         let client = self.reqwest_client().await?;

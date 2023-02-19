@@ -1,6 +1,3 @@
-// https://github.com/rust-lang/rust-clippy/issues/6902
-#![allow(clippy::use_self)]
-
 // eventually it would be nice to make this a const function so that we could
 // just get the version from a variable directly, but this is fine for now
 #[must_use]

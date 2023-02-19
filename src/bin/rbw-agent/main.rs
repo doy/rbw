@@ -11,6 +11,7 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
 #![allow(clippy::multiple_crate_versions)]
+#![allow(clippy::large_enum_variant)]
 
 use anyhow::Context as _;
 
