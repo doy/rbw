@@ -55,7 +55,7 @@ pub fn daemonize() -> anyhow::Result<StartupAck> {
                     // this case and not error out
                     std::process::exit(23);
                 }
-                _ => panic!("failed to daemonize: {}", e),
+                _ => panic!("failed to daemonize: {e}"),
             }
         }
     }
