@@ -12,7 +12,7 @@ pub struct Config {
     pub lock_timeout: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
-    pub client_cert_path: Option<String>,
+    pub client_cert_path: Option<std::path::PathBuf>,
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
@@ -151,8 +151,8 @@ impl Config {
     }
 
     #[must_use]
-    pub fn client_cert_path(&self) -> String {
-        self.client_cert_path.clone().unwrap_or_default()
+    pub fn client_cert_path(&self) -> Option<&std::path::Path> {
+        self.client_cert_path.as_deref()
     }
 
     #[must_use]

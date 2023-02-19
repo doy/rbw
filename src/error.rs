@@ -118,6 +118,18 @@ pub enum Error {
         file: std::path::PathBuf,
     },
 
+    #[error("failed to load client cert from {}", .file.display())]
+    LoadClientCert {
+        source: tokio::io::Error,
+        file: std::path::PathBuf,
+    },
+
+    #[error("failed to load client cert from {}", .file.display())]
+    LoadClientCertReqwest {
+        source: reqwest::Error,
+        file: std::path::PathBuf,
+    },
+
     #[error("invalid padding")]
     Padding,
 

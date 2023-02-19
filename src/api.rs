@@ -8,8 +8,7 @@ use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
 
-use std::fs::File;
-use std::io::Read;
+use tokio::io::AsyncReadExt as _;
 
 #[derive(
     serde_repr::Serialize_repr,
@@ -554,7 +553,7 @@ struct FoldersPostReq {
 pub struct Client {
     base_url: String,
     identity_url: String,
-    client_cert_path: String,
+    client_cert_path: Option<std::path::PathBuf>,
 }
 
 impl Client {
@@ -562,29 +561,45 @@ impl Client {
     pub fn new(
         base_url: &str,
         identity_url: &str,
-        client_cert_path: &str,
+        client_cert_path: Option<&std::path::Path>,
     ) -> Self {
         Self {
             base_url: base_url.to_string(),
             identity_url: identity_url.to_string(),
-            client_cert_path: client_cert_path.to_string(),
+            client_cert_path: client_cert_path
+                .map(std::path::Path::to_path_buf),
         }
     }
 
-    fn reqwest_client(&self) -> reqwest::Client {
-        if self.client_cert_path.is_empty() {
-            reqwest::Client::new()
-        } else {
+    async fn reqwest_client(&self) -> Result<reqwest::Client> {
+        if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
-            let mut f =
-                File::open(&self.client_cert_path).expect("cert not found");
-            f.read_to_end(&mut buf).expect("cert read failed");
-            let pem =
-                reqwest::Identity::from_pem(&buf).expect("invalid cert");
-            reqwest::Client::builder()
-                .identity(pem)
-                .build()
-                .expect("wtv")
+            let mut f = tokio::fs::File::open(client_cert_path)
+                .await
+                .map_err(|e| Error::LoadClientCert {
+                    source: e,
+                    file: client_cert_path.clone(),
+                })?;
+            f.read_to_end(&mut buf).await.map_err(|e| {
+                Error::LoadClientCert {
+                    source: e,
+                    file: client_cert_path.clone(),
+                }
+            })?;
+            let pem = reqwest::Identity::from_pem(&buf).map_err(|e| {
+                Error::LoadClientCertReqwest {
+                    source: e,
+                    file: client_cert_path.clone(),
+                }
+            })?;
+            Ok(reqwest::Client::builder().identity(pem).build().map_err(
+                |e| Error::LoadClientCertReqwest {
+                    source: e,
+                    file: client_cert_path.clone(),
+                },
+            )?)
+        } else {
+            Ok(reqwest::Client::new())
         }
     }
 
@@ -592,7 +607,7 @@ impl Client {
         let prelogin = PreloginReq {
             email: email.to_string(),
         };
-        let client = self.reqwest_client();
+        let client = self.reqwest_client().await?;
         let res = client
             .post(&self.api_url("/accounts/prelogin"))
             .json(&prelogin)
@@ -627,7 +642,7 @@ impl Client {
             two_factor_token: None,
             two_factor_provider: None,
         };
-        let client = self.reqwest_client();
+        let client = self.reqwest_client().await?;
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
@@ -668,7 +683,7 @@ impl Client {
             #[allow(clippy::as_conversions)]
             two_factor_provider: two_factor_provider.map(|ty| ty as u32),
         };
-        let client = self.reqwest_client();
+        let client = self.reqwest_client().await?;
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
@@ -702,7 +717,7 @@ impl Client {
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
     )> {
-        let client = self.reqwest_client();
+        let client = self.reqwest_client().await?;
         let res = client
             .get(&self.api_url("/sync"))
             .header("Authorization", format!("Bearer {access_token}"))
@@ -1098,7 +1113,7 @@ impl Client {
             client_id: "desktop".to_string(),
             refresh_token: refresh_token.to_string(),
         };
-        let client = self.reqwest_client();
+        let client = self.reqwest_client().await?;
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)

@@ -5,7 +5,7 @@ fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
     let client = crate::api::Client::new(
         &config.base_url(),
         &config.identity_url(),
-        &config.client_cert_path(),
+        config.client_cert_path(),
     );
     Ok((client, config))
 }

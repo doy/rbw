@@ -617,7 +617,8 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
         "base_url" => config.base_url = Some(value.to_string()),
         "identity_url" => config.identity_url = Some(value.to_string()),
         "client_cert_path" => {
-            config.client_cert_path = Some(value.to_string());
+            config.client_cert_path =
+                Some(std::path::PathBuf::from(value.to_string()));
         }
         "lock_timeout" => {
             let timeout = value
