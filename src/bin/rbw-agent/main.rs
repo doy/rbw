@@ -10,6 +10,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
+#![allow(clippy::multiple_crate_versions)]
 
 use anyhow::Context as _;
 
