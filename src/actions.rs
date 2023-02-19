@@ -1,20 +1,10 @@
 use crate::prelude::*;
 
-fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
-    let config = crate::config::Config::load()?;
-    let client = crate::api::Client::new(
-        &config.base_url(),
-        &config.identity_url(),
-        config.client_cert_path(),
-    );
-    Ok((client, config))
-}
-
 pub async fn register(
     email: &str,
     apikey: crate::locked::ApiKey,
 ) -> Result<()> {
-    let (client, config) = api_client()?;
+    let (client, config) = api_client_async().await?;
 
     client
         .register(email, &crate::config::device_id(&config).await?, &apikey)
@@ -29,7 +19,7 @@ pub async fn login(
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
 ) -> Result<(String, String, u32, String)> {
-    let (client, config) = api_client()?;
+    let (client, config) = api_client_async().await?;
     let iterations = client.prelogin(email).await?;
     let identity =
         crate::identity::Identity::new(email, &password, iterations)?;
@@ -126,7 +116,7 @@ async fn sync_once(
     std::collections::HashMap<String, String>,
     Vec<crate::db::Entry>,
 )> {
-    let (client, _) = api_client()?;
+    let (client, _) = api_client_async().await?;
     client.sync(access_token).await
 }
 
@@ -302,4 +292,25 @@ fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
 async fn exchange_refresh_token_async(refresh_token: &str) -> Result<String> {
     let (client, _) = api_client()?;
     client.exchange_refresh_token_async(refresh_token).await
+}
+
+fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
+    let config = crate::config::Config::load()?;
+    let client = crate::api::Client::new(
+        &config.base_url(),
+        &config.identity_url(),
+        config.client_cert_path(),
+    );
+    Ok((client, config))
+}
+
+async fn api_client_async(
+) -> Result<(crate::api::Client, crate::config::Config)> {
+    let config = crate::config::Config::load_async().await?;
+    let client = crate::api::Client::new(
+        &config.base_url(),
+        &config.identity_url(),
+        config.client_cert_path(),
+    );
+    Ok((client, config))
 }
