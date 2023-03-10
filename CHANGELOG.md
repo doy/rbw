@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0] - 2023-03-09
+
+### Added
+
+* `rbw get` now supports a `--raw` option to display the entire contents of
+  the entry in JSON format (#97, classabbyamp)
+
 ## [1.5.0] - 2023-02-18
 
 ### Added
