@@ -24,7 +24,8 @@ impl Identity {
             email.as_bytes(),
             iterations.get(),
             enc_key,
-        );
+        )
+        .map_err(|_| Error::Pbkdf2)?;
 
         let mut hash = crate::locked::Vec::new();
         hash.extend(std::iter::repeat(0).take(32));
@@ -33,7 +34,8 @@ impl Identity {
             password.password(),
             1,
             hash.data_mut(),
-        );
+        )
+        .map_err(|_| Error::Pbkdf2)?;
 
         let hkdf = hkdf::Hkdf::<sha2::Sha256>::from_prk(enc_key)
             .map_err(|_| Error::HkdfExpand)?;

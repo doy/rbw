@@ -139,6 +139,9 @@ pub enum Error {
     #[error("pbkdf2 requires at least 1 iteration (got 0)")]
     Pbkdf2ZeroIterations,
 
+    #[error("failed to run pbkdf2")]
+    Pbkdf2,
+
     #[error("pinentry cancelled")]
     PinentryCancelled,
 

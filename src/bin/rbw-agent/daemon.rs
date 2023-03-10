@@ -30,32 +30,37 @@ pub fn daemonize() -> anyhow::Result<StartupAck> {
         .open(rbw::dirs::agent_stderr_file())?;
 
     let (r, w) = nix::unistd::pipe()?;
-    let res = daemonize::Daemonize::new()
+    let daemonize = daemonize::Daemonize::new()
         .pid_file(rbw::dirs::pid_file())
         .stdout(stdout)
-        .stderr(stderr)
-        .exit_action(move || {
+        .stderr(stderr);
+    let res = match daemonize.execute() {
+        daemonize::Outcome::Parent(_) => {
             // unwraps are necessary because not really a good way to handle
             // errors here otherwise
             let _ = nix::unistd::close(w);
             let mut buf = [0; 1];
             nix::unistd::read(r, &mut buf).unwrap();
             nix::unistd::close(r).unwrap();
-        })
-        .start();
+            std::process::exit(0);
+        }
+        daemonize::Outcome::Child(res) => res,
+    };
+
     let _ = nix::unistd::close(r);
 
     match res {
         Ok(_) => (),
         Err(e) => {
-            match e {
-                daemonize::DaemonizeError::LockPidfile(_) => {
-                    // this means that there is already an agent running, so
-                    // return a special exit code to allow the cli to detect
-                    // this case and not error out
-                    std::process::exit(23);
-                }
-                _ => panic!("failed to daemonize: {e}"),
+            // XXX super gross, but daemonize removed the ability to match
+            // on specific error types for some reason?
+            if e.to_string().contains("unable to lock pid file") {
+                // this means that there is already an agent running, so
+                // return a special exit code to allow the cli to detect
+                // this case and not error out
+                std::process::exit(23);
+            } else {
+                panic!("failed to daemonize: {e}");
             }
         }
     }
