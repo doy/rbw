@@ -1,7 +1,7 @@
 use anyhow::Context as _;
+use serde::Serialize;
 use std::io;
 use std::io::prelude::Write;
-use serde::Serialize;
 
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
@@ -791,8 +791,8 @@ pub fn get(
         decrypted.display_json(&desc)?;
     } else if full {
         decrypted.display_long(&desc);
-    } else if field.is_some() {
-        decrypted.display_field(&desc, field.unwrap());
+    } else if let Some(field) = field {
+        decrypted.display_field(&desc, field);
     } else {
         decrypted.display_short(&desc);
     }
