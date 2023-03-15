@@ -366,7 +366,7 @@ pub async fn unlock(
         let Some(iterations) = db.iterations
         else {
             return Err(anyhow::anyhow!(
-                "failed to find iterations in db"
+                "failed to find number of iterations in db"
             ));
         };
 
