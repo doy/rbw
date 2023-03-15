@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, api::KdfType};
 
 pub async fn register(
     email: &str,
@@ -18,7 +18,7 @@ pub async fn login(
     password: crate::locked::Password,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
-) -> Result<(String, String, u32, u32, Option<u32>, Option<u32>, String)> {
+) -> Result<(String, String, KdfType, u32, Option<u32>, Option<u32>, String)> {
     let (client, config) = api_client_async().await?;
     let (kdf, iterations, memory, parallelism) = client.prelogin(email).await?;
 
@@ -40,7 +40,7 @@ pub async fn login(
 pub fn unlock<S: std::hash::BuildHasher>(
     email: &str,
     password: &crate::locked::Password,
-    kdf: u32,
+    kdf: KdfType,
     iterations: u32,
     memory: Option<u32>,
     parallelism: Option<u32>,

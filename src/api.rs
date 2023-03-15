@@ -170,7 +170,7 @@ struct PreloginReq {
 #[derive(serde::Deserialize, Debug)]
 struct PreloginRes {
     #[serde(rename = "Kdf", alias = "kdf")]
-    kdf: u32,
+    kdf: KdfType,
     #[serde(rename = "KdfIterations", alias = "kdfIterations")]
     kdf_iterations: u32,
     #[serde(rename = "KdfMemory", alias = "kdfMemory")]
@@ -634,7 +634,7 @@ impl Client {
         }
     }
 
-    pub async fn prelogin(&self, email: &str) -> Result<(u32, u32, Option<u32>, Option<u32>)> {
+    pub async fn prelogin(&self, email: &str) -> Result<(KdfType, u32, Option<u32>, Option<u32>)> {
         let prelogin = PreloginReq {
             email: email.to_string(),
         };
@@ -1217,4 +1217,95 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {:?}", error_res);
     Error::RequestFailed { status: code }
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum KdfType {
+    Pbkdf2 = 0,
+    Argon2id = 1,
+}
+
+impl<'de> serde::Deserialize<'de> for KdfType {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct KdfTypeVisitor;
+        impl<'de> serde::de::Visitor<'de> for KdfTypeVisitor {
+            type Value = KdfType;
+
+            fn expecting(
+                &self,
+                formatter: &mut std::fmt::Formatter,
+            ) -> std::fmt::Result {
+                formatter.write_str("two factor provider id")
+            }
+
+            fn visit_str<E>(
+                self,
+                value: &str,
+            ) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                value.parse().map_err(serde::de::Error::custom)
+            }
+
+            fn visit_u64<E>(
+                self,
+                value: u64,
+            ) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                std::convert::TryFrom::try_from(value)
+                    .map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_any(KdfTypeVisitor)
+    }
+}
+
+impl std::convert::TryFrom<u64> for KdfType {
+    type Error = Error;
+
+    fn try_from(ty: u64) -> Result<Self> {
+        match ty {
+            0 => Ok(Self::Pbkdf2),
+            1 => Ok(Self::Argon2id),
+            _ => Err(Error::InvalidTwoFactorProvider {
+                ty: format!("{ty}"),
+            }),
+        }
+    }
+}
+
+impl std::str::FromStr for KdfType {
+    type Err = Error;
+
+    fn from_str(ty: &str) -> Result<Self> {
+        match ty {
+            "0" => Ok(Self::Pbkdf2),
+            "1" => Ok(Self::Argon2id),
+            _ => Err(Error::InvalidTwoFactorProvider { ty: ty.to_string() }),
+        }
+    }
+}
+
+impl serde::Serialize for KdfType {
+    fn serialize<S>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = match self {
+            Self::Pbkdf2 => "0",
+            Self::Argon2id => "1",
+        };
+        serializer.serialize_str(s)
+    }
 }

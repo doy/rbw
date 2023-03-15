@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, api::KdfType};
 
 use std::io::{Read as _, Write as _};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -164,7 +164,7 @@ pub struct Db {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
 
-    pub kdf: Option<u32>,
+    pub kdf: Option<KdfType>,
     pub iterations: Option<u32>,
     pub memory: Option<u32>,
     pub parallelism: Option<u32>,

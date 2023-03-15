@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, api::KdfType};
 use sha2::Digest;
 extern crate argon2;
 use argon2::{Config, ThreadMode, Variant, Version};
@@ -13,7 +13,7 @@ impl Identity {
     pub fn new(
         email: &str,
         password: &crate::locked::Password,
-        kdf: u32,
+        kdf: KdfType,
         iterations: u32,
         memory: Option<u32>,
         parallelism: Option<u32>,
@@ -27,7 +27,7 @@ impl Identity {
         let enc_key = &mut keys.data_mut()[0..32];
 
         match kdf {
-            0 => {
+            KdfType::Pbkdf2 => {
                 pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
                     password.password(),
                     email.as_bytes(),
@@ -37,7 +37,7 @@ impl Identity {
                 .map_err(|_| Error::Pbkdf2)?;
             }
 
-            1 => {
+            KdfType::Argon2id => {
                 let mut hasher = sha2::Sha256::new();
                 hasher.update(email.as_bytes());
                 let salt = hasher.finalize();
@@ -55,9 +55,6 @@ impl Identity {
                 };
                 let hash = argon2::hash_raw(password.password(), &salt[..], &config).map_err(|_| Error::Argon2)?;
                 enc_key.copy_from_slice(&hash);
-            }
-            _ => {
-                // todo throw error or switch to enum?
             }
         };
         

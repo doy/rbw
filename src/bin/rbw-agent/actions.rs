@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use rbw::api::KdfType;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -217,7 +218,7 @@ async fn two_factor(
     email: &str,
     password: rbw::locked::Password,
     provider: rbw::api::TwoFactorProviderType,
-) -> anyhow::Result<(String, String, u32, u32, Option<u32>, Option<u32>, String)> {
+) -> anyhow::Result<(String, String, KdfType, u32, Option<u32>, Option<u32>, String)> {
     let mut err_msg = None;
     for i in 1_u8..=3 {
         let err = if i > 1 {
@@ -295,7 +296,7 @@ async fn login_success(
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     access_token: String,
     refresh_token: String,
-    kdf: u32,
+    kdf: KdfType,
     iterations: u32,
     memory: Option<u32>,
     parallelism: Option<u32>,
