@@ -1,4 +1,7 @@
 use crate::prelude::*;
+use sha2::Digest;
+extern crate argon2;
+use argon2::{Config, ThreadMode, Variant, Version};
 
 pub struct Identity {
     pub email: String,
@@ -10,7 +13,10 @@ impl Identity {
     pub fn new(
         email: &str,
         password: &crate::locked::Password,
+        kdf: u32,
         iterations: u32,
+        memory: Option<u32>,
+        parallelism: Option<u32>,
     ) -> Result<Self> {
         let iterations = std::num::NonZeroU32::new(iterations)
             .ok_or(Error::Pbkdf2ZeroIterations)?;
@@ -19,14 +25,42 @@ impl Identity {
         keys.extend(std::iter::repeat(0).take(64));
 
         let enc_key = &mut keys.data_mut()[0..32];
-        pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
-            password.password(),
-            email.as_bytes(),
-            iterations.get(),
-            enc_key,
-        )
-        .map_err(|_| Error::Pbkdf2)?;
 
+        match kdf {
+            0 => {
+                pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
+                    password.password(),
+                    email.as_bytes(),
+                    iterations.get(),
+                    enc_key,
+                )
+                .map_err(|_| Error::Pbkdf2)?;
+            }
+
+            1 => {
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(email.as_bytes());
+                let salt = hasher.finalize();
+
+                let config = Config {
+                    variant: Variant::Argon2id,
+                    version: Version::Version13,
+                    mem_cost: memory.unwrap() * 1024,
+                    time_cost: iterations.get(),
+                    lanes: parallelism.unwrap(),
+                    thread_mode: ThreadMode::Parallel,
+                    secret: &[],
+                    ad: &[],
+                    hash_length: 32
+                };
+                let hash = argon2::hash_raw(password.password(), &salt[..], &config).map_err(|_| Error::Argon2)?;
+                enc_key.copy_from_slice(&hash);
+            }
+            _ => {
+                // todo throw error or switch to enum?
+            }
+        };
+        
         let mut hash = crate::locked::Vec::new();
         hash.extend(std::iter::repeat(0).take(32));
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(

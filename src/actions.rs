@@ -18,11 +18,12 @@ pub async fn login(
     password: crate::locked::Password,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
-) -> Result<(String, String, u32, String)> {
+) -> Result<(String, String, u32, u32, Option<u32>, Option<u32>, String)> {
     let (client, config) = api_client_async().await?;
-    let iterations = client.prelogin(email).await?;
+    let (kdf, iterations, memory, parallelism) = client.prelogin(email).await?;
+
     let identity =
-        crate::identity::Identity::new(email, &password, iterations)?;
+        crate::identity::Identity::new(email, &password, kdf, iterations, memory, parallelism)?;
     let (access_token, refresh_token, protected_key) = client
         .login(
             email,
@@ -33,13 +34,16 @@ pub async fn login(
         )
         .await?;
 
-    Ok((access_token, refresh_token, iterations, protected_key))
+    Ok((access_token, refresh_token, kdf, iterations, memory, parallelism, protected_key))
 }
 
 pub fn unlock<S: std::hash::BuildHasher>(
     email: &str,
     password: &crate::locked::Password,
+    kdf: u32,
     iterations: u32,
+    memory: Option<u32>,
+    parallelism: Option<u32>,
     protected_key: &str,
     protected_private_key: &str,
     protected_org_keys: &std::collections::HashMap<String, String, S>,
@@ -48,7 +52,7 @@ pub fn unlock<S: std::hash::BuildHasher>(
     std::collections::HashMap<String, crate::locked::Keys>,
 )> {
     let identity =
-        crate::identity::Identity::new(email, password, iterations)?;
+        crate::identity::Identity::new(email, password, kdf, iterations, memory, parallelism)?;
 
     let protected_key =
         crate::cipherstring::CipherString::new(protected_key)?;

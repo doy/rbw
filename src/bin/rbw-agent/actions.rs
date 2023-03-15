@@ -123,7 +123,10 @@ pub async fn login(
                 Ok((
                     access_token,
                     refresh_token,
+                    kdf,
                     iterations,
+                    memory,
+                    parallelism,
                     protected_key,
                 )) => {
                     login_success(
@@ -131,7 +134,10 @@ pub async fn login(
                         state,
                         access_token,
                         refresh_token,
+                        kdf,
                         iterations,
+                        memory,
+                        parallelism,
                         protected_key,
                         password,
                         db,
@@ -151,7 +157,10 @@ pub async fn login(
                             let (
                                 access_token,
                                 refresh_token,
+                                kdf,
                                 iterations,
+                                memory,
+                                parallelism,
                                 protected_key,
                             ) = two_factor(
                                 tty,
@@ -165,7 +174,10 @@ pub async fn login(
                                 state,
                                 access_token,
                                 refresh_token,
+                                kdf,
                                 iterations,
+                                memory,
+                                parallelism,
                                 protected_key,
                                 password,
                                 db,
@@ -205,7 +217,7 @@ async fn two_factor(
     email: &str,
     password: rbw::locked::Password,
     provider: rbw::api::TwoFactorProviderType,
-) -> anyhow::Result<(String, String, u32, String)> {
+) -> anyhow::Result<(String, String, u32, u32, Option<u32>, Option<u32>, String)> {
     let mut err_msg = None;
     for i in 1_u8..=3 {
         let err = if i > 1 {
@@ -235,11 +247,14 @@ async fn two_factor(
         )
         .await
         {
-            Ok((access_token, refresh_token, iterations, protected_key)) => {
+            Ok((access_token, refresh_token, kdf, iterations, memory, parallelism, protected_key)) => {
                 return Ok((
                     access_token,
                     refresh_token,
+                    kdf,
                     iterations,
+                    memory,
+                    parallelism,
                     protected_key,
                 ))
             }
@@ -280,7 +295,10 @@ async fn login_success(
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     access_token: String,
     refresh_token: String,
+    kdf: u32,
     iterations: u32,
+    memory: Option<u32>,
+    parallelism: Option<u32>,
     protected_key: String,
     password: rbw::locked::Password,
     mut db: rbw::db::Db,
@@ -288,7 +306,10 @@ async fn login_success(
 ) -> anyhow::Result<()> {
     db.access_token = Some(access_token.to_string());
     db.refresh_token = Some(refresh_token.to_string());
+    db.kdf = Some(kdf);
     db.iterations = Some(iterations);
+    db.memory = memory;
+    db.parallelism = parallelism;
     db.protected_key = Some(protected_key.to_string());
     save_db(&db).await?;
 
@@ -305,7 +326,10 @@ async fn login_success(
     let res = rbw::actions::unlock(
         &email,
         &password,
+        kdf,
         iterations,
+        memory,
+        parallelism,
         &protected_key,
         &protected_private_key,
         &db.protected_org_keys,
@@ -331,12 +355,23 @@ pub async fn unlock(
     if state.read().await.needs_unlock() {
         let db = load_db().await?;
 
+        let Some(kdf) = db.kdf
+        else {
+            return Err(anyhow::anyhow!(
+                "failed to find kdf type in db"
+            ));
+        };
+
         let Some(iterations) = db.iterations
         else {
             return Err(anyhow::anyhow!(
-                "failed to find number of iterations in db"
+                "failed to find iterations in db"
             ));
         };
+
+        let memory= db.memory;
+        let parallelism = db.parallelism;
+
         let Some(protected_key) = db.protected_key
         else {
             return Err(anyhow::anyhow!(
@@ -377,7 +412,10 @@ pub async fn unlock(
             match rbw::actions::unlock(
                 &email,
                 &password,
+                kdf,
                 iterations,
+                memory,
+                parallelism,
                 &protected_key,
                 &protected_private_key,
                 &db.protected_org_keys,

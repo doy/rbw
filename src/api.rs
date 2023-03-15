@@ -169,8 +169,14 @@ struct PreloginReq {
 
 #[derive(serde::Deserialize, Debug)]
 struct PreloginRes {
+    #[serde(rename = "Kdf", alias = "kdf")]
+    kdf: u32,
     #[serde(rename = "KdfIterations", alias = "kdfIterations")]
     kdf_iterations: u32,
+    #[serde(rename = "KdfMemory", alias = "kdfMemory")]
+    kdf_memory: Option<u32>,
+    #[serde(rename = "KdfParallelism", alias = "kdfParallelism")]
+    kdf_parallelism: Option<u32>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -628,7 +634,7 @@ impl Client {
         }
     }
 
-    pub async fn prelogin(&self, email: &str) -> Result<u32> {
+    pub async fn prelogin(&self, email: &str) -> Result<(u32, u32, Option<u32>, Option<u32>)> {
         let prelogin = PreloginReq {
             email: email.to_string(),
         };
@@ -640,7 +646,7 @@ impl Client {
             .await
             .map_err(|source| Error::Reqwest { source })?;
         let prelogin_res: PreloginRes = res.json_with_path().await?;
-        Ok(prelogin_res.kdf_iterations)
+        Ok((prelogin_res.kdf, prelogin_res.kdf_iterations, prelogin_res.kdf_memory, prelogin_res.kdf_parallelism))
     }
 
     pub async fn register(

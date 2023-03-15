@@ -142,6 +142,9 @@ pub enum Error {
     #[error("failed to run pbkdf2")]
     Pbkdf2,
 
+    #[error("failed to run argon2")]
+    Argon2,
+
     #[error("pinentry cancelled")]
     PinentryCancelled,
 
@@ -224,6 +227,10 @@ pub enum Error {
 
     #[error("error writing to pinentry stdin")]
     WriteStdin { source: tokio::io::Error },
+
+
+    #[error("invalid kdf type: {ty}")]
+    InvalidKdfType { ty: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
