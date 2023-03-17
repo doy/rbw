@@ -22,7 +22,7 @@ mod commands;
 mod sock;
 
 #[derive(Debug, clap::Parser)]
-#[command(about = "Unofficial Bitwarden CLI")]
+#[command(version, about = "Unofficial Bitwarden CLI")]
 enum Opt {
     #[command(about = "Get or set configuration options")]
     Config {
