@@ -99,7 +99,7 @@ pub async fn login(
         let email = config_email().await?;
 
         let mut err_msg = None;
-        for i in 1_u8..=3 {
+        'attempts: for i in 1_u8..=3 {
             let err = if i > 1 {
                 // this unwrap is safe because we only ever continue the loop
                 // if we have set err_msg
@@ -138,37 +138,42 @@ pub async fn login(
                         email,
                     )
                     .await?;
-                    break;
+                    break 'attempts;
                 }
                 Err(rbw::error::Error::TwoFactorRequired { providers }) => {
-                    if providers.contains(
-                        &rbw::api::TwoFactorProviderType::Authenticator,
-                    ) {
-                        let (
-                            access_token,
-                            refresh_token,
-                            iterations,
-                            protected_key,
-                        ) = two_factor(
-                            tty,
-                            &email,
-                            password.clone(),
-                            rbw::api::TwoFactorProviderType::Authenticator,
-                        )
-                        .await?;
-                        login_success(
-                            sock,
-                            state,
-                            access_token,
-                            refresh_token,
-                            iterations,
-                            protected_key,
-                            password,
-                            db,
-                            email,
-                        )
-                        .await?;
-                        break;
+                    let supported_types = vec![
+                        rbw::api::TwoFactorProviderType::Authenticator,
+                        rbw::api::TwoFactorProviderType::Email,
+                    ];
+
+                    for provider in supported_types.into_iter() {
+                        if providers.contains(&provider) {
+                            let (
+                                access_token,
+                                refresh_token,
+                                iterations,
+                                protected_key,
+                            ) = two_factor(
+                                tty,
+                                &email,
+                                password.clone(),
+                                provider
+                            )
+                            .await?;
+                            login_success(
+                                sock,
+                                state,
+                                access_token,
+                                refresh_token,
+                                iterations,
+                                protected_key,
+                                password,
+                                db,
+                                email,
+                            )
+                            .await?;
+                            break 'attempts;
+                        }
                     }
                     return Err(anyhow::anyhow!("TODO"));
                 }
@@ -212,11 +217,11 @@ async fn two_factor(
         };
         let code = rbw::pinentry::getpin(
             &config_pinentry().await?,
-            "Authenticator App",
-            "Enter the 6 digit verification code from your authenticator app.",
+            provider.header(),
+            provider.message(),
             err.as_deref(),
             tty,
-            true,
+            provider.grab(),
         )
         .await
         .context("failed to read code from pinentry")?;
