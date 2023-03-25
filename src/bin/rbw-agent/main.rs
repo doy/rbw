@@ -20,6 +20,7 @@ mod agent;
 mod daemon;
 mod debugger;
 mod sock;
+mod timeout;
 
 async fn tokio_main(
     startup_ack: Option<crate::daemon::StartupAck>,
@@ -30,7 +31,7 @@ async fn tokio_main(
         startup_ack.ack()?;
     }
 
-    let mut agent = crate::agent::Agent::new()?;
+    let agent = crate::agent::Agent::new()?;
     agent.run(listener).await?;
 
     Ok(())
