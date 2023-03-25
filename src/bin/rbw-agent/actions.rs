@@ -1,5 +1,4 @@
 use anyhow::Context as _;
-use rbw::api::KdfType;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -153,7 +152,7 @@ pub async fn login(
                         rbw::api::TwoFactorProviderType::Email,
                     ];
 
-                    for provider in supported_types.into_iter() {
+                    for provider in supported_types {
                         if providers.contains(&provider) {
                             let (
                                 access_token,
@@ -218,7 +217,15 @@ async fn two_factor(
     email: &str,
     password: rbw::locked::Password,
     provider: rbw::api::TwoFactorProviderType,
-) -> anyhow::Result<(String, String, KdfType, u32, Option<u32>, Option<u32>, String)> {
+) -> anyhow::Result<(
+    String,
+    String,
+    rbw::api::KdfType,
+    u32,
+    Option<u32>,
+    Option<u32>,
+    String,
+)> {
     let mut err_msg = None;
     for i in 1_u8..=3 {
         let err = if i > 1 {
@@ -248,7 +255,15 @@ async fn two_factor(
         )
         .await
         {
-            Ok((access_token, refresh_token, kdf, iterations, memory, parallelism, protected_key)) => {
+            Ok((
+                access_token,
+                refresh_token,
+                kdf,
+                iterations,
+                memory,
+                parallelism,
+                protected_key,
+            )) => {
                 return Ok((
                     access_token,
                     refresh_token,
@@ -296,7 +311,7 @@ async fn login_success(
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     access_token: String,
     refresh_token: String,
-    kdf: KdfType,
+    kdf: rbw::api::KdfType,
     iterations: u32,
     memory: Option<u32>,
     parallelism: Option<u32>,
@@ -370,7 +385,7 @@ pub async fn unlock(
             ));
         };
 
-        let memory= db.memory;
+        let memory = db.memory;
         let parallelism = db.parallelism;
 
         let Some(protected_key) = db.protected_key

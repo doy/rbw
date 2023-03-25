@@ -228,7 +228,6 @@ pub enum Error {
     #[error("error writing to pinentry stdin")]
     WriteStdin { source: tokio::io::Error },
 
-
     #[error("invalid kdf type: {ty}")]
     InvalidKdfType { ty: String },
 }

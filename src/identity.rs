@@ -1,6 +1,7 @@
-use crate::{prelude::*, api::KdfType};
-use sha2::Digest;
-use argon2::Argon2;
+use crate::prelude::*;
+
+use sha1::Digest as _;
+
 pub struct Identity {
     pub email: String,
     pub keys: crate::locked::Keys,
@@ -11,7 +12,7 @@ impl Identity {
     pub fn new(
         email: &str,
         password: &crate::locked::Password,
-        kdf: KdfType,
+        kdf: crate::api::KdfType,
         iterations: u32,
         memory: Option<u32>,
         parallelism: Option<u32>,
@@ -25,7 +26,7 @@ impl Identity {
         let enc_key = &mut keys.data_mut()[0..32];
 
         match kdf {
-            KdfType::Pbkdf2 => {
+            crate::api::KdfType::Pbkdf2 => {
                 pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
                     password.password(),
                     email.as_bytes(),
@@ -35,25 +36,34 @@ impl Identity {
                 .map_err(|_| Error::Pbkdf2)?;
             }
 
-            KdfType::Argon2id => {
+            crate::api::KdfType::Argon2id => {
                 let mut hasher = sha2::Sha256::new();
                 hasher.update(email.as_bytes());
-                let mut salt = hasher.finalize();
+                let salt = hasher.finalize();
 
                 let mut output_key_material = [0u8];
-                let argon2_config = Argon2::new(
+                let argon2_config = argon2::Argon2::new(
                     argon2::Algorithm::Argon2id,
                     argon2::Version::V0x13,
-                    argon2::Params::new(memory.unwrap() * 1024,
+                    argon2::Params::new(
+                        memory.unwrap() * 1024,
                         iterations.get(),
                         parallelism.unwrap(),
-                        Some(32)).unwrap());
-                argon2::Argon2::hash_password_into(&argon2_config, password.password(), &mut salt, &mut output_key_material)
-                    .map_err(|_| Error::Argon2)?;
+                        Some(32),
+                    )
+                    .unwrap(),
+                );
+                argon2::Argon2::hash_password_into(
+                    &argon2_config,
+                    password.password(),
+                    &salt,
+                    &mut output_key_material,
+                )
+                .map_err(|_| Error::Argon2)?;
                 enc_key.copy_from_slice(&output_key_material);
             }
         };
-        
+
         let mut hash = crate::locked::Vec::new();
         hash.extend(std::iter::repeat(0).take(32));
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(

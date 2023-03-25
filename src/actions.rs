@@ -1,4 +1,4 @@
-use crate::{prelude::*, api::KdfType};
+use crate::prelude::*;
 
 pub async fn register(
     email: &str,
@@ -18,12 +18,27 @@ pub async fn login(
     password: crate::locked::Password,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
-) -> Result<(String, String, KdfType, u32, Option<u32>, Option<u32>, String)> {
+) -> Result<(
+    String,
+    String,
+    crate::api::KdfType,
+    u32,
+    Option<u32>,
+    Option<u32>,
+    String,
+)> {
     let (client, config) = api_client_async().await?;
-    let (kdf, iterations, memory, parallelism) = client.prelogin(email).await?;
+    let (kdf, iterations, memory, parallelism) =
+        client.prelogin(email).await?;
 
-    let identity =
-        crate::identity::Identity::new(email, &password, kdf, iterations, memory, parallelism)?;
+    let identity = crate::identity::Identity::new(
+        email,
+        &password,
+        kdf,
+        iterations,
+        memory,
+        parallelism,
+    )?;
     let (access_token, refresh_token, protected_key) = client
         .login(
             email,
@@ -34,13 +49,21 @@ pub async fn login(
         )
         .await?;
 
-    Ok((access_token, refresh_token, kdf, iterations, memory, parallelism, protected_key))
+    Ok((
+        access_token,
+        refresh_token,
+        kdf,
+        iterations,
+        memory,
+        parallelism,
+        protected_key,
+    ))
 }
 
 pub fn unlock<S: std::hash::BuildHasher>(
     email: &str,
     password: &crate::locked::Password,
-    kdf: KdfType,
+    kdf: crate::api::KdfType,
     iterations: u32,
     memory: Option<u32>,
     parallelism: Option<u32>,
@@ -51,8 +74,14 @@ pub fn unlock<S: std::hash::BuildHasher>(
     crate::locked::Keys,
     std::collections::HashMap<String, crate::locked::Keys>,
 )> {
-    let identity =
-        crate::identity::Identity::new(email, password, kdf, iterations, memory, parallelism)?;
+    let identity = crate::identity::Identity::new(
+        email,
+        password,
+        kdf,
+        iterations,
+        memory,
+        parallelism,
+    )?;
 
     let protected_key =
         crate::cipherstring::CipherString::new(protected_key)?;
