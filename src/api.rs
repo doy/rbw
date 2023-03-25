@@ -57,6 +57,31 @@ pub enum TwoFactorProviderType {
     WebAuthn = 7,
 }
 
+impl TwoFactorProviderType {
+    pub fn message(&self) -> &str {
+        match *self {
+            TwoFactorProviderType::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
+            TwoFactorProviderType::Email => "Enter the PIN you received via email.",
+            _ => "Enter the code."
+        }
+    }
+
+    pub fn header(&self) -> &str {
+        match *self {
+            TwoFactorProviderType::Authenticator => "Authenticator App",
+            TwoFactorProviderType::Email => "Email Code",
+            _ => "Two Factor Authentication"
+        }
+    }
+
+    pub fn grab(&self) -> bool {
+        match *self {
+            TwoFactorProviderType::Email => false,
+            _ => true
+        }
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for TwoFactorProviderType {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
