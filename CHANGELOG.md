@@ -6,6 +6,9 @@
 
 * `rbw get` now supports a `--raw` option to display the entire contents of
   the entry in JSON format (#97, classabbyamp)
+* `rbw` now automatically syncs the database from the server at a specified
+  interval while it is running. This defaults to once an hour, but is
+  configurable via the `sync_interval` option
 
 ## [1.5.0] - 2023-02-18
 

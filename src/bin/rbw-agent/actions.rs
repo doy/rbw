@@ -130,7 +130,6 @@ pub async fn login(
                     protected_key,
                 )) => {
                     login_success(
-                        sock,
                         state,
                         access_token,
                         refresh_token,
@@ -166,11 +165,10 @@ pub async fn login(
                                 tty,
                                 &email,
                                 password.clone(),
-                                provider
+                                provider,
                             )
                             .await?;
                             login_success(
-                                sock,
                                 state,
                                 access_token,
                                 refresh_token,
@@ -307,7 +305,6 @@ async fn two_factor(
 }
 
 async fn login_success(
-    sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
     access_token: String,
     refresh_token: String,
@@ -329,7 +326,7 @@ async fn login_success(
     db.protected_key = Some(protected_key.to_string());
     save_db(&db).await?;
 
-    sync(sock, false).await?;
+    sync(None).await?;
     let db = load_db().await?;
 
     let Some(protected_private_key) = db.protected_private_key
@@ -497,8 +494,7 @@ pub async fn check_lock(
 }
 
 pub async fn sync(
-    sock: &mut crate::sock::Sock,
-    ack: bool,
+    sock: Option<&mut crate::sock::Sock>,
 ) -> anyhow::Result<()> {
     let mut db = load_db().await?;
 
@@ -527,7 +523,7 @@ pub async fn sync(
     db.entries = entries;
     save_db(&db).await?;
 
-    if ack {
+    if let Some(sock) = sock {
         respond_ack(sock).await?;
     }
 

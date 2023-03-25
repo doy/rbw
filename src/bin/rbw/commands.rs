@@ -639,6 +639,12 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
                 config.lock_timeout = timeout;
             }
         }
+        "sync_interval" => {
+            let interval = value
+                .parse()
+                .context("failed to parse value for sync_interval")?;
+            config.sync_interval = interval;
+        }
         "pinentry" => config.pinentry = value.to_string(),
         _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
     }

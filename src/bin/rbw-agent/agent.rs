@@ -7,6 +7,8 @@ pub struct State {
         Option<std::collections::HashMap<String, rbw::locked::Keys>>,
     pub timeout: crate::timeout::Timeout,
     pub timeout_duration: std::time::Duration,
+    pub sync_timeout: crate::timeout::Timeout,
+    pub sync_timeout_duration: std::time::Duration,
 }
 
 impl State {
@@ -29,10 +31,15 @@ impl State {
         self.org_keys = None;
         self.timeout.clear();
     }
+
+    pub fn set_sync_timeout(&mut self) {
+        self.sync_timeout.set(self.sync_timeout_duration);
+    }
 }
 
 pub struct Agent {
     timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
+    sync_timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
     state: std::sync::Arc<tokio::sync::RwLock<State>>,
 }
 
@@ -41,14 +48,23 @@ impl Agent {
         let config = rbw::config::Config::load()?;
         let timeout_duration =
             std::time::Duration::from_secs(config.lock_timeout);
+        let sync_timeout_duration =
+            std::time::Duration::from_secs(config.sync_interval);
         let (timeout, timer_r) = crate::timeout::Timeout::new();
+        let (sync_timeout, sync_timer_r) = crate::timeout::Timeout::new();
+        if sync_timeout_duration > std::time::Duration::ZERO {
+            sync_timeout.set(sync_timeout_duration);
+        }
         Ok(Self {
             timer_r,
+            sync_timer_r,
             state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
                 priv_key: None,
                 org_keys: None,
                 timeout,
                 timeout_duration,
+                sync_timeout,
+                sync_timeout_duration,
             })),
         })
     }
@@ -60,6 +76,7 @@ impl Agent {
         enum Event {
             Request(std::io::Result<tokio::net::UnixStream>),
             Timeout(()),
+            Sync(()),
         }
         let mut stream = futures_util::stream::select_all([
             tokio_stream::wrappers::UnixListenerStream::new(listener)
@@ -69,6 +86,11 @@ impl Agent {
                 self.timer_r,
             )
             .map(Event::Timeout)
+            .boxed(),
+            tokio_stream::wrappers::UnboundedReceiverStream::new(
+                self.sync_timer_r,
+            )
+            .map(Event::Sync)
             .boxed(),
         ]);
         while let Some(event) = stream.next().await {
@@ -93,6 +115,14 @@ impl Agent {
                 }
                 Event::Timeout(()) => {
                     self.state.write().await.clear();
+                }
+                Event::Sync(()) => {
+                    // this could fail if we aren't logged in, but we don't
+                    // care about that
+                    tokio::spawn(async move {
+                        let _ = crate::actions::sync(None).await;
+                    });
+                    self.state.write().await.set_sync_timeout();
                 }
             }
         }
@@ -141,7 +171,7 @@ async fn handle_request(
             false
         }
         rbw::protocol::Action::Sync => {
-            crate::actions::sync(sock, true).await?;
+            crate::actions::sync(Some(sock)).await?;
             false
         }
         rbw::protocol::Action::Decrypt {

@@ -10,6 +10,8 @@ pub struct Config {
     pub identity_url: Option<String>,
     #[serde(default = "default_lock_timeout")]
     pub lock_timeout: u64,
+    #[serde(default = "default_sync_interval")]
+    pub sync_interval: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
     pub client_cert_path: Option<std::path::PathBuf>,
@@ -25,6 +27,7 @@ impl Default for Config {
             base_url: None,
             identity_url: None,
             lock_timeout: default_lock_timeout(),
+            sync_interval: default_sync_interval(),
             pinentry: default_pinentry(),
             client_cert_path: None,
             device_id: None,
@@ -34,6 +37,11 @@ impl Default for Config {
 
 #[must_use]
 pub fn default_lock_timeout() -> u64 {
+    3600
+}
+
+#[must_use]
+pub fn default_sync_interval() -> u64 {
     3600
 }
 
