@@ -7,6 +7,11 @@
 * `rbw` now automatically syncs the database from the server at a specified
   interval while it is running. This defaults to once an hour, but is
   configurable via the `sync_interval` option
+* Email 2FA is now supported (#111, René 'Necoro' Neumann)
+
+### Fixed
+
+* `rbw --version` now works again
 
 ## [1.6.0] - 2023-03-09
 
