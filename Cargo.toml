@@ -14,18 +14,18 @@ include = ["src/**/*", "bin/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
 
 [dependencies]
 aes = "0.8.2"
-anyhow = "1.0.69"
+anyhow = "1.0.70"
 argon2 = "0.5.0"
 arrayvec = "0.7.2"
-async-trait = "0.1.66"
+async-trait = "0.1.68"
 base32 = "0.4.0"
 base64 = "0.21.0"
 block-padding = "0.3.2"
 cbc = { version = "0.1.2", features = ["alloc", "std"] }
-clap = { version = "4.1.8", features = ["wrap_help", "derive"] }
-clap_complete = "4.1.4"
+clap = { version = "4.1.13", features = ["wrap_help", "derive"] }
+clap_complete = "4.1.5"
 daemonize = "0.5.0"
-directories = "4.0.1"
+directories = "5.0.0"
 env_logger = "0.10.0"
 futures-util = "0.3.27"
 hkdf = "0.12.3"
@@ -39,18 +39,18 @@ percent-encoding = "2.2.0"
 pkcs8 = "0.9.0"
 rand = "0.8.5"
 region = "3.0.0"
-reqwest = { version = "0.11.14", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+reqwest = { version = "0.11.15", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
 rsa = "0.8.2"
-serde = { version = "1.0.154", features = ["derive"] }
+serde = { version = "1.0.158", features = ["derive"] }
 serde_json = "1.0.94"
-serde_path_to_error = "0.1.10"
-serde_repr = "0.1.11"
+serde_path_to_error = "0.1.11"
+serde_repr = "0.1.12"
 sha1 = "0.10.5"
 sha2 = "0.10.6"
 tempfile = "3.4.0"
 terminal_size = "0.2.5"
 textwrap = "0.16.0"
-thiserror = "1.0.39"
+thiserror = "1.0.40"
 tokio = { version = "1.26.0", features = ["full"] }
 tokio-stream = { version = "0.1.12", features = ["net"] }
 totp-lite = "2.0.0"
