@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, api::KdfType};
 
 use std::io::{Read as _, Write as _};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -164,7 +164,10 @@ pub struct Db {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
 
+    pub kdf: Option<KdfType>,
     pub iterations: Option<u32>,
+    pub memory: Option<u32>,
+    pub parallelism: Option<u32>,
     pub protected_key: Option<String>,
     pub protected_private_key: Option<String>,
     pub protected_org_keys: std::collections::HashMap<String, String>,
@@ -293,6 +296,7 @@ impl Db {
         self.access_token.is_none()
             || self.refresh_token.is_none()
             || self.iterations.is_none()
+            || self.kdf.is_none()
             || self.protected_key.is_none()
     }
 }
