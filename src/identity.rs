@@ -1,8 +1,6 @@
 use crate::{prelude::*, api::KdfType};
 use sha2::Digest;
-extern crate argon2;
-use argon2::{Config, ThreadMode, Variant, Version};
-
+use argon2::Argon2;
 pub struct Identity {
     pub email: String,
     pub keys: crate::locked::Keys,
@@ -40,21 +38,19 @@ impl Identity {
             KdfType::Argon2id => {
                 let mut hasher = sha2::Sha256::new();
                 hasher.update(email.as_bytes());
-                let salt = hasher.finalize();
+                let mut salt = hasher.finalize();
 
-                let config = Config {
-                    variant: Variant::Argon2id,
-                    version: Version::Version13,
-                    mem_cost: memory.unwrap() * 1024,
-                    time_cost: iterations.get(),
-                    lanes: parallelism.unwrap(),
-                    thread_mode: ThreadMode::Parallel,
-                    secret: &[],
-                    ad: &[],
-                    hash_length: 32
-                };
-                let hash = argon2::hash_raw(password.password(), &salt[..], &config).map_err(|_| Error::Argon2)?;
-                enc_key.copy_from_slice(&hash);
+                let mut output_key_material = [0u8];
+                let argon2_config = Argon2::new(
+                    argon2::Algorithm::Argon2id,
+                    argon2::Version::V0x13,
+                    argon2::Params::new(memory.unwrap() * 1024,
+                        iterations.get(),
+                        parallelism.unwrap(),
+                        Some(32)).unwrap());
+                argon2::Argon2::hash_password_into(&argon2_config, password.password(), &mut salt, &mut output_key_material)
+                    .map_err(|_| Error::Argon2)?;
+                enc_key.copy_from_slice(&output_key_material);
             }
         };
         
