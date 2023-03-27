@@ -41,7 +41,6 @@ impl Identity {
                 hasher.update(email.as_bytes());
                 let salt = hasher.finalize();
 
-                let mut output_key_material = [0u8];
                 let argon2_config = argon2::Argon2::new(
                     argon2::Algorithm::Argon2id,
                     argon2::Version::V0x13,
@@ -57,10 +56,9 @@ impl Identity {
                     &argon2_config,
                     password.password(),
                     &salt,
-                    &mut output_key_material,
+                    enc_key,
                 )
                 .map_err(|_| Error::Argon2)?;
-                enc_key.copy_from_slice(&output_key_material);
             }
         };
 
