@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.7.1] - 2023-03-27
+
+### Fixed
+
+* argon2 actually works now (#113, Bernd Schoolmann)
+
 ## [1.7.0] - 2023-03-25
 
 ### Added
@@ -8,6 +14,7 @@
   interval while it is running. This defaults to once an hour, but is
   configurable via the `sync_interval` option
 * Email 2FA is now supported (#111, René 'Necoro' Neumann)
+* argon2 KDF is now supported (#109, Bernd Schoolmann)
 
 ### Fixed
 
