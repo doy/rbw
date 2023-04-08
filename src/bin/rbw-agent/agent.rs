@@ -73,6 +73,17 @@ impl Agent {
         self,
         listener: tokio::net::UnixListener,
     ) -> anyhow::Result<()> {
+        tokio::spawn(async move {
+            let config = rbw::config::Config::load_async().await.expect("Error loading config");
+            let mut websocket_url = config.base_url.clone().expect("Config is missing base url").replace("https://", "wss://") + "/notifications/hub?access_token=";
+            if let Some(email) = &config.email {
+                let db = rbw::db::Db::load_async(&config.server_name().as_str(), email).await.expect("Error loading db");
+                let access_token = db.access_token.expect("Error getting access token");   
+                websocket_url = websocket_url + &access_token;
+                crate::notifications::subscribe_to_notifications(websocket_url).await;
+            }
+        });
+
         enum Event {
             Request(std::io::Result<tokio::net::UnixStream>),
             Timeout(()),
