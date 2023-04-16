@@ -130,7 +130,7 @@ pub async fn login(
                     protected_key,
                 )) => {
                     login_success(
-                        state,
+                        state.clone(),
                         access_token,
                         refresh_token,
                         kdf,
@@ -169,7 +169,7 @@ pub async fn login(
                             )
                             .await?;
                             login_success(
-                                state,
+                                state.clone(),
                                 access_token,
                                 refresh_token,
                                 kdf,
@@ -204,6 +204,8 @@ pub async fn login(
             }
         }
     }
+
+    subscribe_to_notifications(state.clone()).await.expect("could not subscribe");
 
     respond_ack(sock).await?;
 
@@ -654,4 +656,17 @@ async fn config_base_url() -> anyhow::Result<String> {
 async fn config_pinentry() -> anyhow::Result<String> {
     let config = rbw::config::Config::load_async().await?;
     Ok(config.pinentry)
+}
+
+pub async fn subscribe_to_notifications(state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>) -> anyhow::Result<()> {
+    let config = rbw::config::Config::load_async().await.expect("Config is missing");
+    let mut websocket_url = config.base_url.clone().expect("Config is missing base url").replace("https://", "wss://") + "/notifications/hub?access_token=";
+    let email = config.email.clone().expect("Config is missing email");
+    let db = rbw::db::Db::load_async(&config.server_name().as_str(), &email).await.expect("Error loading db");
+    let access_token = db.access_token.expect("Error getting access token");   
+    websocket_url = websocket_url + &access_token;
+    let mut state = state.write().await;
+    state.notifications_handler.connect(websocket_url).await.expect("Error connecting to websocket");
+
+    Ok(())
 }
