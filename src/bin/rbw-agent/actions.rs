@@ -205,7 +205,7 @@ pub async fn login(
         }
     }
 
-    subscribe_to_notifications(state.clone()).await.expect("could not subscribe");
+    let _ = subscribe_to_notifications(state.clone()).await;
 
     respond_ack(sock).await?;
 
@@ -669,7 +669,7 @@ pub async fn subscribe_to_notifications(state: std::sync::Arc<tokio::sync::RwLoc
 
     let mut websocket_url = config.base_url.clone().expect("config is missing base url").replace("https://", "wss://") + "/notifications/hub?access_token=";
     websocket_url = websocket_url + &access_token;
-    
+
     let mut state = state.write().await;
     let err = state.notifications_handler.connect(websocket_url).await.err();
     
