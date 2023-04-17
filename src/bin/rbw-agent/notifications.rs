@@ -82,7 +82,7 @@ impl NotificationsHandler {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.write.is_some()
+        self.write.is_some() && self.read_handle.is_some() && !self.read_handle.as_ref().unwrap().is_finished()
     }
 
     pub async fn disconnect(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -92,6 +92,8 @@ impl NotificationsHandler {
             write.close().await?;
             self.read_handle.take().unwrap().await?;
         }
+        self.write = None;
+        self.read_handle = None;
         Ok(())
     }
 
