@@ -9,6 +9,8 @@ use crate::json::{
 };
 
 use tokio::io::AsyncReadExt as _;
+use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
+use std::collections::HashMap;
 
 #[derive(
     serde_repr::Serialize_repr,
@@ -45,7 +47,7 @@ impl std::fmt::Display for UriMatchType {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TwoFactorProviderType {
     Authenticator = 0,
     Email = 1,
@@ -305,8 +307,8 @@ struct ConnectErrorRes {
     error_description: Option<String>,
     #[serde(rename = "ErrorModel", alias = "errorModel")]
     error_model: Option<ConnectErrorResErrorModel>,
-    #[serde(rename = "TwoFactorProviders", alias = "twoFactorProviders")]
-    two_factor_providers: Option<Vec<TwoFactorProviderType>>,
+    #[serde(rename = "TwoFactorProviders2", alias = "twoFactorProviders2")]
+    two_factor_providers: Option<HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>>>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -1275,8 +1277,18 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                 if let Some(providers) =
                     error_res.two_factor_providers.as_ref()
                 {
+                    //TODO
+                    // return Error::TwoFactorRequired {
+                    //     providers: providers.clone(),
+                    // };
+                    // return Error::RegistrationRequired;
+                    let a: &HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>> = providers;
+                    let mut b: HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>> = HashMap::new();
+                    for (k, v) in a {
+                        b.insert(k.clone(), v.clone());
+                    }
                     return Error::TwoFactorRequired {
-                        providers: providers.clone(),
+                        providers: b,
                     };
                 }
             }

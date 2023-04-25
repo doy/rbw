@@ -33,3 +33,4 @@ mod prelude;
 pub mod protocol;
 pub mod pwgen;
 pub mod wordlist;
+pub mod webauthn;
