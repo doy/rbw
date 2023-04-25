@@ -1276,19 +1276,9 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
             Some("Two factor required.") => {
                 if let Some(providers) =
                     error_res.two_factor_providers.as_ref()
-                {
-                    //TODO
-                    // return Error::TwoFactorRequired {
-                    //     providers: providers.clone(),
-                    // };
-                    // return Error::RegistrationRequired;
-                    let a: &HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>> = providers;
-                    let mut b: HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>> = HashMap::new();
-                    for (k, v) in a {
-                        b.insert(k.clone(), v.clone());
-                    }
+                {        
                     return Error::TwoFactorRequired {
-                        providers: b,
+                        providers: providers.clone(),
                     };
                 }
             }
