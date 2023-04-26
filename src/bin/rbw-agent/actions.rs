@@ -276,7 +276,7 @@ async fn two_factor(
                 .await
                 .context("failed to token pin from pinentry")?;
 
-                let provider_data = provider_data.as_ref().unwrap();
+                let provider_data = provider_data.as_ref().ok_or(anyhow::anyhow!("TODO, provider data is missing"))?;
                 let webauthn_result = webauthn::webauthn(provider_data.clone(), String::from_utf8(token_pin.password().to_vec())?.as_str()).await;
                 match webauthn_result {
                     Ok(token) => token,
@@ -295,7 +295,7 @@ async fn two_factor(
         match rbw::actions::login(
             email,
             password.clone(),
-            Some(std::str::from_utf8(token.password()).unwrap()),
+            Some(std::str::from_utf8(token.password())?),
             Some(provider),
         )
         .await
