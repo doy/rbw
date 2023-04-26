@@ -149,15 +149,16 @@ pub async fn login(
                 }
                 Err(rbw::error::Error::TwoFactorRequired { providers }) => {
                     let supported_types = vec![
-                        // rbw::api::TwoFactorProviderType::Authenticator,
-                        // rbw::api::TwoFactorProviderType::Email,
-                        rbw::api::TwoFactorProviderType::WebAuthn
+                        rbw::api::TwoFactorProviderType::WebAuthn,
+                        rbw::api::TwoFactorProviderType::Authenticator,
+                        rbw::api::TwoFactorProviderType::Email
                     ];
 
-                    for (provider_type, provider_data) in providers {
-                        if !supported_types.contains(&provider_type) {
-                            continue
+                    for provider_type in supported_types {
+                        if !providers.contains_key(&provider_type) {
+                            continue;
                         }
+                        let provider_data = providers.get(&provider_type).unwrap().clone();
 
                         let (
                             access_token,
@@ -234,7 +235,6 @@ async fn two_factor(
     Option<u32>,
     String,
 )> {
-    let provider_data = provider_data.unwrap();
     let mut err_msg = None;
     for i in 1_u8..=3 {
         let err = if i > 1 {
@@ -244,22 +244,52 @@ async fn two_factor(
         } else {
             None
         };
-        // let code = rbw::pinentry::getpin(
-        //     &config_pinentry().await?,
-        //     provider.header(),
-        //     provider.message(),
-        //     err.as_deref(),
-        //     tty,
-        //     provider.grab(),
-        // )
-        // .await
-        // .context("failed to read code from pinentry")?;
-        let token = webauthn::webauthn(provider_data.clone());
+
+        let token = match provider {
+            rbw::api::TwoFactorProviderType::Authenticator | rbw::api::TwoFactorProviderType::Email  => {
+                rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    provider.header(),
+                    provider.message(),
+                    err.as_deref(),
+                    tty,
+                    provider.grab(),
+                )
+                .await
+                .context("failed to read code from pinentry")?
+            },
+            rbw::api::TwoFactorProviderType::WebAuthn => {
+                let token_pin = rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    provider.header(),
+                    provider.message(),
+                    err.as_deref(),
+                    tty,
+                    provider.grab(),
+                )
+                .await
+                .context("failed to token pin from pinentry")?;
+
+                let provider_data = provider_data.as_ref().unwrap();
+                let webauthn_result = webauthn::webauthn(provider_data.clone(), String::from_utf8(token_pin.password().to_vec())?.as_str()).await;
+                match webauthn_result {
+                    Ok(token) => token,
+                    Err(e) => {
+                        err_msg = Some(e.to_string());
+                        println!("Error: {}", e);
+                        continue;
+                    }
+                }
+            }
+            _ => {
+                return Err(anyhow::anyhow!("TODO, 2FA provider {:?} is unsupported", provider));
+            }
+        };
 
         match rbw::actions::login(
             email,
             password.clone(),
-            Some(token.await.as_str()),
+            Some(std::str::from_utf8(token.password()).unwrap()),
             Some(provider),
         )
         .await
