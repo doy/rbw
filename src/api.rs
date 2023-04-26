@@ -9,6 +9,7 @@ use crate::json::{
 };
 
 use tokio::io::AsyncReadExt as _;
+#[cfg(feature = "webauthn")]
 use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
 use std::collections::HashMap;
 
@@ -162,6 +163,11 @@ impl std::str::FromStr for TwoFactorProviderType {
             _ => Err(Error::InvalidTwoFactorProvider { ty: ty.to_string() }),
         }
     }
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+#[cfg(not(feature = "webauthn"))]
+pub struct PublicKeyCredentialRequestOptions {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1276,7 +1282,7 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
             Some("Two factor required.") => {
                 if let Some(providers) =
                     error_res.two_factor_providers.as_ref()
-                {        
+                {
                     return Error::TwoFactorRequired {
                         providers: providers.clone(),
                     };

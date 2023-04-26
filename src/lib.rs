@@ -33,4 +33,5 @@ mod prelude;
 pub mod protocol;
 pub mod pwgen;
 pub mod wordlist;
+#[cfg(feature = "webauthn")]
 pub mod webauthn;

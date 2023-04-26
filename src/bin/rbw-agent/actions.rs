@@ -1,6 +1,10 @@
 use anyhow::Context as _;
+#[cfg(feature = "webauthn")]
 use rbw::{webauthn};
+#[cfg(feature = "webauthn")]
 use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
+#[cfg(not(feature = "webauthn"))]
+use rbw::api::PublicKeyCredentialRequestOptions;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -149,6 +153,7 @@ pub async fn login(
                 }
                 Err(rbw::error::Error::TwoFactorRequired { providers }) => {
                     let supported_types = vec![
+                        #[cfg(feature = "webauthn")]
                         rbw::api::TwoFactorProviderType::WebAuthn,
                         rbw::api::TwoFactorProviderType::Authenticator,
                         rbw::api::TwoFactorProviderType::Email
@@ -258,6 +263,7 @@ async fn two_factor(
                 .await
                 .context("failed to read code from pinentry")?
             },
+            #[cfg(feature = "webauthn")]
             rbw::api::TwoFactorProviderType::WebAuthn => {
                 let token_pin = rbw::pinentry::getpin(
                     &config_pinentry().await?,

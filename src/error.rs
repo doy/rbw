@@ -1,5 +1,8 @@
 use std::{collections::HashMap};
+#[cfg(feature = "webauthn")]
 use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
+#[cfg(not(feature = "webauthn"))]
+use crate::api::PublicKeyCredentialRequestOptions;
 use crate::api::{TwoFactorProviderType};
 
 #[derive(thiserror::Error, Debug)]
