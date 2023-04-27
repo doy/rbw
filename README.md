@@ -97,6 +97,10 @@ run `rbw register` to register each device using `rbw` with the Bitwarden
 server. This will prompt you for your personal API key which you can find using
 the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
 
+## Optional features
+
+To keep rbw compilable when openssl is not available, the webauthn feature is disabled by default. To enable it, use the `--features webauthn` flag when building rbw.
+
 ## Related projects
 
 * [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden

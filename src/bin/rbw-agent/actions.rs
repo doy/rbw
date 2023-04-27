@@ -1,4 +1,10 @@
 use anyhow::Context as _;
+#[cfg(not(feature = "webauthn"))]
+use rbw::api::PublicKeyCredentialRequestOptions;
+#[cfg(feature = "webauthn")]
+use rbw::webauthn;
+#[cfg(feature = "webauthn")]
+use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -147,45 +153,55 @@ pub async fn login(
                 }
                 Err(rbw::error::Error::TwoFactorRequired { providers }) => {
                     let supported_types = vec![
+                        #[cfg(feature = "webauthn")]
+                        rbw::api::TwoFactorProviderType::WebAuthn,
                         rbw::api::TwoFactorProviderType::Authenticator,
                         rbw::api::TwoFactorProviderType::Email,
                     ];
 
-                    for provider in supported_types {
-                        if providers.contains(&provider) {
-                            let (
-                                access_token,
-                                refresh_token,
-                                kdf,
-                                iterations,
-                                memory,
-                                parallelism,
-                                protected_key,
-                            ) = two_factor(
-                                tty,
-                                &email,
-                                password.clone(),
-                                provider,
-                            )
-                            .await?;
-                            login_success(
-                                state,
-                                access_token,
-                                refresh_token,
-                                kdf,
-                                iterations,
-                                memory,
-                                parallelism,
-                                protected_key,
-                                password,
-                                db,
-                                email,
-                            )
-                            .await?;
-                            break 'attempts;
+                    for provider_type in supported_types {
+                        if !providers.contains_key(&provider_type) {
+                            continue;
                         }
+                        let provider_data =
+                            providers.get(&provider_type).unwrap().clone();
+
+                        let (
+                            access_token,
+                            refresh_token,
+                            kdf,
+                            iterations,
+                            memory,
+                            parallelism,
+                            protected_key,
+                        ) = two_factor(
+                            tty,
+                            &email,
+                            password.clone(),
+                            provider_type,
+                            provider_data,
+                        )
+                        .await?;
+
+                        login_success(
+                            state,
+                            access_token,
+                            refresh_token,
+                            kdf,
+                            iterations,
+                            memory,
+                            parallelism,
+                            protected_key,
+                            password,
+                            db,
+                            email,
+                        )
+                        .await?;
+                        break 'attempts;
                     }
-                    return Err(anyhow::anyhow!("TODO"));
+                    return Err(anyhow::anyhow!(
+                        "TODO, provider is unsupported"
+                    ));
                 }
                 Err(rbw::error::Error::IncorrectPassword { message }) => {
                     if i == 3 {
@@ -215,6 +231,7 @@ async fn two_factor(
     email: &str,
     password: rbw::locked::Password,
     provider: rbw::api::TwoFactorProviderType,
+    provider_data: Option<PublicKeyCredentialRequestOptions>,
 ) -> anyhow::Result<(
     String,
     String,
@@ -233,22 +250,64 @@ async fn two_factor(
         } else {
             None
         };
-        let code = rbw::pinentry::getpin(
-            &config_pinentry().await?,
-            provider.header(),
-            provider.message(),
-            err.as_deref(),
-            tty,
-            provider.grab(),
-        )
-        .await
-        .context("failed to read code from pinentry")?;
-        let code = std::str::from_utf8(code.password())
-            .context("code was not valid utf8")?;
+
+        let token = match provider {
+            rbw::api::TwoFactorProviderType::Authenticator
+            | rbw::api::TwoFactorProviderType::Email => {
+                rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    provider.header(),
+                    provider.message(),
+                    err.as_deref(),
+                    tty,
+                    provider.grab(),
+                )
+                .await
+                .context("failed to read code from pinentry")?
+            }
+            #[cfg(feature = "webauthn")]
+            rbw::api::TwoFactorProviderType::WebAuthn => {
+                let token_pin = rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    provider.header(),
+                    provider.message(),
+                    err.as_deref(),
+                    tty,
+                    provider.grab(),
+                )
+                .await
+                .context("failed to token pin from pinentry")?;
+
+                let provider_data = provider_data.as_ref().ok_or(
+                    anyhow::anyhow!("TODO, provider data is missing"),
+                )?;
+                let webauthn_result = webauthn::webauthn(
+                    provider_data.clone(),
+                    String::from_utf8(token_pin.password().to_vec())?
+                        .as_str(),
+                )
+                .await;
+                match webauthn_result {
+                    Ok(token) => token,
+                    Err(e) => {
+                        err_msg = Some(e.to_string());
+                        println!("Error: {}", e);
+                        continue;
+                    }
+                }
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "TODO, 2FA provider {:?} is unsupported",
+                    provider
+                ));
+            }
+        };
+
         match rbw::actions::login(
             email,
             password.clone(),
-            Some(code),
+            Some(std::str::from_utf8(token.password())?),
             Some(provider),
         )
         .await

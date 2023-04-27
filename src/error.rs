@@ -1,3 +1,10 @@
+#[cfg(not(feature = "webauthn"))]
+use crate::api::PublicKeyCredentialRequestOptions;
+use crate::api::TwoFactorProviderType;
+use std::collections::HashMap;
+#[cfg(feature = "webauthn")]
+use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("email address not set")]
@@ -219,7 +226,10 @@ pub enum Error {
 
     #[error("two factor required")]
     TwoFactorRequired {
-        providers: Vec<crate::api::TwoFactorProviderType>,
+        providers: HashMap<
+            TwoFactorProviderType,
+            Option<PublicKeyCredentialRequestOptions>,
+        >,
     },
 
     #[error("unimplemented cipherstring type: {ty}")]
