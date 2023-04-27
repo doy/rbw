@@ -19,9 +19,9 @@ mod actions;
 mod agent;
 mod daemon;
 mod debugger;
+mod notifications;
 mod sock;
 mod timeout;
-mod notifications;
 
 async fn tokio_main(
     startup_ack: Option<crate::daemon::StartupAck>,
