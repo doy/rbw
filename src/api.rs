@@ -8,10 +8,10 @@ use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
 
+use std::collections::HashMap;
 use tokio::io::AsyncReadExt as _;
 #[cfg(feature = "webauthn")]
 use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
-use std::collections::HashMap;
 
 #[derive(
     serde_repr::Serialize_repr,
@@ -167,8 +167,7 @@ impl std::str::FromStr for TwoFactorProviderType {
 
 #[derive(serde::Deserialize, Debug, Clone)]
 #[cfg(not(feature = "webauthn"))]
-pub struct PublicKeyCredentialRequestOptions {
-}
+pub struct PublicKeyCredentialRequestOptions {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum KdfType {
@@ -314,7 +313,12 @@ struct ConnectErrorRes {
     #[serde(rename = "ErrorModel", alias = "errorModel")]
     error_model: Option<ConnectErrorResErrorModel>,
     #[serde(rename = "TwoFactorProviders2", alias = "twoFactorProviders2")]
-    two_factor_providers: Option<HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>>>,
+    two_factor_providers: Option<
+        HashMap<
+            TwoFactorProviderType,
+            Option<PublicKeyCredentialRequestOptions>,
+        >,
+    >,
 }
 
 #[derive(serde::Deserialize, Debug)]

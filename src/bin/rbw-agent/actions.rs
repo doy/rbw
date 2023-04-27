@@ -1,10 +1,10 @@
 use anyhow::Context as _;
-#[cfg(feature = "webauthn")]
-use rbw::{webauthn};
-#[cfg(feature = "webauthn")]
-use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
 #[cfg(not(feature = "webauthn"))]
 use rbw::api::PublicKeyCredentialRequestOptions;
+#[cfg(feature = "webauthn")]
+use rbw::webauthn;
+#[cfg(feature = "webauthn")]
+use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -156,14 +156,15 @@ pub async fn login(
                         #[cfg(feature = "webauthn")]
                         rbw::api::TwoFactorProviderType::WebAuthn,
                         rbw::api::TwoFactorProviderType::Authenticator,
-                        rbw::api::TwoFactorProviderType::Email
+                        rbw::api::TwoFactorProviderType::Email,
                     ];
 
                     for provider_type in supported_types {
                         if !providers.contains_key(&provider_type) {
                             continue;
                         }
-                        let provider_data = providers.get(&provider_type).unwrap().clone();
+                        let provider_data =
+                            providers.get(&provider_type).unwrap().clone();
 
                         let (
                             access_token,
@@ -181,7 +182,7 @@ pub async fn login(
                             provider_data,
                         )
                         .await?;
-                        
+
                         login_success(
                             state,
                             access_token,
@@ -197,9 +198,10 @@ pub async fn login(
                         )
                         .await?;
                         break 'attempts;
-
                     }
-                    return Err(anyhow::anyhow!("TODO, provider is unsupported"));
+                    return Err(anyhow::anyhow!(
+                        "TODO, provider is unsupported"
+                    ));
                 }
                 Err(rbw::error::Error::IncorrectPassword { message }) => {
                     if i == 3 {
@@ -223,7 +225,6 @@ pub async fn login(
 
     Ok(())
 }
-
 
 async fn two_factor(
     tty: Option<&str>,
@@ -251,7 +252,8 @@ async fn two_factor(
         };
 
         let token = match provider {
-            rbw::api::TwoFactorProviderType::Authenticator | rbw::api::TwoFactorProviderType::Email  => {
+            rbw::api::TwoFactorProviderType::Authenticator
+            | rbw::api::TwoFactorProviderType::Email => {
                 rbw::pinentry::getpin(
                     &config_pinentry().await?,
                     provider.header(),
@@ -262,7 +264,7 @@ async fn two_factor(
                 )
                 .await
                 .context("failed to read code from pinentry")?
-            },
+            }
             #[cfg(feature = "webauthn")]
             rbw::api::TwoFactorProviderType::WebAuthn => {
                 let token_pin = rbw::pinentry::getpin(
@@ -276,8 +278,15 @@ async fn two_factor(
                 .await
                 .context("failed to token pin from pinentry")?;
 
-                let provider_data = provider_data.as_ref().ok_or(anyhow::anyhow!("TODO, provider data is missing"))?;
-                let webauthn_result = webauthn::webauthn(provider_data.clone(), String::from_utf8(token_pin.password().to_vec())?.as_str()).await;
+                let provider_data = provider_data.as_ref().ok_or(
+                    anyhow::anyhow!("TODO, provider data is missing"),
+                )?;
+                let webauthn_result = webauthn::webauthn(
+                    provider_data.clone(),
+                    String::from_utf8(token_pin.password().to_vec())?
+                        .as_str(),
+                )
+                .await;
                 match webauthn_result {
                     Ok(token) => token,
                     Err(e) => {
@@ -288,7 +297,10 @@ async fn two_factor(
                 }
             }
             _ => {
-                return Err(anyhow::anyhow!("TODO, 2FA provider {:?} is unsupported", provider));
+                return Err(anyhow::anyhow!(
+                    "TODO, 2FA provider {:?} is unsupported",
+                    provider
+                ));
             }
         };
 

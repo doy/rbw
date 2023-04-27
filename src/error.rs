@@ -1,9 +1,9 @@
-use std::{collections::HashMap};
-#[cfg(feature = "webauthn")]
-use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
 #[cfg(not(feature = "webauthn"))]
 use crate::api::PublicKeyCredentialRequestOptions;
-use crate::api::{TwoFactorProviderType};
+use crate::api::TwoFactorProviderType;
+use std::collections::HashMap;
+#[cfg(feature = "webauthn")]
+use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -226,7 +226,10 @@ pub enum Error {
 
     #[error("two factor required")]
     TwoFactorRequired {
-        providers: HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>>,
+        providers: HashMap<
+            TwoFactorProviderType,
+            Option<PublicKeyCredentialRequestOptions>,
+        >,
     },
 
     #[error("unimplemented cipherstring type: {ty}")]
