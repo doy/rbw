@@ -125,13 +125,13 @@ async fn subscribe_to_notifications(url: String, sending_channels: std::sync::Ar
                         for channel in a.iter() {
                             let res = channel.send(msg);
                             if res.is_err() {
-                                println!("error sending websocket message to channel");
+                                eprintln!("error sending websocket message to channel");
                             }
                         }
                     }
                 },
                 Err(e) => {
-                    println!("websocket error: {:?}", e);
+                    eprintln!("websocket error: {:?}", e);
                 },
                 _ => {}
             }

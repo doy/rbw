@@ -78,7 +78,10 @@ impl Agent {
         self,
         listener: tokio::net::UnixListener,
     ) -> anyhow::Result<()> {
-        let _ = crate::actions::subscribe_to_notifications(self.state.clone()).await;
+        let err = crate::actions::subscribe_to_notifications(self.state.clone()).await;
+        if let Err(e) = err {
+            eprintln!("failed to subscribe to notifications: {e:#}")
+        }
 
         enum Event {
             Request(std::io::Result<tokio::net::UnixStream>),

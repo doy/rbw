@@ -1,3 +1,5 @@
+use std::f32::consts::E;
+
 use anyhow::Context as _;
 
 pub async fn register(
@@ -205,7 +207,11 @@ pub async fn login(
         }
     }
 
-    let _ = subscribe_to_notifications(state.clone()).await;
+    let err = subscribe_to_notifications(state.clone()).await.err();
+    if let Some(e) = err {
+        eprintln!("failed to subscribe to notifications: {}", e)
+    }
+
 
     respond_ack(sock).await?;
 
