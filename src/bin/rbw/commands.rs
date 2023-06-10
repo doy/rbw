@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use copypasta::{ClipboardContext, ClipboardProvider};
 use serde::Serialize;
 use std::io;
 use std::io::prelude::Write;
@@ -26,7 +27,7 @@ struct DecryptedCipher {
 }
 
 impl DecryptedCipher {
-    fn display_short(&self, desc: &str) -> bool {
+    fn display_short(&self, desc: &str, clipboard: bool) -> bool {
         match &self.data {
             DecryptedData::Login { password, .. } => {
                 password.as_ref().map_or_else(
@@ -35,8 +36,8 @@ impl DecryptedCipher {
                         false
                     },
                     |password| {
-                        println!("{password}");
-                        true
+                        let res = val_display_or_store(clipboard, password);
+                        res
                     },
                 )
             }
@@ -47,8 +48,8 @@ impl DecryptedCipher {
                         false
                     },
                     |number| {
-                        println!("{number}");
-                        true
+                        let res = val_display_or_store(clipboard, number);
+                        res
                     },
                 )
             }
@@ -70,8 +71,11 @@ impl DecryptedCipher {
                     eprintln!("entry for '{desc}' had no name");
                     false
                 } else {
-                    println!("{}", names.join(" "));
-                    true
+                    let res = val_display_or_store(
+                        clipboard,
+                        &format!("{}", names.join(" ")),
+                    );
+                    res
                 }
             }
             DecryptedData::SecureNote {} => self.notes.as_ref().map_or_else(
@@ -80,14 +84,14 @@ impl DecryptedCipher {
                     false
                 },
                 |notes| {
-                    println!("{notes}");
-                    true
+                    let res = val_display_or_store(clipboard, notes);
+                    res
                 },
             ),
         }
     }
 
-    fn display_field(&self, desc: &str, field: &str) {
+    fn display_field(&self, desc: &str, field: &str, clipboard: bool) {
         // Convert the field name to lowercase
         let field = field.to_lowercase();
         let field = field.as_str();
@@ -100,11 +104,11 @@ impl DecryptedCipher {
             } => match field {
                 "notes" => {
                     if let Some(notes) = &self.notes {
-                        println!("{notes}");
+                        val_display_or_store(clipboard, notes);
                     }
                 }
                 "username" | "user" => {
-                    display_field("Username", username.as_deref());
+                    display_field("Username", username.as_deref(), clipboard);
                 }
                 "totp" | "code" => {
                     if let Some(totp) = totp {
@@ -116,12 +120,16 @@ impl DecryptedCipher {
                 "uris" | "urls" | "sites" => {
                     if let Some(uris) = uris {
                         for uri in uris {
-                            display_field("URI", Some(uri.uri.as_str()));
+                            display_field(
+                                "URI",
+                                Some(uri.uri.as_str()),
+                                clipboard,
+                            );
                         }
                     }
                 }
                 "password" => {
-                    self.display_short(desc);
+                    self.display_short(desc, clipboard);
                 }
                 _ => {
                     for f in &self.fields {
@@ -135,6 +143,7 @@ impl DecryptedCipher {
                             display_field(
                                 f.name.as_deref().unwrap_or("(null)"),
                                 Some(f.value.as_deref().unwrap_or("")),
+                                clipboard,
                             );
                         }
                     }
@@ -149,34 +158,39 @@ impl DecryptedCipher {
                 ..
             } => match field {
                 "number" | "card" => {
-                    self.display_short(desc);
+                    self.display_short(desc, clipboard);
                 }
                 "exp" => {
                     if let (Some(month), Some(year)) = (exp_month, exp_year) {
                         display_field(
                             "Exp",
                             Some(format!("{month}/{year}").as_str()),
+                            clipboard,
                         );
                     }
                 }
                 "exp_month" | "month" => {
-                    display_field("Month", exp_month.as_deref());
+                    display_field("Month", exp_month.as_deref(), clipboard);
                 }
                 "exp_year" | "year" => {
-                    display_field("Year", exp_year.as_deref());
+                    display_field("Year", exp_year.as_deref(), clipboard);
                 }
                 "cvv" => {
-                    display_field("CVV", code.as_deref());
+                    display_field("CVV", code.as_deref(), clipboard);
                 }
                 "name" | "cardholder" => {
-                    display_field("Name", cardholder_name.as_deref());
+                    display_field(
+                        "Name",
+                        cardholder_name.as_deref(),
+                        clipboard,
+                    );
                 }
                 "brand" | "type" => {
-                    display_field("Brand", brand.as_deref());
+                    display_field("Brand", brand.as_deref(), clipboard);
                 }
                 "notes" => {
                     if let Some(notes) = &self.notes {
-                        println!("{notes}");
+                        val_display_or_store(clipboard, notes);
                     }
                 }
                 _ => {
@@ -191,6 +205,7 @@ impl DecryptedCipher {
                             display_field(
                                 f.name.as_deref().unwrap_or("(null)"),
                                 Some(f.value.as_deref().unwrap_or("")),
+                                clipboard,
                             );
                         }
                     }
@@ -213,42 +228,50 @@ impl DecryptedCipher {
                 ..
             } => match field {
                 "name" => {
-                    self.display_short(desc);
+                    self.display_short(desc, clipboard);
                 }
                 "email" => {
-                    display_field("Email", email.as_deref());
+                    display_field("Email", email.as_deref(), clipboard);
                 }
                 "address" => {
-                    display_field("Address", address1.as_deref());
-                    display_field("Address", address2.as_deref());
-                    display_field("Address", address3.as_deref());
+                    display_field("Address", address1.as_deref(), clipboard);
+                    display_field("Address", address2.as_deref(), clipboard);
+                    display_field("Address", address3.as_deref(), clipboard);
                 }
                 "city" => {
-                    display_field("City", city.as_deref());
+                    display_field("City", city.as_deref(), clipboard);
                 }
                 "state" => {
-                    display_field("State", state.as_deref());
+                    display_field("State", state.as_deref(), clipboard);
                 }
                 "postcode" | "zipcode" | "zip" => {
-                    display_field("Zip", postal_code.as_deref());
+                    display_field("Zip", postal_code.as_deref(), clipboard);
                 }
                 "country" => {
-                    display_field("Country", country.as_deref());
+                    display_field("Country", country.as_deref(), clipboard);
                 }
                 "phone" => {
-                    display_field("Phone", phone.as_deref());
+                    display_field("Phone", phone.as_deref(), clipboard);
                 }
                 "ssn" => {
-                    display_field("SSN", ssn.as_deref());
+                    display_field("SSN", ssn.as_deref(), clipboard);
                 }
                 "license" => {
-                    display_field("License", license_number.as_deref());
+                    display_field(
+                        "License",
+                        license_number.as_deref(),
+                        clipboard,
+                    );
                 }
                 "passport" => {
-                    display_field("Passport", passport_number.as_deref());
+                    display_field(
+                        "Passport",
+                        passport_number.as_deref(),
+                        clipboard,
+                    );
                 }
                 "username" => {
-                    display_field("Username", username.as_deref());
+                    display_field("Username", username.as_deref(), clipboard);
                 }
                 "notes" => {
                     if let Some(notes) = &self.notes {
@@ -267,6 +290,7 @@ impl DecryptedCipher {
                             display_field(
                                 f.name.as_deref().unwrap_or("(null)"),
                                 Some(f.value.as_deref().unwrap_or("")),
+                                clipboard,
                             );
                         }
                     }
@@ -274,7 +298,7 @@ impl DecryptedCipher {
             },
             DecryptedData::SecureNote {} => match field {
                 "note" | "notes" => {
-                    self.display_short(desc);
+                    self.display_short(desc, clipboard);
                 }
                 _ => {
                     for f in &self.fields {
@@ -288,6 +312,7 @@ impl DecryptedCipher {
                             display_field(
                                 f.name.as_deref().unwrap_or("(null)"),
                                 Some(f.value.as_deref().unwrap_or("")),
+                                clipboard,
                             );
                         }
                     }
@@ -296,7 +321,7 @@ impl DecryptedCipher {
         }
     }
 
-    fn display_long(&self, desc: &str) {
+    fn display_long(&self, desc: &str, clipboard: bool) {
         match &self.data {
             DecryptedData::Login {
                 username,
@@ -304,18 +329,22 @@ impl DecryptedCipher {
                 uris,
                 ..
             } => {
-                let mut displayed = self.display_short(desc);
-                displayed |= display_field("Username", username.as_deref());
-                displayed |= display_field("TOTP Secret", totp.as_deref());
+                let mut displayed = self.display_short(desc, clipboard);
+                displayed |=
+                    display_field("Username", username.as_deref(), clipboard);
+                displayed |=
+                    display_field("TOTP Secret", totp.as_deref(), clipboard);
 
                 if let Some(uris) = uris {
                     for uri in uris {
-                        displayed |= display_field("URI", Some(&uri.uri));
+                        displayed |=
+                            display_field("URI", Some(&uri.uri), clipboard);
                         let match_type =
                             uri.match_type.map(|ty| format!("{ty}"));
                         displayed |= display_field(
                             "Match type",
                             match_type.as_deref(),
+                            clipboard,
                         );
                     }
                 }
@@ -324,6 +353,7 @@ impl DecryptedCipher {
                     displayed |= display_field(
                         field.name.as_deref().unwrap_or("(null)"),
                         Some(field.value.as_deref().unwrap_or("")),
+                        clipboard,
                     );
                 }
 
@@ -342,7 +372,7 @@ impl DecryptedCipher {
                 code,
                 ..
             } => {
-                let mut displayed = self.display_short(desc);
+                let mut displayed = self.display_short(desc, clipboard);
 
                 if let (Some(exp_month), Some(exp_year)) =
                     (exp_month, exp_year)
@@ -350,10 +380,14 @@ impl DecryptedCipher {
                     println!("Expiration: {exp_month}/{exp_year}");
                     displayed = true;
                 }
-                displayed |= display_field("CVV", code.as_deref());
+                displayed |= display_field("CVV", code.as_deref(), clipboard);
+                displayed |= display_field(
+                    "Name",
+                    cardholder_name.as_deref(),
+                    clipboard,
+                );
                 displayed |=
-                    display_field("Name", cardholder_name.as_deref());
-                displayed |= display_field("Brand", brand.as_deref());
+                    display_field("Brand", brand.as_deref(), clipboard);
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -378,24 +412,42 @@ impl DecryptedCipher {
                 username,
                 ..
             } => {
-                let mut displayed = self.display_short(desc);
+                let mut displayed = self.display_short(desc, clipboard);
 
-                displayed |= display_field("Address", address1.as_deref());
-                displayed |= display_field("Address", address2.as_deref());
-                displayed |= display_field("Address", address3.as_deref());
-                displayed |= display_field("City", city.as_deref());
-                displayed |= display_field("State", state.as_deref());
                 displayed |=
-                    display_field("Postcode", postal_code.as_deref());
-                displayed |= display_field("Country", country.as_deref());
-                displayed |= display_field("Phone", phone.as_deref());
-                displayed |= display_field("Email", email.as_deref());
-                displayed |= display_field("SSN", ssn.as_deref());
+                    display_field("Address", address1.as_deref(), clipboard);
                 displayed |=
-                    display_field("License", license_number.as_deref());
+                    display_field("Address", address2.as_deref(), clipboard);
                 displayed |=
-                    display_field("Passport", passport_number.as_deref());
-                displayed |= display_field("Username", username.as_deref());
+                    display_field("Address", address3.as_deref(), clipboard);
+                displayed |=
+                    display_field("City", city.as_deref(), clipboard);
+                displayed |=
+                    display_field("State", state.as_deref(), clipboard);
+                displayed |= display_field(
+                    "Postcode",
+                    postal_code.as_deref(),
+                    clipboard,
+                );
+                displayed |=
+                    display_field("Country", country.as_deref(), clipboard);
+                displayed |=
+                    display_field("Phone", phone.as_deref(), clipboard);
+                displayed |=
+                    display_field("Email", email.as_deref(), clipboard);
+                displayed |= display_field("SSN", ssn.as_deref(), clipboard);
+                displayed |= display_field(
+                    "License",
+                    license_number.as_deref(),
+                    clipboard,
+                );
+                displayed |= display_field(
+                    "Passport",
+                    passport_number.as_deref(),
+                    clipboard,
+                );
+                displayed |=
+                    display_field("Username", username.as_deref(), clipboard);
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -405,7 +457,7 @@ impl DecryptedCipher {
                 }
             }
             DecryptedData::SecureNote {} => {
-                self.display_short(desc);
+                self.display_short(desc, clipboard);
             }
         }
     }
@@ -517,6 +569,27 @@ impl DecryptedCipher {
             }
         }
 
+        true
+    }
+}
+
+fn val_display_or_store(
+    clipboard: bool,
+    password: &str,
+) -> bool {
+    if clipboard {
+        match clipboard_store(password) {
+            Ok(_) => {
+                println!("The results are already stored on the clipboard.");
+                true
+            }
+            Err(e) => {
+                println!("{e}");
+                false
+            }
+        }
+    } else {
+        println!("{password}");
         true
     }
 }
@@ -686,6 +759,19 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn clipboard_store(val: &str) -> anyhow::Result<()> {
+    let mut ctx = ClipboardContext::new().map_err(|e| {
+        anyhow::anyhow!("Couldn't create clipboard context: {e}")
+    })?;
+
+    ctx.set_contents(val.to_owned())
+        .map_err(|e| anyhow::anyhow!("Couldn't store value to clipboard: {e}"))?;
+
+    let _ = ctx.get_contents();
+
+    Ok(())
+}
+
 pub fn register() -> anyhow::Result<()> {
     ensure_agent()?;
     crate::actions::register()?;
@@ -780,6 +866,7 @@ pub fn get(
     field: Option<&str>,
     full: bool,
     raw: bool,
+    clipboard: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -796,11 +883,11 @@ pub fn get(
     if raw {
         decrypted.display_json(&desc)?;
     } else if full {
-        decrypted.display_long(&desc);
+        decrypted.display_long(&desc, clipboard);
     } else if let Some(field) = field {
-        decrypted.display_field(&desc, field);
+        decrypted.display_field(&desc, field, clipboard);
     } else {
-        decrypted.display_short(&desc);
+        decrypted.display_short(&desc, clipboard);
     }
 
     Ok(())
@@ -1906,12 +1993,12 @@ mod test {
     }
 }
 
-fn display_field(name: &str, field: Option<&str>) -> bool {
+fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
     field.map_or_else(
         || false,
         |field| {
-            println!("{name}: {field}");
-            true
+            let res = val_display_or_store(clipboard, &format!("{name}: {field}"));
+            res
         },
     )
 }

@@ -83,6 +83,8 @@ enum Opt {
         full: bool,
         #[structopt(long, help = "Display output as JSON")]
         raw: bool,
+        #[structopt(long, help = "Copy result to clipboard")]
+        clipboard: bool,
     },
 
     #[command(about = "Display the authenticator code for a given entry")]
@@ -322,6 +324,7 @@ fn main() {
             field,
             full,
             raw,
+            clipboard
         } => commands::get(
             name,
             user.as_deref(),
@@ -329,6 +332,7 @@ fn main() {
             field.as_deref(),
             *full,
             *raw,
+            *clipboard,
         ),
         Opt::Code { name, user, folder } => {
             commands::code(name, user.as_deref(), folder.as_deref())
