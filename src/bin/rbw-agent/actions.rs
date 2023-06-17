@@ -148,6 +148,7 @@ pub async fn login(
                 Err(rbw::error::Error::TwoFactorRequired { providers }) => {
                     let supported_types = vec![
                         rbw::api::TwoFactorProviderType::Authenticator,
+                        rbw::api::TwoFactorProviderType::Yubikey,
                         rbw::api::TwoFactorProviderType::Email,
                     ];
 
