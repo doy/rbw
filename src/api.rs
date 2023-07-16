@@ -62,6 +62,7 @@ impl TwoFactorProviderType {
     pub fn message(&self) -> &str {
         match *self {
             Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
+            Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
             _ => "Enter the code."
         }
@@ -71,6 +72,7 @@ impl TwoFactorProviderType {
     pub fn header(&self) -> &str {
         match *self {
             Self::Authenticator => "Authenticator App",
+            Self::Yubikey => "Yubikey",
             Self::Email => "Email Code",
             _ => "Two Factor Authentication",
         }
