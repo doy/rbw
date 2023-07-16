@@ -1,3 +1,5 @@
+use std::f32::consts::E;
+
 use anyhow::Context as _;
 
 pub async fn register(
@@ -130,7 +132,7 @@ pub async fn login(
                     protected_key,
                 )) => {
                     login_success(
-                        state,
+                        state.clone(),
                         access_token,
                         refresh_token,
                         kdf,
@@ -148,6 +150,7 @@ pub async fn login(
                 Err(rbw::error::Error::TwoFactorRequired { providers }) => {
                     let supported_types = vec![
                         rbw::api::TwoFactorProviderType::Authenticator,
+                        rbw::api::TwoFactorProviderType::Yubikey,
                         rbw::api::TwoFactorProviderType::Email,
                     ];
 
@@ -169,7 +172,7 @@ pub async fn login(
                             )
                             .await?;
                             login_success(
-                                state,
+                                state.clone(),
                                 access_token,
                                 refresh_token,
                                 kdf,
@@ -203,6 +206,11 @@ pub async fn login(
                 }
             }
         }
+    }
+
+    let err = subscribe_to_notifications(state.clone()).await.err();
+    if let Some(e) = err {
+        eprintln!("failed to subscribe to notifications: {}", e)
     }
 
     respond_ack(sock).await?;
@@ -654,4 +662,41 @@ async fn config_base_url() -> anyhow::Result<String> {
 async fn config_pinentry() -> anyhow::Result<String> {
     let config = rbw::config::Config::load_async().await?;
     Ok(config.pinentry)
+}
+
+pub async fn subscribe_to_notifications(
+    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+) -> anyhow::Result<()> {
+    // access token might be out of date, so we do a sync to refresh it
+    sync(None).await?;
+
+    let config = rbw::config::Config::load_async()
+        .await
+        .context("Config is missing")?;
+    let email = config.email.clone().context("Config is missing email")?;
+    let db = rbw::db::Db::load_async(&config.server_name().as_str(), &email)
+        .await?;
+    let access_token =
+        db.access_token.context("Error getting access token")?;
+
+    let mut websocket_url = config
+        .base_url
+        .clone()
+        .expect("config is missing base url")
+        .replace("https://", "wss://")
+        + "/notifications/hub?access_token=";
+    websocket_url = websocket_url + &access_token;
+
+    let mut state = state.write().await;
+    let err = state
+        .notifications_handler
+        .connect(websocket_url)
+        .await
+        .err();
+
+    if let Some(err) = err {
+        return Err(anyhow::anyhow!(err.to_string()));
+    } else {
+        Ok(())
+    }
 }

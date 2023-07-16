@@ -1,0 +1,72 @@
+#!/bin/bash
+
+[[ -z "${RBW_PROFILE}" ]] && rbw_profile='rbw' || rbw_profile="rbw-${RBW_PROFILE}"
+
+set -eEuo pipefail
+
+function help() {
+    cat <<EOHELP
+Use this script as pinentry to store master password for rbw into your keyring
+
+Usage
+- run "rbw-pinentry-keyring setup" once to save master password to keyring
+- add "rbw-pinentry-keyring" as "pinentry" in rbw config (${XDG_CONFIG_HOME}/rbw/config.json)
+- use rbw as normal
+Notes
+- needs "secret-tool" to access keyring
+- setup tested with pinentry-gnome3, but you can run the "secret-tool store"-command manually as well
+- master passwords are stored into the keyring as plaintext, so secure your keyring appropriately
+- supports multiple profiles, simply set RBW_PROFILE during setup
+- can easily be rewritten to use other backends than keyring by setting the "secret_value"-variable
+EOHELP
+}
+
+function setup() {
+    cmd="SETTITLE rbw\n"
+    cmd+="SETPROMPT Master Password\n"
+    cmd+="SETDESC Please enter the master password for '$rbw_profile'\n"
+    cmd+="GETPIN\n"
+    password="$(printf "$cmd" | pinentry | grep -E "^D " | cut -d' ' -f2)"
+    if [ -n "$password" ]; then
+        echo -n "$password" | secret-tool store --label="$rbw_profile master password" application rbw profile "$rbw_profile" type master_password
+    fi
+}
+
+function getpin() {
+    echo 'OK'
+
+    while IFS=' ' read -r command args ; do
+        case "$command" in
+            SETPROMPT|SETTITLE| SETDESC)
+                echo 'OK'
+                ;;
+            GETPIN)
+                secret_value="$(secret-tool lookup application rbw profile "$rbw_profile" type master_password)"
+                if [ -z "$secret_value" ]; then
+                    exit 1
+                fi
+                printf 'D %s\n' "$secret_value"
+                echo 'OK'
+                ;;
+            BYE)
+                exit
+                ;;
+            *)
+                echo 'ERR Unknown command'
+                ;;
+        esac
+    done
+}
+
+command="$1"
+case "$command" in
+    -h|--help|help)
+        help
+        ;;
+    -s|--setup|setup)
+        setup
+        ;;
+    *)
+        getpin
+        ;;
+esac

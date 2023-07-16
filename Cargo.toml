@@ -27,6 +27,8 @@ clap_complete = "4.1.5"
 daemonize = "0.5.0"
 directories = "5.0.0"
 env_logger = "0.10.0"
+futures = "0.3.28"
+futures-channel = "0.3.28"
 futures-util = "0.3.27"
 hkdf = "0.12.3"
 hmac = { version = "0.12.1", features = ["std"] }
@@ -58,6 +60,8 @@ url = "2.3.1"
 uuid = { version = "1.3.0", features = ["v4"] }
 zeroize = "1.5.7"
 copypasta = "0.8.2"
+rmpv = "1.0.0"
+tokio-tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"] }
 
 [package.metadata.deb]
 depends = "pinentry"
