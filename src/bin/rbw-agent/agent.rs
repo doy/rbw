@@ -1,4 +1,3 @@
-use aes::cipher::typenum::private::IsNotEqualPrivate;
 use anyhow::Context as _;
 use futures_util::StreamExt as _;
 
@@ -12,7 +11,7 @@ pub struct State {
     pub timeout_duration: std::time::Duration,
     pub sync_timeout: crate::timeout::Timeout,
     pub sync_timeout_duration: std::time::Duration,
-    pub notifications_handler: crate::notifications::NotificationsHandler,
+    pub notifications_handler: crate::notifications::Handler,
 }
 
 impl State {
@@ -59,8 +58,7 @@ impl Agent {
         if sync_timeout_duration > std::time::Duration::ZERO {
             sync_timeout.set(sync_timeout_duration);
         }
-        let notifications_handler =
-            crate::notifications::NotificationsHandler::new();
+        let notifications_handler = crate::notifications::Handler::new();
         Ok(Self {
             timer_r,
             sync_timer_r,
@@ -80,17 +78,17 @@ impl Agent {
         self,
         listener: tokio::net::UnixListener,
     ) -> anyhow::Result<()> {
-        let err =
-            crate::actions::subscribe_to_notifications(self.state.clone())
-                .await;
-        if let Err(e) = err {
-            eprintln!("failed to subscribe to notifications: {e:#}")
-        }
-
         enum Event {
             Request(std::io::Result<tokio::net::UnixStream>),
             Timeout(()),
             Sync(()),
+        }
+
+        let err =
+            crate::actions::subscribe_to_notifications(self.state.clone())
+                .await;
+        if let Err(e) = err {
+            eprintln!("failed to subscribe to notifications: {e:#}");
         }
 
         let c: tokio::sync::mpsc::UnboundedReceiver<
@@ -160,17 +158,19 @@ impl Agent {
                         let result = crate::actions::sync(None).await;
                         if let Err(e) = result {
                             eprintln!("failed to sync: {e:#}");
-                        } else {
-                            if !state
-                                .write()
-                                .await
-                                .notifications_handler
-                                .is_connected()
-                            {
-                                let err = crate::actions::subscribe_to_notifications(state).await;
-                                if let Err(e) = err {
-                                    eprintln!("failed to subscribe to notifications: {e:#}")
-                                }
+                        } else if !state
+                            .write()
+                            .await
+                            .notifications_handler
+                            .is_connected()
+                        {
+                            let err =
+                                crate::actions::subscribe_to_notifications(
+                                    state,
+                                )
+                                .await;
+                            if let Err(e) = err {
+                                eprintln!("failed to subscribe to notifications: {e:#}");
                             }
                         }
                     });

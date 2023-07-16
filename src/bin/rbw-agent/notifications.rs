@@ -38,7 +38,7 @@ fn parse_messagepack(data: &[u8]) -> Option<NotificationMessage> {
     let message_type =
         unpacked_message.iter().next().unwrap().as_u64().unwrap();
 
-    let message = match message_type {
+    match message_type {
         0 => Some(NotificationMessage::SyncCipherUpdate),
         1 => Some(NotificationMessage::SyncCipherCreate),
         2 => Some(NotificationMessage::SyncLoginDelete),
@@ -52,12 +52,10 @@ fn parse_messagepack(data: &[u8]) -> Option<NotificationMessage> {
         10 => Some(NotificationMessage::SyncSettings),
         11 => Some(NotificationMessage::Logout),
         _ => None,
-    };
-
-    return message;
+    }
 }
 
-pub struct NotificationsHandler {
+pub struct Handler {
     write: Option<
         futures::stream::SplitSink<
             tokio_tungstenite::WebSocketStream<
@@ -74,7 +72,7 @@ pub struct NotificationsHandler {
     >,
 }
 
-impl NotificationsHandler {
+impl Handler {
     pub fn new() -> Self {
         Self {
             write: None,
@@ -99,7 +97,7 @@ impl NotificationsHandler {
 
         self.write = Some(write);
         self.read_handle = Some(read_handle);
-        return Ok(());
+        Ok(())
     }
 
     pub fn is_connected(&self) -> bool {
@@ -128,7 +126,7 @@ impl NotificationsHandler {
         let (tx, rx) =
             tokio::sync::mpsc::unbounded_channel::<NotificationMessage>();
         self.sending_channels.write().await.push(tx);
-        return rx;
+        rx
     }
 }
 
@@ -167,7 +165,8 @@ async fn subscribe_to_notifications(
                 Ok(Message::Binary(binary)) => {
                     let msgpack = parse_messagepack(&binary);
                     if let Some(msg) = msgpack {
-                        for channel in a.iter() {
+                        let channels = a.as_slice();
+                        for channel in channels {
                             let res = channel.send(msg);
                             if res.is_err() {
                                 eprintln!("error sending websocket message to channel");
@@ -176,12 +175,12 @@ async fn subscribe_to_notifications(
                     }
                 },
                 Err(e) => {
-                    eprintln!("websocket error: {:?}", e);
+                    eprintln!("websocket error: {e:?}");
                 },
                 _ => {}
             }
         }).await;
     };
 
-    return Ok((write, tokio::spawn(read_future)));
+    Ok((write, tokio::spawn(read_future)))
 }

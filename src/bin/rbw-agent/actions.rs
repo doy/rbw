@@ -1,5 +1,3 @@
-use std::f32::consts::E;
-
 use anyhow::Context as _;
 
 pub async fn register(
@@ -210,7 +208,7 @@ pub async fn login(
 
     let err = subscribe_to_notifications(state.clone()).await.err();
     if let Some(e) = err {
-        eprintln!("failed to subscribe to notifications: {}", e)
+        eprintln!("failed to subscribe to notifications: {e}");
     }
 
     respond_ack(sock).await?;
@@ -674,7 +672,7 @@ pub async fn subscribe_to_notifications(
         .await
         .context("Config is missing")?;
     let email = config.email.clone().context("Config is missing email")?;
-    let db = rbw::db::Db::load_async(&config.server_name().as_str(), &email)
+    let db = rbw::db::Db::load_async(config.server_name().as_str(), &email)
         .await?;
     let access_token =
         db.access_token.context("Error getting access token")?;
@@ -685,7 +683,7 @@ pub async fn subscribe_to_notifications(
         .expect("config is missing base url")
         .replace("https://", "wss://")
         + "/notifications/hub?access_token=";
-    websocket_url = websocket_url + &access_token;
+    websocket_url.push_str(&access_token);
 
     let mut state = state.write().await;
     let err = state
@@ -694,9 +692,5 @@ pub async fn subscribe_to_notifications(
         .await
         .err();
 
-    if let Some(err) = err {
-        return Err(anyhow::anyhow!(err.to_string()));
-    } else {
-        Ok(())
-    }
+    err.map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
 }

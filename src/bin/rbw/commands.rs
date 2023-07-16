@@ -35,10 +35,7 @@ impl DecryptedCipher {
                         eprintln!("entry for '{desc}' had no password");
                         false
                     },
-                    |password| {
-                        let res = val_display_or_store(clipboard, password);
-                        res
-                    },
+                    |password| val_display_or_store(clipboard, password),
                 )
             }
             DecryptedData::Card { number, .. } => {
@@ -47,10 +44,7 @@ impl DecryptedCipher {
                         eprintln!("entry for '{desc}' had no card number");
                         false
                     },
-                    |number| {
-                        let res = val_display_or_store(clipboard, number);
-                        res
-                    },
+                    |number| val_display_or_store(clipboard, number),
                 )
             }
             DecryptedData::Identity {
@@ -71,11 +65,7 @@ impl DecryptedCipher {
                     eprintln!("entry for '{desc}' had no name");
                     false
                 } else {
-                    let res = val_display_or_store(
-                        clipboard,
-                        &format!("{}", names.join(" ")),
-                    );
-                    res
+                    val_display_or_store(clipboard, &names.join(" "))
                 }
             }
             DecryptedData::SecureNote {} => self.notes.as_ref().map_or_else(
@@ -83,10 +73,7 @@ impl DecryptedCipher {
                     eprintln!("entry for '{desc}' had no notes");
                     false
                 },
-                |notes| {
-                    let res = val_display_or_store(clipboard, notes);
-                    res
-                },
+                |notes| val_display_or_store(clipboard, notes),
             ),
         }
     }
@@ -573,10 +560,7 @@ impl DecryptedCipher {
     }
 }
 
-fn val_display_or_store(
-    clipboard: bool,
-    password: &str,
-) -> bool {
+fn val_display_or_store(clipboard: bool, password: &str) -> bool {
     if clipboard {
         match clipboard_store(password) {
             Ok(_) => {
@@ -764,8 +748,9 @@ fn clipboard_store(val: &str) -> anyhow::Result<()> {
         anyhow::anyhow!("Couldn't create clipboard context: {e}")
     })?;
 
-    ctx.set_contents(val.to_owned())
-        .map_err(|e| anyhow::anyhow!("Couldn't store value to clipboard: {e}"))?;
+    ctx.set_contents(val.to_owned()).map_err(|e| {
+        anyhow::anyhow!("Couldn't store value to clipboard: {e}")
+    })?;
 
     let _ = ctx.get_contents();
 
@@ -1996,9 +1981,6 @@ mod test {
 fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
     field.map_or_else(
         || false,
-        |field| {
-            let res = val_display_or_store(clipboard, &format!("{name}: {field}"));
-            res
-        },
+        |field| val_display_or_store(clipboard, &format!("{name}: {field}")),
     )
 }

@@ -324,7 +324,7 @@ fn main() {
             field,
             full,
             raw,
-            clipboard
+            clipboard,
         } => commands::get(
             name,
             user.as_deref(),
