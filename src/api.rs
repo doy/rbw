@@ -784,7 +784,19 @@ impl Client {
             Ok(())
         } else {
             let code = res.status().as_u16();
-            Err(classify_login_error(&res.json_with_path().await?, code))
+            match res.text().await {
+                Ok(body) => match body.clone().json_with_path() {
+                    Ok(json) => Err(classify_login_error(&json, code)),
+                    Err(e) => {
+                        log::warn!("{e}: {body}");
+                        Err(Error::RequestFailed { status: code })
+                    }
+                },
+                Err(e) => {
+                    log::warn!("failed to read response body: {e}");
+                    Err(Error::RequestFailed { status: code })
+                }
+            }
         }
     }
 
@@ -832,7 +844,19 @@ impl Client {
             ))
         } else {
             let code = res.status().as_u16();
-            Err(classify_login_error(&res.json_with_path().await?, code))
+            match res.text().await {
+                Ok(body) => match body.clone().json_with_path() {
+                    Ok(json) => Err(classify_login_error(&json, code)),
+                    Err(e) => {
+                        log::warn!("{e}: {body}");
+                        Err(Error::RequestFailed { status: code })
+                    }
+                },
+                Err(e) => {
+                    log::warn!("failed to read response body: {e}");
+                    Err(Error::RequestFailed { status: code })
+                }
+            }
         }
     }
 
