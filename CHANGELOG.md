@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.8.0] - 2023-07-18
+
+### Added
+
+* `rbw get --clipboard` to copy the result to the clipboard instead of
+  displaying it on stdout. (eatradish, #120)
+* Background syncing now additionally happens when the server notifies the
+  agent of password updates, instead of needing to wait for the 
+  `sync_interval` timer. (Bernd Schoolman, #115)
+* New helper script `rbw-pinentry-keyring` which can be used as an alternate
+  pinentry program (via `rbw config set pinentry rbw-pinentry-keyring`) to
+  automatically read the master password from the system keyring. Currently
+  only supports the Gnome keyring via `secret-tool`. (Kai Frische, #122)
+* Yubikeys in OTP mode are now supported for logging into a Bitwarden server.
+  (troyready, #123)
+
+### Fixed
+
+* Better error reporting when `rbw login` or `rbw register` fail.
+
 ## [1.7.1] - 2023-03-27
 
 ### Fixed
