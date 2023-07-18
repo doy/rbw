@@ -679,7 +679,7 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
         "base_url" => config.base_url = Some(value.to_string()),
         "identity_url" => config.identity_url = Some(value.to_string()),
         "notifications_url" => {
-            config.notifications_url = Some(value.to_string())
+            config.notifications_url = Some(value.to_string());
         }
         "client_cert_path" => {
             config.client_cert_path =
