@@ -678,6 +678,9 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
         "email" => config.email = Some(value.to_string()),
         "base_url" => config.base_url = Some(value.to_string()),
         "identity_url" => config.identity_url = Some(value.to_string()),
+        "notifications_url" => {
+            config.notifications_url = Some(value.to_string())
+        }
         "client_cert_path" => {
             config.client_cert_path =
                 Some(std::path::PathBuf::from(value.to_string()));
@@ -720,6 +723,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
         "email" => config.email = None,
         "base_url" => config.base_url = None,
         "identity_url" => config.identity_url = None,
+        "notifications_url" => config.notifications_url = None,
         "client_cert_path" => config.client_cert_path = None,
         "lock_timeout" => {
             config.lock_timeout = rbw::config::default_lock_timeout();
