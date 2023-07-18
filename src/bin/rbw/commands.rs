@@ -752,8 +752,6 @@ fn clipboard_store(val: &str) -> anyhow::Result<()> {
         anyhow::anyhow!("Couldn't store value to clipboard: {e}")
     })?;
 
-    let _ = ctx.get_contents();
-
     Ok(())
 }
 
