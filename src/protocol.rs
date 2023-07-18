@@ -34,6 +34,9 @@ pub enum Action {
         plaintext: String,
         org_id: Option<String>,
     },
+    ClipboardStore {
+        text: String,
+    },
     Quit,
     Version,
 }

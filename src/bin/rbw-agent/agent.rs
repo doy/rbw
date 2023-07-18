@@ -12,6 +12,7 @@ pub struct State {
     pub sync_timeout: crate::timeout::Timeout,
     pub sync_timeout_duration: std::time::Duration,
     pub notifications_handler: crate::notifications::Handler,
+    pub clipboard: copypasta::ClipboardContext,
 }
 
 impl State {
@@ -43,7 +44,7 @@ impl State {
 pub struct Agent {
     timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
     sync_timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
-    state: std::sync::Arc<tokio::sync::RwLock<State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<State>>,
 }
 
 impl Agent {
@@ -59,10 +60,13 @@ impl Agent {
             sync_timeout.set(sync_timeout_duration);
         }
         let notifications_handler = crate::notifications::Handler::new();
+        let clipboard = copypasta::ClipboardContext::new().map_err(|e| {
+            anyhow::anyhow!("couldn't create clipboard context: {e}")
+        })?;
         Ok(Self {
             timer_r,
             sync_timer_r,
-            state: std::sync::Arc::new(tokio::sync::RwLock::new(State {
+            state: std::sync::Arc::new(tokio::sync::Mutex::new(State {
                 priv_key: None,
                 org_keys: None,
                 timeout,
@@ -70,6 +74,7 @@ impl Agent {
                 sync_timeout,
                 sync_timeout_duration,
                 notifications_handler,
+                clipboard,
             })),
         })
     }
@@ -95,7 +100,7 @@ impl Agent {
             notifications::NotificationMessage,
         > = {
             self.state
-                .write()
+                .lock()
                 .await
                 .notifications_handler
                 .get_channel()
@@ -148,7 +153,7 @@ impl Agent {
                     });
                 }
                 Event::Timeout(()) => {
-                    self.state.write().await.clear();
+                    self.state.lock().await.clear();
                 }
                 Event::Sync(()) => {
                     // this could fail if we aren't logged in, but we don't
@@ -159,7 +164,7 @@ impl Agent {
                         if let Err(e) = result {
                             eprintln!("failed to sync: {e:#}");
                         } else if !state
-                            .write()
+                            .lock()
                             .await
                             .notifications_handler
                             .is_connected()
@@ -174,7 +179,7 @@ impl Agent {
                             }
                         }
                     });
-                    self.state.write().await.set_sync_timeout();
+                    self.state.lock().await.set_sync_timeout();
                 }
             }
         }
@@ -184,7 +189,7 @@ impl Agent {
 
 async fn handle_request(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::RwLock<State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<State>>,
 ) -> anyhow::Result<()> {
     let req = sock.recv().await?;
     let req = match req {
@@ -249,6 +254,11 @@ async fn handle_request(
             .await?;
             true
         }
+        rbw::protocol::Action::ClipboardStore { text } => {
+            crate::actions::clipboard_store(sock, state.clone(), text)
+                .await?;
+            true
+        }
         rbw::protocol::Action::Quit => std::process::exit(0),
         rbw::protocol::Action::Version => {
             crate::actions::version(sock).await?;
@@ -257,7 +267,7 @@ async fn handle_request(
     };
 
     if set_timeout {
-        state.write().await.set_timeout();
+        state.lock().await.set_timeout();
     }
 
     Ok(())

@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use copypasta::ClipboardProvider as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -79,7 +80,7 @@ pub async fn register(
 
 pub async fn login(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     tty: Option<&str>,
 ) -> anyhow::Result<()> {
     let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
@@ -311,7 +312,7 @@ async fn two_factor(
 }
 
 async fn login_success(
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     access_token: String,
     refresh_token: String,
     kdf: rbw::api::KdfType,
@@ -356,7 +357,7 @@ async fn login_success(
 
     match res {
         Ok((keys, org_keys)) => {
-            let mut state = state.write().await;
+            let mut state = state.lock().await;
             state.priv_key = Some(keys);
             state.org_keys = Some(org_keys);
         }
@@ -368,10 +369,10 @@ async fn login_success(
 
 pub async fn unlock(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     tty: Option<&str>,
 ) -> anyhow::Result<()> {
-    if state.read().await.needs_unlock() {
+    if state.lock().await.needs_unlock() {
         let db = load_db().await?;
 
         let Some(kdf) = db.kdf
@@ -464,11 +465,11 @@ pub async fn unlock(
 }
 
 async fn unlock_success(
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     keys: rbw::locked::Keys,
     org_keys: std::collections::HashMap<String, rbw::locked::Keys>,
 ) -> anyhow::Result<()> {
-    let mut state = state.write().await;
+    let mut state = state.lock().await;
     state.priv_key = Some(keys);
     state.org_keys = Some(org_keys);
     Ok(())
@@ -476,9 +477,9 @@ async fn unlock_success(
 
 pub async fn lock(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
 ) -> anyhow::Result<()> {
-    state.write().await.clear();
+    state.lock().await.clear();
 
     respond_ack(sock).await?;
 
@@ -487,10 +488,10 @@ pub async fn lock(
 
 pub async fn check_lock(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     _tty: Option<&str>,
 ) -> anyhow::Result<()> {
-    if state.read().await.needs_unlock() {
+    if state.lock().await.needs_unlock() {
         return Err(anyhow::anyhow!("agent is locked"));
     }
 
@@ -538,11 +539,11 @@ pub async fn sync(
 
 pub async fn decrypt(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     cipherstring: &str,
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    let state = state.read().await;
+    let state = state.lock().await;
     let Some(keys) = state.key(org_id)
     else {
         return Err(anyhow::anyhow!(
@@ -565,11 +566,11 @@ pub async fn decrypt(
 
 pub async fn encrypt(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     plaintext: &str,
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    let state = state.read().await;
+    let state = state.lock().await;
     let Some(keys) = state.key(org_id)
     else {
         return Err(anyhow::anyhow!(
@@ -583,6 +584,25 @@ pub async fn encrypt(
     .context("failed to encrypt plaintext secret")?;
 
     respond_encrypt(sock, cipherstring.to_string()).await?;
+
+    Ok(())
+}
+
+pub async fn clipboard_store(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    text: &str,
+) -> anyhow::Result<()> {
+    state
+        .lock()
+        .await
+        .clipboard
+        .set_contents(text.to_owned())
+        .map_err(|e| {
+            anyhow::anyhow!("couldn't store value to clipboard: {e}")
+        })?;
+
+    respond_ack(sock).await?;
 
     Ok(())
 }
@@ -663,7 +683,7 @@ async fn config_pinentry() -> anyhow::Result<String> {
 }
 
 pub async fn subscribe_to_notifications(
-    state: std::sync::Arc<tokio::sync::RwLock<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
 ) -> anyhow::Result<()> {
     // access token might be out of date, so we do a sync to refresh it
     sync(None).await?;
@@ -685,7 +705,7 @@ pub async fn subscribe_to_notifications(
         + "/notifications/hub?access_token=";
     websocket_url.push_str(&access_token);
 
-    let mut state = state.write().await;
+    let mut state = state.lock().await;
     let err = state
         .notifications_handler
         .connect(websocket_url)

@@ -1,5 +1,4 @@
 use anyhow::Context as _;
-use copypasta::{ClipboardContext, ClipboardProvider};
 use serde::Serialize;
 use std::io;
 use std::io::prelude::Write;
@@ -741,13 +740,8 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
 }
 
 fn clipboard_store(val: &str) -> anyhow::Result<()> {
-    let mut ctx = ClipboardContext::new().map_err(|e| {
-        anyhow::anyhow!("couldn't create clipboard context: {e}")
-    })?;
-
-    ctx.set_contents(val.to_owned()).map_err(|e| {
-        anyhow::anyhow!("couldn't store value to clipboard: {e}")
-    })?;
+    ensure_agent()?;
+    crate::actions::clipboard_store(val)?;
 
     Ok(())
 }

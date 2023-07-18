@@ -101,6 +101,12 @@ pub fn encrypt(
     }
 }
 
+pub fn clipboard_store(text: &str) -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::ClipboardStore {
+        text: text.to_string(),
+    })
+}
+
 pub fn version() -> anyhow::Result<u32> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
