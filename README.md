@@ -56,6 +56,9 @@ configuration options:
 * `identity_url`: The URL of the Bitwarden identity server to use. If unset,
   will use the `/identity` path on the configured `base_url`, or
   `https://identity.bitwarden.com/` if no `base_url` is set.
+* `notifications_url`: The URL of the Bitwarden notifications server to use.
+  If unset, will use the `/notifications` path on the configured `base_url`,
+  or `https://notifications.bitwarden.com/` if no `base_url` is set.
 * `lock_timeout`: The number of seconds to keep the master keys in memory for
   before requiring the password to be entered again. Defaults to `3600` (one
   hour).

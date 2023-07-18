@@ -697,13 +697,12 @@ pub async fn subscribe_to_notifications(
     let access_token =
         db.access_token.context("Error getting access token")?;
 
-    let mut websocket_url = config
-        .base_url
-        .clone()
-        .expect("config is missing base url")
-        .replace("https://", "wss://")
-        + "/notifications/hub?access_token=";
-    websocket_url.push_str(&access_token);
+    let websocket_url = format!(
+        "{}/hub?access_token={}",
+        config.notifications_url(),
+        access_token
+    )
+    .replace("https://", "wss://");
 
     let mut state = state.lock().await;
     let err = state

@@ -8,6 +8,7 @@ pub struct Config {
     pub email: Option<String>,
     pub base_url: Option<String>,
     pub identity_url: Option<String>,
+    pub notifications_url: Option<String>,
     #[serde(default = "default_lock_timeout")]
     pub lock_timeout: u64,
     #[serde(default = "default_sync_interval")]
@@ -26,6 +27,7 @@ impl Default for Config {
             email: None,
             base_url: None,
             identity_url: None,
+            notifications_url: None,
             lock_timeout: default_lock_timeout(),
             sync_interval: default_sync_interval(),
             pinentry: default_pinentry(),
@@ -154,6 +156,16 @@ impl Config {
             self.base_url.clone().map_or_else(
                 || "https://identity.bitwarden.com".to_string(),
                 |url| format!("{}/identity", url.trim_end_matches('/')),
+            )
+        })
+    }
+
+    #[must_use]
+    pub fn notifications_url(&self) -> String {
+        self.notifications_url.clone().unwrap_or_else(|| {
+            self.base_url.clone().map_or_else(
+                || "https://notifications.bitwarden.com".to_string(),
+                |url| format!("{}/notifications", url.trim_end_matches('/')),
             )
         })
     }
