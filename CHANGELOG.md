@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.1] - 2023-07-18
+
+### Fixed
+
+* `rbw config set notifications_url` now actually works
+
 ## [1.8.0] - 2023-07-18
 
 ### Added
