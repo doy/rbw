@@ -563,12 +563,9 @@ impl DecryptedCipher {
 fn val_display_or_store(clipboard: bool, password: &str) -> bool {
     if clipboard {
         match clipboard_store(password) {
-            Ok(_) => {
-                println!("The results are already stored on the clipboard.");
-                true
-            }
+            Ok(()) => true,
             Err(e) => {
-                println!("{e}");
+                eprintln!("{e}");
                 false
             }
         }
@@ -745,11 +742,11 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
 
 fn clipboard_store(val: &str) -> anyhow::Result<()> {
     let mut ctx = ClipboardContext::new().map_err(|e| {
-        anyhow::anyhow!("Couldn't create clipboard context: {e}")
+        anyhow::anyhow!("couldn't create clipboard context: {e}")
     })?;
 
     ctx.set_contents(val.to_owned()).map_err(|e| {
-        anyhow::anyhow!("Couldn't store value to clipboard: {e}")
+        anyhow::anyhow!("couldn't store value to clipboard: {e}")
     })?;
 
     Ok(())
