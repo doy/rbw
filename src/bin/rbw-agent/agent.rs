@@ -156,26 +156,21 @@ impl Agent {
                     self.state.lock().await.clear();
                 }
                 Event::Sync(()) => {
-                    // this could fail if we aren't logged in, but we don't
-                    // care about that
                     let state = self.state.clone();
                     tokio::spawn(async move {
-                        let result = crate::actions::sync(None).await;
-                        if let Err(e) = result {
-                            eprintln!("failed to sync: {e:#}");
-                        } else if !state
-                            .lock()
-                            .await
-                            .notifications_handler
-                            .is_connected()
-                        {
-                            let err =
-                                crate::actions::subscribe_to_notifications(
-                                    state,
-                                )
-                                .await;
-                            if let Err(e) = err {
-                                eprintln!("failed to subscribe to notifications: {e:#}");
+                        // this could fail if we aren't logged in, but we
+                        // don't care about that
+                        match crate::actions::sync(None).await {
+                            Ok(()) => {
+                                if let Err(e) = crate::actions::subscribe_to_notifications(
+                                        state,
+                                    )
+                                    .await {
+                                    eprintln!("failed to subscribe to notifications: {e:#}");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("failed to sync: {e:#}");
                             }
                         }
                     });

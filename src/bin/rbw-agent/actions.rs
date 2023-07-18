@@ -205,11 +205,10 @@ pub async fn login(
                 }
             }
         }
-    }
 
-    let err = subscribe_to_notifications(state.clone()).await.err();
-    if let Some(e) = err {
-        eprintln!("failed to subscribe to notifications: {e}");
+        if let Err(e) = subscribe_to_notifications(state.clone()).await {
+            eprintln!("failed to subscribe to notifications: {e}");
+        }
     }
 
     respond_ack(sock).await?;
@@ -685,6 +684,10 @@ async fn config_pinentry() -> anyhow::Result<String> {
 pub async fn subscribe_to_notifications(
     state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
 ) -> anyhow::Result<()> {
+    if state.lock().await.notifications_handler.is_connected() {
+        return Ok(());
+    }
+
     // access token might be out of date, so we do a sync to refresh it
     sync(None).await?;
 
@@ -705,11 +708,10 @@ pub async fn subscribe_to_notifications(
     .replace("https://", "wss://");
 
     let mut state = state.lock().await;
-    let err = state
+    state
         .notifications_handler
         .connect(websocket_url)
         .await
-        .err();
-
-    err.map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
+        .err()
+        .map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
 }
