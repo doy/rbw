@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.2] - 2023-07-19
+
+### Fixed
+
+* Fixed several issues with notification-based background syncing, it should
+  be much more reliable now.
+
 ## [1.8.1] - 2023-07-18
 
 ### Fixed
