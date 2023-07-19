@@ -89,13 +89,6 @@ impl Agent {
             Sync(()),
         }
 
-        let err =
-            crate::actions::subscribe_to_notifications(self.state.clone())
-                .await;
-        if let Err(e) = err {
-            eprintln!("failed to subscribe to notifications: {e:#}");
-        }
-
         let c: tokio::sync::mpsc::UnboundedReceiver<
             notifications::NotificationMessage,
         > = {
@@ -160,18 +153,10 @@ impl Agent {
                     tokio::spawn(async move {
                         // this could fail if we aren't logged in, but we
                         // don't care about that
-                        match crate::actions::sync(None).await {
-                            Ok(()) => {
-                                if let Err(e) = crate::actions::subscribe_to_notifications(
-                                        state,
-                                    )
-                                    .await {
-                                    eprintln!("failed to subscribe to notifications: {e:#}");
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("failed to sync: {e:#}");
-                            }
+                        if let Err(e) =
+                            crate::actions::sync(None, state.clone()).await
+                        {
+                            eprintln!("failed to sync: {e:#}");
                         }
                     });
                     self.state.lock().await.set_sync_timeout();
@@ -223,7 +208,7 @@ async fn handle_request(
             false
         }
         rbw::protocol::Action::Sync => {
-            crate::actions::sync(Some(sock)).await?;
+            crate::actions::sync(Some(sock), state.clone()).await?;
             false
         }
         rbw::protocol::Action::Decrypt {

@@ -205,10 +205,6 @@ pub async fn login(
                 }
             }
         }
-
-        if let Err(e) = subscribe_to_notifications(state.clone()).await {
-            eprintln!("failed to subscribe to notifications: {e}");
-        }
     }
 
     respond_ack(sock).await?;
@@ -332,7 +328,7 @@ async fn login_success(
     db.protected_key = Some(protected_key.to_string());
     save_db(&db).await?;
 
-    sync(None).await?;
+    sync(None, state.clone()).await?;
     let db = load_db().await?;
 
     let Some(protected_private_key) = db.protected_private_key
@@ -501,6 +497,7 @@ pub async fn check_lock(
 
 pub async fn sync(
     sock: Option<&mut crate::sock::Sock>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
 ) -> anyhow::Result<()> {
     let mut db = load_db().await?;
 
@@ -528,6 +525,10 @@ pub async fn sync(
     db.protected_org_keys = protected_org_keys;
     db.entries = entries;
     save_db(&db).await?;
+
+    if let Err(e) = subscribe_to_notifications(state.clone()).await {
+        eprintln!("failed to subscribe to notifications: {e}");
+    }
 
     if let Some(sock) = sock {
         respond_ack(sock).await?;
@@ -687,9 +688,6 @@ pub async fn subscribe_to_notifications(
     if state.lock().await.notifications_handler.is_connected() {
         return Ok(());
     }
-
-    // access token might be out of date, so we do a sync to refresh it
-    sync(None).await?;
 
     let config = rbw::config::Config::load_async()
         .await
