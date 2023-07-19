@@ -83,31 +83,28 @@ impl Agent {
         self,
         listener: tokio::net::UnixListener,
     ) -> anyhow::Result<()> {
-        enum Event {
+        pub enum Event {
             Request(std::io::Result<tokio::net::UnixStream>),
             Timeout(()),
             Sync(()),
         }
 
-        let c: tokio::sync::mpsc::UnboundedReceiver<
-            notifications::NotificationMessage,
-        > = {
-            self.state
-                .lock()
-                .await
-                .notifications_handler
-                .get_channel()
-                .await
-        };
+        let notifications = self
+            .state
+            .lock()
+            .await
+            .notifications_handler
+            .get_channel()
+            .await;
         let notifications =
-            tokio_stream::wrappers::UnboundedReceiverStream::new(c)
-                .map(|message| match message {
-                    notifications::NotificationMessage::Logout => {
-                        Event::Timeout(())
-                    }
-                    _ => Event::Sync(()),
-                })
-                .boxed();
+            tokio_stream::wrappers::UnboundedReceiverStream::new(
+                notifications,
+            )
+            .map(|message| match message {
+                notifications::Message::Logout => Event::Timeout(()),
+                notifications::Message::Sync => Event::Sync(()),
+            })
+            .boxed();
 
         let mut stream = futures_util::stream::select_all([
             tokio_stream::wrappers::UnixListenerStream::new(listener)
