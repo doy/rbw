@@ -37,6 +37,11 @@ You can download a Debian package from
 [`minisign`](https://github.com/jedisct1/minisign), and can be verified using
 the public key `RWTM0AZ5RpROOfAIWx1HvYQ6pw1+FKwN6526UFTKNImP/Hz3ynCFst3r`.
 
+### Alpine
+
+`rbw` is available in the [testing repository](https://pkgs.alpinelinux.org/packages?name=rbw).
+If you are not using the `edge` version of alpine you have to [enable the repository manually](https://wiki.alpinelinux.org/wiki/Repositories#Testing).
+
 ### Other
 
 With a working Rust installation, `rbw` can be installed via `cargo install
