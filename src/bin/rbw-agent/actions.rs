@@ -1,5 +1,4 @@
 use anyhow::Context as _;
-use copypasta::ClipboardProvider as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
