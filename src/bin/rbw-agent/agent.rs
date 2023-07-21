@@ -12,7 +12,7 @@ pub struct State {
     pub sync_timeout: crate::timeout::Timeout,
     pub sync_timeout_duration: std::time::Duration,
     pub notifications_handler: crate::notifications::Handler,
-    pub clipboard: copypasta::ClipboardContext,
+    pub clipboard: Box<dyn copypasta::ClipboardProvider>,
 }
 
 impl State {
@@ -60,9 +60,20 @@ impl Agent {
             sync_timeout.set(sync_timeout_duration);
         }
         let notifications_handler = crate::notifications::Handler::new();
-        let clipboard = copypasta::ClipboardContext::new().map_err(|e| {
-            anyhow::anyhow!("couldn't create clipboard context: {e}")
-        })?;
+        let clipboard: Box<dyn copypasta::ClipboardProvider> =
+            copypasta::ClipboardContext::new()
+                .map(|v| {
+                    Box::new(v)
+                        as Box<dyn copypasta::ClipboardProvider + Send>
+                })
+                .unwrap_or_else(|e| {
+                    log::warn!("couldn't create clipboard context: {e}");
+                    Box::new(
+                        // infailible
+                        copypasta::nop_clipboard::NopClipboardContext::new()
+                            .unwrap(),
+                    )
+                });
         Ok(Self {
             timer_r,
             sync_timer_r,
