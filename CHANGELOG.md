@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3] - 2023-07-20
+
+### Fixed
+
+* Fixed running on linux without an X11 context available. (Benjamin Jacobs,
+  #126)
+
 ## [1.8.2] - 2023-07-19
 
 ### Fixed
