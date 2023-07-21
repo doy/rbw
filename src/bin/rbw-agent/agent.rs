@@ -61,19 +61,25 @@ impl Agent {
         }
         let notifications_handler = crate::notifications::Handler::new();
         let clipboard: Box<dyn copypasta::ClipboardProvider> =
-            copypasta::ClipboardContext::new()
-                .map(|v| {
-                    Box::new(v)
-                        as Box<dyn copypasta::ClipboardProvider + Send>
-                })
-                .unwrap_or_else(|e| {
+            copypasta::ClipboardContext::new().map_or_else(
+                |e| {
                     log::warn!("couldn't create clipboard context: {e}");
-                    Box::new(
-                        // infailible
+                    let clipboard = Box::new(
+                        // infallible
                         copypasta::nop_clipboard::NopClipboardContext::new()
                             .unwrap(),
-                    )
-                });
+                    );
+                    let clipboard: Box<dyn copypasta::ClipboardProvider> =
+                        clipboard;
+                    clipboard
+                },
+                |clipboard| {
+                    let clipboard = Box::new(clipboard);
+                    let clipboard: Box<dyn copypasta::ClipboardProvider> =
+                        clipboard;
+                    clipboard
+                },
+            );
         Ok(Self {
             timer_r,
             sync_timer_r,
