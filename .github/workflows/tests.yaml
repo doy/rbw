@@ -1,0 +1,80 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions-rs/toolchain
+      - uses: actions-rs/cargo
+        with:
+          command: build
+          args: --all-targets
+  build-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions-rs/toolchain
+      - uses: actions-rs/cargo
+        with:
+          command: build
+          args: --all-targets --target x86_64-unknown-linux-musl
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions-rs/toolchain
+      - uses: actions-rs/cargo
+        with:
+          command: build
+          args: --all-targets
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions-rs/toolchain
+      - uses: actions-rs/cargo
+        with:
+          command: test
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions-rs/toolchain
+      - uses: actions-rs/cargo
+        with:
+          command: test
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions-rs/toolchain
+        with:
+          components: clippy, rustfmt
+      - uses: actions-rs/cargo
+        with:
+          command: install
+          args: install --locked cargo-deny 
+      - uses: actions-rs/clippy-check
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-targets
+      - uses: actions-rs/cargo
+        with:
+          command: fmt
+          args: --check
+      - uses: actions-rs/cargo
+        with:
+          command: deny
+          args: check
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout
+      - uses: actions-rs/toolchain
+      - uses: actions-rs/cargo
+        with:
+          command: doc
