@@ -8,95 +8,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all-targets
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --all-targets
   build-musl:
     runs-on: ubuntu-latest
     steps:
       # ring only supports building with clang under musl
       - run: sudo apt-get install clang-11
-      - run: echo "TARGET_CC=clang-11" >> "$GITHUB_ENV"
-      - run: echo "TARGET_AR=llvm-ar-11" >> "$GITHUB_ENV"
-
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: x86_64-unknown-linux-musl
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all-targets --target x86_64-unknown-linux-musl
-        env:
-          TARGET_CC: "${{ env.TARGET_CC }}"
-          TARGET_AR: "${{ env.TARGET_AR }}"
+          targets: x86_64-unknown-linux-musl
+      - run: TARGET_CC=clang-11 TARGET_AR=llvm-ar-11 cargo build --all-targets --target x86_64-unknown-linux-musl
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all-targets
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --all-targets
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
   test-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: clippy, rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: --locked cargo-deny
-      - uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-targets
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --check
-      - uses: actions-rs/cargo@v1
-        with:
-          command: deny
-          args: check
+      - run: cargo install --locked --debug cargo-deny
+      - run: cargo clippy --all-targets -- -Dwarnings
+      - run: cargo fmt --check
+      - run: cargo deny check
   doc:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: doc
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo doc
