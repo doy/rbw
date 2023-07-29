@@ -24,6 +24,8 @@ jobs:
         with:
           toolchain: stable
           target: x86_64-unknown-linux-musl
+      - run: echo "export CC_x86_64_unknown_linux_musl=clang-11" >> "$GITHUB_ENV"
+      - run: echo "export AR_x86_64_unknown_linux_musl=llvm-ar-11" >> "$GITHUB_ENV"
       - uses: actions-rs/cargo@v1
         with:
           command: build
