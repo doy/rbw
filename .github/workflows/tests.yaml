@@ -18,7 +18,7 @@ jobs:
   build-musl:
     runs-on: ubuntu-latest
     steps:
-      - run: sudo apt-get install musl-dev
+      - run: sudo apt-get install musl-dev clang-11 llvm-11
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
