@@ -1,7 +1,8 @@
-NAME = $(shell cargo metadata --no-deps --format-version 1 | jq '.packages[0].name')
-VERSION = $(shell cargo metadata --no-deps --format-version 1 | jq '.packages[0].version')
+NAME = $(shell cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+VERSION = $(shell cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
 
 DEB_PACKAGE = $(NAME)_$(VERSION)_amd64.deb
+TGZ_PACKAGE = $(NAME)_$(VERSION)_linux_amd64.tar.gz
 
 all: build
 .PHONY: all
@@ -41,7 +42,7 @@ completion: release
 	@./target/x86_64-unknown-linux-musl/release/rbw gen-completions fish > target/x86_64-unknown-linux-musl/release/completion/fish
 .PHONY: completion
 
-package: pkg/$(DEB_PACKAGE)
+package: pkg/$(DEB_PACKAGE) pkg/$(TGZ_PACKAGE)
 .PHONY: package
 
 pkg:
@@ -51,13 +52,16 @@ pkg/$(DEB_PACKAGE): release completion | pkg
 	@cargo deb --no-build --target x86_64-unknown-linux-musl && mv target/x86_64-unknown-linux-musl/debian/$(DEB_PACKAGE) pkg
 
 pkg/$(DEB_PACKAGE).minisig: pkg/$(DEB_PACKAGE)
-	@minisign -Sm pkg/$(DEB_PACKAGE)
+	@minisign -Sm $<
+
+pkg/$(TGZ_PACKAGE): release completion | pkg
+	@tar czf $@ -C target/x86_64-unknown-linux-musl/release rbw rbw-agent completion
 
 release-dir-deb:
 	@ssh tozt.net mkdir -p releases/rbw/deb
 .PHONY: release-dir-deb
 
-publish: publish-crates-io publish-git-tags publish-deb
+publish: publish-crates-io publish-git-tags publish-deb publish-github
 .PHONY: publish
 
 publish-crates-io: test
@@ -74,3 +78,6 @@ publish-git-tags: test
 publish-deb: test pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig release-dir-deb
 	@scp pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig tozt.net:releases/rbw/deb
 .PHONY: publish-deb
+
+publish-github: test pkg/$(TGZ_PACKAGE)
+	@perl -nle'print if /^## \Q[$(VERSION)]/../^## (?!\Q[$(VERSION)]\E)/' CHANGELOG.md | head -n-2 | gh release create $(VERSION) --verify-tag --notes-file - pkg/$(TGZ_PACKAGE)
