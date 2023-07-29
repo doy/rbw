@@ -7,74 +7,74 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout
-      - uses: actions-rs/toolchain
-      - uses: actions-rs/cargo
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/cargo@v1
         with:
           command: build
           args: --all-targets
   build-musl:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout
-      - uses: actions-rs/toolchain
-      - uses: actions-rs/cargo
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/cargo@v1
         with:
           command: build
           args: --all-targets --target x86_64-unknown-linux-musl
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout
-      - uses: actions-rs/toolchain
-      - uses: actions-rs/cargo
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/cargo@v1
         with:
           command: build
           args: --all-targets
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout
-      - uses: actions-rs/toolchain
-      - uses: actions-rs/cargo
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/cargo@v1
         with:
           command: test
   test-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout
-      - uses: actions-rs/toolchain
-      - uses: actions-rs/cargo
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/cargo@v1
         with:
           command: test
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout
-      - uses: actions-rs/toolchain
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
         with:
           components: clippy, rustfmt
-      - uses: actions-rs/cargo
+      - uses: actions-rs/cargo@v1
         with:
           command: install
           args: install --locked cargo-deny 
-      - uses: actions-rs/clippy-check
+      - uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-targets
-      - uses: actions-rs/cargo
+      - uses: actions-rs/cargo@v1
         with:
           command: fmt
           args: --check
-      - uses: actions-rs/cargo
+      - uses: actions-rs/cargo@v1
         with:
           command: deny
           args: check
   doc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout
-      - uses: actions-rs/toolchain
-      - uses: actions-rs/cargo
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/cargo@v1
         with:
           command: doc
