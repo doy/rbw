@@ -20,8 +20,8 @@ jobs:
     steps:
       # ring only supports building with clang under musl
       - run: sudo apt-get install clang-11
-      - run: echo "export TARGET_CC=clang-11" >> "$GITHUB_ENV"
-      - run: echo "export TARGET_AR=llvm-ar-11" >> "$GITHUB_ENV"
+      - run: echo "TARGET_CC=clang-11" >> "$GITHUB_ENV"
+      - run: echo "TARGET_AR=llvm-ar-11" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
