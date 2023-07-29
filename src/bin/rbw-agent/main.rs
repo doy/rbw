@@ -12,6 +12,8 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::multiple_crate_versions)]
 #![allow(clippy::large_enum_variant)]
+// this one looks plausibly useful, but currently has too many bugs
+#![allow(clippy::significant_drop_tightening)]
 
 use anyhow::Context as _;
 
