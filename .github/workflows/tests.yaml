@@ -32,6 +32,9 @@ jobs:
         with:
           command: build
           args: --all-targets --target x86_64-unknown-linux-musl
+        env:
+          TARGET_CC: "${{ env.TARGET_CC }}"
+          TARGET_AR: "${{ env.TARGET_AR }}"
   build-macos:
     runs-on: macos-latest
     steps:
