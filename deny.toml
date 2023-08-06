@@ -1,6 +1,8 @@
 targets = [
     { triple = "x86_64-unknown-linux-musl" },
     { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
 ]
 
 [advisories]
@@ -13,7 +15,14 @@ deny = [
 ]
 
 [licenses]
-allow = ["MIT", "BSD-3-Clause", "Apache-2.0", "ISC", "Unicode-DFS-2016"]
+allow = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    "Unicode-DFS-2016",
+]
 copyleft = "deny"
 exceptions = [
     { name = "ring", allow = ["OpenSSL", "MIT", "ISC"] }
