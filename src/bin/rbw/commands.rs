@@ -119,18 +119,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if f.name
-                            .as_ref()
-                            .unwrap()
-                            .to_lowercase()
-                            .as_str()
-                            .contains(field)
-                        {
-                            display_field(
-                                f.name.as_deref().unwrap_or("(null)"),
-                                Some(f.value.as_deref().unwrap_or("")),
-                                clipboard,
-                            );
+                        if let Some(name) = &f.name {
+                            if name.to_lowercase().as_str().contains(field) {
+                                display_field(
+                                    name.as_str(),
+                                    f.value.as_deref(),
+                                    clipboard,
+                                );
+                            }
                         }
                     }
                 }
