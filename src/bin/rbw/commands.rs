@@ -121,11 +121,7 @@ impl DecryptedCipher {
                     for f in &self.fields {
                         if let Some(name) = &f.name {
                             if name.to_lowercase().as_str().contains(field) {
-                                display_field(
-                                    name.as_str(),
-                                    f.value.as_deref(),
-                                    clipboard,
-                                );
+                                val_display_or_store(clipboard, f.value.as_deref().unwrap_or(""));
                             }
                         }
                     }
