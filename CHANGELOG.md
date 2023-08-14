@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+* More consistent behavior from `rbw get --field`, and fix some panics (#131, Jörg Thalheim)
+
 ## [1.8.3] - 2023-07-20
 
 ### Fixed

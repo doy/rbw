@@ -78,7 +78,6 @@ impl DecryptedCipher {
     }
 
     fn display_field(&self, desc: &str, field: &str, clipboard: bool) {
-        // Convert the field name to lowercase
         let field = field.to_lowercase();
         let field = field.as_str();
         match &self.data {
@@ -94,24 +93,29 @@ impl DecryptedCipher {
                     }
                 }
                 "username" | "user" => {
-                    display_field("Username", username.as_deref(), clipboard);
+                    if let Some(username) = &username {
+                        val_display_or_store(clipboard, username);
+                    }
                 }
                 "totp" | "code" => {
                     if let Some(totp) = totp {
-                        if let Ok(code) = generate_totp(totp) {
-                            println!("{code}");
+                        match generate_totp(totp) {
+                            Ok(code) => {
+                                val_display_or_store(clipboard, &code);
+                            }
+                            Err(e) => {
+                                eprintln!("{e}");
+                            }
                         }
                     }
                 }
                 "uris" | "urls" | "sites" => {
                     if let Some(uris) = uris {
-                        for uri in uris {
-                            display_field(
-                                "URI",
-                                Some(uri.uri.as_str()),
-                                clipboard,
-                            );
-                        }
+                        let uri_strs: Vec<_> = uris
+                            .iter()
+                            .map(|uri| uri.uri.to_string())
+                            .collect();
+                        val_display_or_store(clipboard, &uri_strs.join("\n"));
                     }
                 }
                 "password" => {
@@ -119,18 +123,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if f.name
-                            .as_ref()
-                            .unwrap()
-                            .to_lowercase()
-                            .as_str()
-                            .contains(field)
-                        {
-                            display_field(
-                                f.name.as_deref().unwrap_or("(null)"),
-                                Some(f.value.as_deref().unwrap_or("")),
-                                clipboard,
-                            );
+                        if let Some(name) = &f.name {
+                            if name.to_lowercase().as_str().contains(field) {
+                                val_display_or_store(
+                                    clipboard,
+                                    f.value.as_deref().unwrap_or(""),
+                                );
+                                break;
+                            }
                         }
                     }
                 }
@@ -148,31 +148,36 @@ impl DecryptedCipher {
                 }
                 "exp" => {
                     if let (Some(month), Some(year)) = (exp_month, exp_year) {
-                        display_field(
-                            "Exp",
-                            Some(format!("{month}/{year}").as_str()),
+                        val_display_or_store(
                             clipboard,
+                            &format!("{month}/{year}"),
                         );
                     }
                 }
                 "exp_month" | "month" => {
-                    display_field("Month", exp_month.as_deref(), clipboard);
+                    if let Some(exp_month) = exp_month {
+                        val_display_or_store(clipboard, exp_month);
+                    }
                 }
                 "exp_year" | "year" => {
-                    display_field("Year", exp_year.as_deref(), clipboard);
+                    if let Some(exp_year) = exp_year {
+                        val_display_or_store(clipboard, exp_year);
+                    }
                 }
                 "cvv" => {
-                    display_field("CVV", code.as_deref(), clipboard);
+                    if let Some(code) = code {
+                        val_display_or_store(clipboard, code);
+                    }
                 }
                 "name" | "cardholder" => {
-                    display_field(
-                        "Name",
-                        cardholder_name.as_deref(),
-                        clipboard,
-                    );
+                    if let Some(cardholder_name) = cardholder_name {
+                        val_display_or_store(clipboard, cardholder_name);
+                    }
                 }
                 "brand" | "type" => {
-                    display_field("Brand", brand.as_deref(), clipboard);
+                    if let Some(brand) = brand {
+                        val_display_or_store(clipboard, brand);
+                    }
                 }
                 "notes" => {
                     if let Some(notes) = &self.notes {
@@ -181,18 +186,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if f.name
-                            .as_ref()
-                            .unwrap()
-                            .to_lowercase()
-                            .as_str()
-                            .contains(field)
-                        {
-                            display_field(
-                                f.name.as_deref().unwrap_or("(null)"),
-                                Some(f.value.as_deref().unwrap_or("")),
-                                clipboard,
-                            );
+                        if let Some(name) = &f.name {
+                            if name.to_lowercase().as_str().contains(field) {
+                                val_display_or_store(
+                                    clipboard,
+                                    f.value.as_deref().unwrap_or(""),
+                                );
+                                break;
+                            }
                         }
                     }
                 }
@@ -217,67 +218,85 @@ impl DecryptedCipher {
                     self.display_short(desc, clipboard);
                 }
                 "email" => {
-                    display_field("Email", email.as_deref(), clipboard);
+                    if let Some(email) = email {
+                        val_display_or_store(clipboard, email);
+                    }
                 }
                 "address" => {
-                    display_field("Address", address1.as_deref(), clipboard);
-                    display_field("Address", address2.as_deref(), clipboard);
-                    display_field("Address", address3.as_deref(), clipboard);
+                    let mut strs = vec![];
+                    if let Some(address1) = address1 {
+                        strs.push(address1.clone());
+                    }
+                    if let Some(address2) = address2 {
+                        strs.push(address2.clone());
+                    }
+                    if let Some(address3) = address3 {
+                        strs.push(address3.clone());
+                    }
+                    if !strs.is_empty() {
+                        val_display_or_store(clipboard, &strs.join("\n"));
+                    }
                 }
                 "city" => {
-                    display_field("City", city.as_deref(), clipboard);
+                    if let Some(city) = city {
+                        val_display_or_store(clipboard, city);
+                    }
                 }
                 "state" => {
-                    display_field("State", state.as_deref(), clipboard);
+                    if let Some(state) = state {
+                        val_display_or_store(clipboard, state);
+                    }
                 }
                 "postcode" | "zipcode" | "zip" => {
-                    display_field("Zip", postal_code.as_deref(), clipboard);
+                    if let Some(postal_code) = postal_code {
+                        val_display_or_store(clipboard, postal_code);
+                    }
                 }
                 "country" => {
-                    display_field("Country", country.as_deref(), clipboard);
+                    if let Some(country) = country {
+                        val_display_or_store(clipboard, country);
+                    }
                 }
                 "phone" => {
-                    display_field("Phone", phone.as_deref(), clipboard);
+                    if let Some(phone) = phone {
+                        val_display_or_store(clipboard, phone);
+                    }
                 }
                 "ssn" => {
-                    display_field("SSN", ssn.as_deref(), clipboard);
+                    if let Some(ssn) = ssn {
+                        val_display_or_store(clipboard, ssn);
+                    }
                 }
                 "license" => {
-                    display_field(
-                        "License",
-                        license_number.as_deref(),
-                        clipboard,
-                    );
+                    if let Some(license_number) = license_number {
+                        val_display_or_store(clipboard, license_number);
+                    }
                 }
                 "passport" => {
-                    display_field(
-                        "Passport",
-                        passport_number.as_deref(),
-                        clipboard,
-                    );
+                    if let Some(passport_number) = passport_number {
+                        val_display_or_store(clipboard, passport_number);
+                    }
                 }
                 "username" => {
-                    display_field("Username", username.as_deref(), clipboard);
+                    if let Some(username) = username {
+                        val_display_or_store(clipboard, username);
+                    }
                 }
                 "notes" => {
                     if let Some(notes) = &self.notes {
-                        println!("{notes}");
+                        val_display_or_store(clipboard, notes);
                     }
                 }
                 _ => {
                     for f in &self.fields {
-                        if f.name
-                            .as_ref()
-                            .unwrap()
-                            .to_lowercase()
-                            .as_str()
-                            .contains(field)
-                        {
-                            display_field(
-                                f.name.as_deref().unwrap_or("(null)"),
-                                Some(f.value.as_deref().unwrap_or("")),
-                                clipboard,
-                            );
+                        if let Some(name) = &f.name {
+                            if name.to_lowercase().as_str().contains(field) {
+                                val_display_or_store(
+                                    clipboard,
+                                    f.value.as_deref().unwrap_or(""),
+                                );
+                                break;
+                            }
                         }
                     }
                 }
@@ -288,18 +307,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if f.name
-                            .as_ref()
-                            .unwrap()
-                            .to_lowercase()
-                            .as_str()
-                            .contains(field)
-                        {
-                            display_field(
-                                f.name.as_deref().unwrap_or("(null)"),
-                                Some(f.value.as_deref().unwrap_or("")),
-                                clipboard,
-                            );
+                        if let Some(name) = &f.name {
+                            if name.to_lowercase().as_str().contains(field) {
+                                val_display_or_store(
+                                    clipboard,
+                                    f.value.as_deref().unwrap_or(""),
+                                );
+                                break;
+                            }
                         }
                     }
                 }
