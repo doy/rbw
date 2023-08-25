@@ -87,8 +87,8 @@ enum Opt {
         clipboard: bool,
     },
 
-    #[command(about = "Display the authenticator code for a given entry")]
-    Code {
+    #[command(about = "Display the authenticator code for a given entry", visible_alias = "code")]
+    Otp {
         #[arg(help = "Name or UUID of the entry to display")]
         name: String,
         #[arg(help = "Username of the entry to display")]
@@ -246,7 +246,7 @@ impl Opt {
             Self::Sync => "sync".to_string(),
             Self::List { .. } => "list".to_string(),
             Self::Get { .. } => "get".to_string(),
-            Self::Code { .. } => "code".to_string(),
+            Self::Otp { .. } => "code".to_string(),
             Self::Add { .. } => "add".to_string(),
             Self::Generate { .. } => "generate".to_string(),
             Self::Edit { .. } => "edit".to_string(),
@@ -336,8 +336,8 @@ fn main() {
             *raw,
             *clipboard,
         ),
-        Opt::Code { name, user, folder, clipboard } => {
-            commands::code(name, user.as_deref(), folder.as_deref(), *clipboard)
+        Opt::Otp { name, user, folder, clipboard } => {
+            commands::otp(name, user.as_deref(), folder.as_deref(), *clipboard)
         }
         Opt::Add {
             name,

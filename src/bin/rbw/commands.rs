@@ -886,7 +886,7 @@ pub fn get(
     Ok(())
 }
 
-pub fn code(
+pub fn otp(
     name: &str,
     user: Option<&str>,
     folder: Option<&str>,
