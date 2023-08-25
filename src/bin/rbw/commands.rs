@@ -890,6 +890,7 @@ pub fn code(
     name: &str,
     user: Option<&str>,
     folder: Option<&str>,
+    clipboard: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -906,7 +907,14 @@ pub fn code(
 
     if let DecryptedData::Login { totp, .. } = decrypted.data {
         if let Some(totp) = totp {
-            println!("{}", generate_totp(&totp)?);
+            let totp = generate_totp(&totp)?;
+            if clipboard {
+                if let Err(e) = clipboard_store(&totp) {
+                    eprintln!("{e}");
+                }
+            }
+            println!("{}", &totp);
+
         } else {
             return Err(anyhow::anyhow!(
                 "entry does not contain a totp secret"

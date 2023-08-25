@@ -95,6 +95,8 @@ enum Opt {
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[structopt(long, help = "Copy result to clipboard")]
+        clipboard: bool,
     },
 
     #[command(
@@ -334,8 +336,8 @@ fn main() {
             *raw,
             *clipboard,
         ),
-        Opt::Code { name, user, folder } => {
-            commands::code(name, user.as_deref(), folder.as_deref())
+        Opt::Code { name, user, folder, clipboard } => {
+            commands::code(name, user.as_deref(), folder.as_deref(), *clipboard)
         }
         Opt::Add {
             name,
