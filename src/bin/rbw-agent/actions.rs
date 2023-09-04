@@ -10,8 +10,7 @@ pub async fn register(
         let url_str = config_base_url().await?;
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
-        let Some(host) = url.host_str()
-        else {
+        let Some(host) = url.host_str() else {
             return Err(anyhow::anyhow!(
                 "couldn't find host in rbw base url {}",
                 url_str
@@ -88,8 +87,7 @@ pub async fn login(
         let url_str = config_base_url().await?;
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
-        let Some(host) = url.host_str()
-        else {
+        let Some(host) = url.host_str() else {
             return Err(anyhow::anyhow!(
                 "couldn't find host in rbw base url {}",
                 url_str
@@ -330,8 +328,7 @@ async fn login_success(
     sync(None, state.clone()).await?;
     let db = load_db().await?;
 
-    let Some(protected_private_key) = db.protected_private_key
-    else {
+    let Some(protected_private_key) = db.protected_private_key else {
         return Err(anyhow::anyhow!(
             "failed to find protected private key in db"
         ));
@@ -369,15 +366,11 @@ pub async fn unlock(
     if state.lock().await.needs_unlock() {
         let db = load_db().await?;
 
-        let Some(kdf) = db.kdf
-        else {
-            return Err(anyhow::anyhow!(
-                "failed to find kdf type in db"
-            ));
+        let Some(kdf) = db.kdf else {
+            return Err(anyhow::anyhow!("failed to find kdf type in db"));
         };
 
-        let Some(iterations) = db.iterations
-        else {
+        let Some(iterations) = db.iterations else {
             return Err(anyhow::anyhow!(
                 "failed to find number of iterations in db"
             ));
@@ -386,14 +379,12 @@ pub async fn unlock(
         let memory = db.memory;
         let parallelism = db.parallelism;
 
-        let Some(protected_key) = db.protected_key
-        else {
+        let Some(protected_key) = db.protected_key else {
             return Err(anyhow::anyhow!(
                 "failed to find protected key in db"
             ));
         };
-        let Some(protected_private_key) = db.protected_private_key
-        else {
+        let Some(protected_private_key) = db.protected_private_key else {
             return Err(anyhow::anyhow!(
                 "failed to find protected private key in db"
             ));
@@ -543,8 +534,7 @@ pub async fn decrypt(
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.lock().await;
-    let Some(keys) = state.key(org_id)
-    else {
+    let Some(keys) = state.key(org_id) else {
         return Err(anyhow::anyhow!(
             "failed to find decryption keys in in-memory state"
         ));
@@ -570,8 +560,7 @@ pub async fn encrypt(
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.lock().await;
-    let Some(keys) = state.key(org_id)
-    else {
+    let Some(keys) = state.key(org_id) else {
         return Err(anyhow::anyhow!(
             "failed to find encryption keys in in-memory state"
         ));
