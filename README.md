@@ -24,7 +24,7 @@ and merge pull requests implementing those features.
 ### Arch Linux
 
 `rbw` is available in the [community
-repository](https://archlinux.org/packages/community/x86_64/rbw/).
+repository](https://archlinux.org/packages/extra/x86_64/rbw/).
 Alternatively, you can install
 [`rbw-git`](https://aur.archlinux.org/packages/rbw-git/) from the AUR, which
 will always build from the latest master commit.
