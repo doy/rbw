@@ -27,7 +27,7 @@ and merge pull requests implementing those features.
 repository](https://archlinux.org/packages/extra/x86_64/rbw/).
 Alternatively, you can install
 [`rbw-git`](https://aur.archlinux.org/packages/rbw-git/) from the AUR, which
-will always build from the latest master commit.
+will always build from the latest `main` commit.
 
 ### Debian/Ubuntu
 
