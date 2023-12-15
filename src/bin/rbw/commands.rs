@@ -891,6 +891,7 @@ pub fn search(
     term: &str,
     user: Option<&str>,
     folder: Option<&str>,
+    full: bool,
     raw: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
@@ -903,14 +904,28 @@ pub fn search(
         term
     );
 
-    let found_name = find_entry_names(&db, term, user, folder)
+    let mut found_entries = find_entries(&db, term, user, folder)
     .with_context(|| format!("No entries found for '{desc}'"))?;
 
-    if raw {
-        println!("{}", serde_json::to_string(&found_name)?);
+    if !full {
+        let just_names: Vec<String> = found_entries.iter()
+        .cloned()
+        .map(|DecryptedCipher| DecryptedCipher.name)
+        .collect();
+        if raw {
+            println!("{}", serde_json::to_string(&just_names)?);
+        } else {
+            for name in just_names {
+                val_display_or_store(false, &name);
+            }
+        }
     } else {
-        for name in found_name {
-            val_display_or_store(false, &name);
+        if raw {
+            println!("{}", serde_json::to_string(&found_entries)?);
+        } else {
+            for entry in found_entries {
+                entry.display_long(&term, false);
+            }
         }
     }
 
@@ -1412,12 +1427,12 @@ fn find_entry(
     }
 }
 
-fn find_entry_names(
+fn find_entries(
     db: &rbw::db::Db,
     name: &str,
     username: Option<&str>,
     folder: Option<&str>,
-) -> anyhow::Result<Vec<String>> {
+) -> anyhow::Result<Vec<DecryptedCipher>> {
     let entries: Vec<(rbw::db::Entry, DecryptedCipher)> = db
         .entries
         .iter()
@@ -1426,12 +1441,12 @@ fn find_entry_names(
             decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
         })
         .collect::<anyhow::Result<_>>()?;
-    let mut matches: Vec<String> = entries
+    let mut matches: Vec<DecryptedCipher> = entries
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
             decrypted_cipher.exact_match(name, username, folder, true)
-        }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+        }).map(|(_, DecryptedCipher)| DecryptedCipher)
         .collect();
 
     if matches.len() >= 1 {
@@ -1444,7 +1459,7 @@ fn find_entry_names(
             .cloned()
             .filter(|(_, decrypted_cipher)| {
                 decrypted_cipher.exact_match(name, username, folder, false)
-            }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+            }).map(|(_, DecryptedCipher)| DecryptedCipher)
             .collect();
 
         if matches.len() >= 1 {
@@ -1457,7 +1472,7 @@ fn find_entry_names(
         .cloned()
         .filter(|(_, decrypted_cipher)| {
             decrypted_cipher.partial_match(name, username, folder, true)
-        }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+        }).map(|(_, DecryptedCipher)| DecryptedCipher)
         .collect();
 
     if matches.len() >= 1 {
@@ -1470,7 +1485,7 @@ fn find_entry_names(
             .cloned()
             .filter(|(_, decrypted_cipher)| {
                 decrypted_cipher.partial_match(name, username, folder, false)
-            }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+            }).map(|(_, DecryptedCipher)| DecryptedCipher)
             .collect();
         if matches.len() >= 1 {
             return Ok(matches.clone());

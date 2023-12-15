@@ -95,6 +95,8 @@ enum Opt {
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[arg(long, help = "Display the full entry in addition to the name")]
+        full: bool,
         #[structopt(long, help = "Display output as JSON")]
         raw: bool,
     },
@@ -351,11 +353,13 @@ fn main() {
             term,
             user,
             folder,
+            full,
             raw,
         } => commands::search(
             term,
             user.as_deref(),
             folder.as_deref(),
+            *full,
             *raw,
         ),
         Opt::Code { name, user, folder } => {
