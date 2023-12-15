@@ -545,7 +545,7 @@ impl DecryptedCipher {
             }
         } else {
             let notes_value = self.notes.as_deref().unwrap_or("");
-            if !self.name.contains(name) & !notes_value.contains(name) {
+            if !self.name.contains(name) && !notes_value.contains(name) {
                 return false;
             }
         }
@@ -1498,7 +1498,8 @@ fn find_entries(
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder, false, true)
+                decrypted_cipher
+                    .partial_match(name, username, folder, false, true)
             })
             .map(|(_, DecryptedCipher)| DecryptedCipher)
             .collect();
@@ -1546,7 +1547,8 @@ fn find_entry_raw(
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
-            decrypted_cipher.partial_match(name, username, folder, true, false)
+            decrypted_cipher
+                .partial_match(name, username, folder, true, false)
         })
         .collect();
 
@@ -1559,7 +1561,8 @@ fn find_entry_raw(
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder, false, false)
+                decrypted_cipher
+                    .partial_match(name, username, folder, false, false)
             })
             .collect();
         if matches.len() == 1 {
