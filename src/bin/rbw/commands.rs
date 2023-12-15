@@ -535,7 +535,8 @@ impl DecryptedCipher {
         folder: Option<&str>,
         try_match_folder: bool,
     ) -> bool {
-        if !self.name.contains(name) {
+        let notes_value = self.notes.as_deref().unwrap_or("");
+        if !self.name.contains(name) & !notes_value.contains(name) {
             return false;
         }
 
@@ -881,6 +882,36 @@ pub fn get(
         decrypted.display_field(&desc, field, clipboard);
     } else {
         decrypted.display_short(&desc, clipboard);
+    }
+
+    Ok(())
+}
+
+pub fn search(
+    name: &str,
+    user: Option<&str>,
+    folder: Option<&str>,
+    raw: bool,
+) -> anyhow::Result<()> {
+    unlock()?;
+
+    let db = load_db()?;
+
+    let desc = format!(
+        "{}{}",
+        user.map_or_else(String::new, |s| format!("{s}@")),
+        name
+    );
+
+    let found_name = find_entry_names(&db, name, user, folder)
+    .with_context(|| format!("No entries found for '{desc}'"))?;
+
+    if raw {
+        println!("{}", serde_json::to_string(&found_name)?);
+    } else {
+        for name in found_name {
+            val_display_or_store(false, &name);
+        }
     }
 
     Ok(())
@@ -1379,6 +1410,74 @@ fn find_entry(
             .collect::<anyhow::Result<_>>()?;
         find_entry_raw(&ciphers, name, username, folder)
     }
+}
+
+fn find_entry_names(
+    db: &rbw::db::Db,
+    name: &str,
+    username: Option<&str>,
+    folder: Option<&str>,
+) -> anyhow::Result<Vec<String>> {
+    let entries: Vec<(rbw::db::Entry, DecryptedCipher)> = db
+        .entries
+        .iter()
+        .cloned()
+        .map(|entry| {
+            decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let mut matches: Vec<String> = entries
+        .iter()
+        .cloned()
+        .filter(|(_, decrypted_cipher)| {
+            decrypted_cipher.exact_match(name, username, folder, true)
+        }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+        .collect();
+
+    if matches.len() >= 1 {
+        return Ok(matches.clone());
+    }
+
+    if folder.is_none() {
+        matches = entries
+            .iter()
+            .cloned()
+            .filter(|(_, decrypted_cipher)| {
+                decrypted_cipher.exact_match(name, username, folder, false)
+            }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+            .collect();
+
+        if matches.len() >= 1 {
+            return Ok(matches.clone());
+        }
+    }
+
+    matches = entries
+        .iter()
+        .cloned()
+        .filter(|(_, decrypted_cipher)| {
+            decrypted_cipher.partial_match(name, username, folder, true)
+        }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+        .collect();
+
+    if matches.len() >= 1 {
+        return Ok(matches.clone());
+    }
+
+    if folder.is_none() {
+        matches = entries
+            .iter()
+            .cloned()
+            .filter(|(_, decrypted_cipher)| {
+                decrypted_cipher.partial_match(name, username, folder, false)
+            }).map(|(_, DecryptedCipher)| DecryptedCipher.name)
+            .collect();
+        if matches.len() >= 1 {
+            return Ok(matches.clone());
+        }
+    }
+
+    Err(anyhow::anyhow!("no entries found"))
 }
 
 fn find_entry_raw(
