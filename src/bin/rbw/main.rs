@@ -87,10 +87,10 @@ enum Opt {
         clipboard: bool,
     },
 
-    #[command(about = "Search for the password for a given entry")]
+    #[command(about = "Search for entries")]
     Search {
-        #[arg(help = "Name or UUID of the entry to display")]
-        name: String,
+        #[arg(help = "Search term to locate entries")]
+        term: String,
         #[arg(help = "Username of the entry to display")]
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
@@ -348,12 +348,12 @@ fn main() {
             *clipboard,
         ),
         Opt::Search {
-            name,
+            term,
             user,
             folder,
             raw,
         } => commands::search(
-            name,
+            term,
             user.as_deref(),
             folder.as_deref(),
             *raw,

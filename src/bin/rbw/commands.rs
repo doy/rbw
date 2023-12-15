@@ -888,7 +888,7 @@ pub fn get(
 }
 
 pub fn search(
-    name: &str,
+    term: &str,
     user: Option<&str>,
     folder: Option<&str>,
     raw: bool,
@@ -900,10 +900,10 @@ pub fn search(
     let desc = format!(
         "{}{}",
         user.map_or_else(String::new, |s| format!("{s}@")),
-        name
+        term
     );
 
-    let found_name = find_entry_names(&db, name, user, folder)
+    let found_name = find_entry_names(&db, term, user, folder)
     .with_context(|| format!("No entries found for '{desc}'"))?;
 
     if raw {
