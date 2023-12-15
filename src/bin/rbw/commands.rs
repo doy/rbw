@@ -534,10 +534,20 @@ impl DecryptedCipher {
         username: Option<&str>,
         folder: Option<&str>,
         try_match_folder: bool,
+        case_insensitive: bool,
     ) -> bool {
-        let notes_value = self.notes.as_deref().unwrap_or("");
-        if !self.name.contains(name) & !notes_value.contains(name) {
-            return false;
+        if case_insensitive {
+            let notes_value = self.notes.as_deref().unwrap_or("");
+            if !self.name.to_lowercase().contains(&name.to_lowercase())
+                && !notes_value.to_lowercase().contains(&name.to_lowercase())
+            {
+                return false;
+            }
+        } else {
+            let notes_value = self.notes.as_deref().unwrap_or("");
+            if !self.name.contains(name) & !notes_value.contains(name) {
+                return false;
+            }
         }
 
         if let Some(given_username) = username {
@@ -905,13 +915,14 @@ pub fn search(
     );
 
     let mut found_entries = find_entries(&db, term, user, folder)
-    .with_context(|| format!("No entries found for '{desc}'"))?;
+        .with_context(|| format!("No entries found for '{desc}'"))?;
 
     if !full {
-        let just_names: Vec<String> = found_entries.iter()
-        .cloned()
-        .map(|DecryptedCipher| DecryptedCipher.name)
-        .collect();
+        let just_names: Vec<String> = found_entries
+            .iter()
+            .cloned()
+            .map(|DecryptedCipher| DecryptedCipher.name)
+            .collect();
         if raw {
             println!("{}", serde_json::to_string(&just_names)?);
         } else {
@@ -1446,7 +1457,8 @@ fn find_entries(
         .cloned()
         .filter(|(_, decrypted_cipher)| {
             decrypted_cipher.exact_match(name, username, folder, true)
-        }).map(|(_, DecryptedCipher)| DecryptedCipher)
+        })
+        .map(|(_, DecryptedCipher)| DecryptedCipher)
         .collect();
 
     if matches.len() >= 1 {
@@ -1459,7 +1471,8 @@ fn find_entries(
             .cloned()
             .filter(|(_, decrypted_cipher)| {
                 decrypted_cipher.exact_match(name, username, folder, false)
-            }).map(|(_, DecryptedCipher)| DecryptedCipher)
+            })
+            .map(|(_, DecryptedCipher)| DecryptedCipher)
             .collect();
 
         if matches.len() >= 1 {
@@ -1471,8 +1484,9 @@ fn find_entries(
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
-            decrypted_cipher.partial_match(name, username, folder, true)
-        }).map(|(_, DecryptedCipher)| DecryptedCipher)
+            decrypted_cipher.partial_match(name, username, folder, true, true)
+        })
+        .map(|(_, DecryptedCipher)| DecryptedCipher)
         .collect();
 
     if matches.len() >= 1 {
@@ -1484,8 +1498,9 @@ fn find_entries(
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder, false)
-            }).map(|(_, DecryptedCipher)| DecryptedCipher)
+                decrypted_cipher.partial_match(name, username, folder, false, true)
+            })
+            .map(|(_, DecryptedCipher)| DecryptedCipher)
             .collect();
         if matches.len() >= 1 {
             return Ok(matches.clone());
@@ -1531,7 +1546,7 @@ fn find_entry_raw(
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
-            decrypted_cipher.partial_match(name, username, folder, true)
+            decrypted_cipher.partial_match(name, username, folder, true, false)
         })
         .collect();
 
@@ -1544,7 +1559,7 @@ fn find_entry_raw(
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder, false)
+                decrypted_cipher.partial_match(name, username, folder, false, false)
             })
             .collect();
         if matches.len() == 1 {
