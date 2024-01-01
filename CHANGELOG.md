@@ -1,10 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [1.9.0] - 2024-01-01
+
+### Added
+
+* Secure notes can now be edited (Tin Lai, #137)
+* Piping passwords to `rbw edit` is now possible (Tin Lai, #138)
 
 ### Fixed
 
-* More consistent behavior from `rbw get --field`, and fix some panics (#131, Jörg Thalheim)
+* More consistent behavior from `rbw get --field`, and fix some panics (Jörg Thalheim, #131)
+* Fix handling of pinentry EOF (Jörg Thalheim, #140)
+* Pass a user agent header to fix logging into the official bitwarden server (Maksim Karelov, #151)
+* Support the official bitwarden.eu server (Edvin Åkerfeldt, #152)
 
 ## [1.8.3] - 2023-07-20
 
