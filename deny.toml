@@ -8,12 +8,32 @@ targets = [
 [advisories]
 yanked = "deny"
 unsound = "deny"
+ignore = [
+    # this is only an unmaintained warning, and will hopefully be addressed
+    # by https://github.com/darfink/region-rs/pull/27
+    "RUSTSEC-2020-0168",
+    # this is a timing attack against using the rsa crate for encryption, but
+    # we only use rsa decryption here
+    "RUSTSEC-2023-0071",
+]
 
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
 deny = [
     { name = "openssl-sys" },
+]
+skip = [
+    # the ecosystem is pretty split on these at the moment, should keep an
+    # eye on this to remove once more things have standardized on version 2
+    { name = "bitflags", version = "1.3.2" },
+    { name = "bitflags", version = "2.4.1" },
+
+    # see https://github.com/dignifiedquire/num-bigint/pull/58 and
+    # https://github.com/RustCrypto/RSA/issues/390 which should hopefully
+    # resolve this soon
+    { name = "spin", version = "0.5.2" },
+    { name = "spin", version = "0.9.8" },
 ]
 
 [licenses]
