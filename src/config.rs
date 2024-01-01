@@ -146,7 +146,14 @@ impl Config {
     pub fn base_url(&self) -> String {
         self.base_url.clone().map_or_else(
             || "https://api.bitwarden.com".to_string(),
-            |url| format!("{}/api", url.trim_end_matches('/')),
+            |url| {
+                let clean_url = format!("{}", url.trim_end_matches('/'));
+                if clean_url == "https://api.bitwarden.eu" {
+                    clean_url
+                } else {
+                    format!("{}/api", clean_url)
+                }
+            },
         )
     }
 
@@ -155,7 +162,14 @@ impl Config {
         self.identity_url.clone().unwrap_or_else(|| {
             self.base_url.clone().map_or_else(
                 || "https://identity.bitwarden.com".to_string(),
-                |url| format!("{}/identity", url.trim_end_matches('/')),
+                |url| {
+                    let clean_url = format!("{}", url.trim_end_matches('/'));
+                    if clean_url == "https://identity.bitwarden.eu" {
+                        clean_url
+                    } else {
+                        format!("{}/identity", clean_url)
+                    }
+                }
             )
         })
     }
@@ -165,7 +179,14 @@ impl Config {
         self.notifications_url.clone().unwrap_or_else(|| {
             self.base_url.clone().map_or_else(
                 || "https://notifications.bitwarden.com".to_string(),
-                |url| format!("{}/notifications", url.trim_end_matches('/')),
+                |url| {
+                    let clean_url = format!("{}", url.trim_end_matches('/'));
+                    if clean_url == "https://notifications.bitwarden.eu" {
+                        clean_url
+                    } else {
+                        format!("{}/notifications", clean_url)
+                    }
+                }
             )
         })
     }
