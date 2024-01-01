@@ -534,9 +534,20 @@ impl DecryptedCipher {
         username: Option<&str>,
         folder: Option<&str>,
         try_match_folder: bool,
+        case_insensitive: bool,
     ) -> bool {
-        if !self.name.contains(name) {
-            return false;
+        if case_insensitive {
+            let notes_value = self.notes.as_deref().unwrap_or("");
+            if !self.name.to_lowercase().contains(&name.to_lowercase())
+                && !notes_value.to_lowercase().contains(&name.to_lowercase())
+            {
+                return false;
+            }
+        } else {
+            let notes_value = self.notes.as_deref().unwrap_or("");
+            if !self.name.contains(name) && !notes_value.contains(name) {
+                return false;
+            }
         }
 
         if let Some(given_username) = username {
@@ -886,6 +897,52 @@ pub fn get(
         decrypted.display_field(&desc, field, clipboard);
     } else {
         decrypted.display_short(&desc, clipboard);
+    }
+
+    Ok(())
+}
+
+pub fn search(
+    term: &str,
+    user: Option<&str>,
+    folder: Option<&str>,
+    full: bool,
+    raw: bool,
+) -> anyhow::Result<()> {
+    unlock()?;
+
+    let db = load_db()?;
+
+    let desc = format!(
+        "{}{}",
+        user.map_or_else(String::new, |s| format!("{s}@")),
+        term
+    );
+
+    let mut found_entries = find_entries(&db, term, user, folder)
+        .with_context(|| format!("No entries found for '{desc}'"))?;
+
+    if !full {
+        let just_names: Vec<String> = found_entries
+            .iter()
+            .cloned()
+            .map(|DecryptedCipher| DecryptedCipher.name)
+            .collect();
+        if raw {
+            println!("{}", serde_json::to_string(&just_names)?);
+        } else {
+            for name in just_names {
+                val_display_or_store(false, &name);
+            }
+        }
+    } else {
+        if raw {
+            println!("{}", serde_json::to_string(&found_entries)?);
+        } else {
+            for entry in found_entries {
+                entry.display_long(&term, false);
+            }
+        }
     }
 
     Ok(())
@@ -1407,6 +1464,79 @@ fn find_entry(
     }
 }
 
+fn find_entries(
+    db: &rbw::db::Db,
+    name: &str,
+    username: Option<&str>,
+    folder: Option<&str>,
+) -> anyhow::Result<Vec<DecryptedCipher>> {
+    let entries: Vec<(rbw::db::Entry, DecryptedCipher)> = db
+        .entries
+        .iter()
+        .cloned()
+        .map(|entry| {
+            decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let mut matches: Vec<DecryptedCipher> = entries
+        .iter()
+        .cloned()
+        .filter(|(_, decrypted_cipher)| {
+            decrypted_cipher.exact_match(name, username, folder, true)
+        })
+        .map(|(_, DecryptedCipher)| DecryptedCipher)
+        .collect();
+
+    if matches.len() >= 1 {
+        return Ok(matches.clone());
+    }
+
+    if folder.is_none() {
+        matches = entries
+            .iter()
+            .cloned()
+            .filter(|(_, decrypted_cipher)| {
+                decrypted_cipher.exact_match(name, username, folder, false)
+            })
+            .map(|(_, DecryptedCipher)| DecryptedCipher)
+            .collect();
+
+        if matches.len() >= 1 {
+            return Ok(matches.clone());
+        }
+    }
+
+    matches = entries
+        .iter()
+        .cloned()
+        .filter(|(_, decrypted_cipher)| {
+            decrypted_cipher.partial_match(name, username, folder, true, true)
+        })
+        .map(|(_, DecryptedCipher)| DecryptedCipher)
+        .collect();
+
+    if matches.len() >= 1 {
+        return Ok(matches.clone());
+    }
+
+    if folder.is_none() {
+        matches = entries
+            .iter()
+            .cloned()
+            .filter(|(_, decrypted_cipher)| {
+                decrypted_cipher
+                    .partial_match(name, username, folder, false, true)
+            })
+            .map(|(_, DecryptedCipher)| DecryptedCipher)
+            .collect();
+        if matches.len() >= 1 {
+            return Ok(matches.clone());
+        }
+    }
+
+    Err(anyhow::anyhow!("no entries found"))
+}
+
 fn find_entry_raw(
     entries: &[(rbw::db::Entry, DecryptedCipher)],
     name: &str,
@@ -1443,7 +1573,8 @@ fn find_entry_raw(
         .iter()
         .cloned()
         .filter(|(_, decrypted_cipher)| {
-            decrypted_cipher.partial_match(name, username, folder, true)
+            decrypted_cipher
+                .partial_match(name, username, folder, true, false)
         })
         .collect();
 
@@ -1456,7 +1587,8 @@ fn find_entry_raw(
             .iter()
             .cloned()
             .filter(|(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder, false)
+                decrypted_cipher
+                    .partial_match(name, username, folder, false, false)
             })
             .collect();
         if matches.len() == 1 {

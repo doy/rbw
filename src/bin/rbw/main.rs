@@ -87,6 +87,20 @@ enum Opt {
         clipboard: bool,
     },
 
+    #[command(about = "Search for entries")]
+    Search {
+        #[arg(help = "Search term to locate entries")]
+        term: String,
+        #[arg(help = "Username of the entry to display")]
+        user: Option<String>,
+        #[arg(long, help = "Folder name to search in")]
+        folder: Option<String>,
+        #[arg(long, help = "Display the full entry in addition to the name")]
+        full: bool,
+        #[structopt(long, help = "Display output as JSON")]
+        raw: bool,
+    },
+
     #[command(about = "Display the authenticator code for a given entry")]
     Code {
         #[arg(help = "Name or UUID of the entry to display")]
@@ -244,6 +258,7 @@ impl Opt {
             Self::Sync => "sync".to_string(),
             Self::List { .. } => "list".to_string(),
             Self::Get { .. } => "get".to_string(),
+            Self::Search { .. } => "search".to_string(),
             Self::Code { .. } => "code".to_string(),
             Self::Add { .. } => "add".to_string(),
             Self::Generate { .. } => "generate".to_string(),
@@ -333,6 +348,19 @@ fn main() {
             *full,
             *raw,
             *clipboard,
+        ),
+        Opt::Search {
+            term,
+            user,
+            folder,
+            full,
+            raw,
+        } => commands::search(
+            term,
+            user.as_deref(),
+            folder.as_deref(),
+            *full,
+            *raw,
         ),
         Opt::Code { name, user, folder } => {
             commands::code(name, user.as_deref(), folder.as_deref())
