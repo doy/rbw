@@ -18,7 +18,6 @@ anyhow = "1.0.72"
 argon2 = "0.5.1"
 arrayvec = "0.7.4"
 async-trait = "0.1.71"
-atty="0.2.*"
 base32 = "0.4.0"
 base64 = "0.21.2"
 block-padding = "0.3.3"
@@ -65,6 +64,7 @@ zeroize = "1.6.0"
 copypasta = "0.8.2"
 rmpv = "1.0.0"
 tokio-tungstenite = { version = "0.19.0", features = ["rustls-tls-native-roots"] }
+is-terminal = "0.4.7"
 
 [package.metadata.deb]
 depends = "pinentry"

@@ -2,8 +2,10 @@ use crate::prelude::*;
 
 use std::io::{Read as _, Write as _};
 
+use is_terminal::IsTerminal as _;
+
 pub fn edit(contents: &str, help: &str) -> Result<String> {
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         // directly read from piped content
         return match std::io::read_to_string(std::io::stdin()) {
             Err(e) => Err(Error::FailedToReadFromStdin { err: e }),
