@@ -831,6 +831,10 @@ impl Client {
                 "auth-email",
                 crate::base64::encode_url_safe_no_pad(email),
             )
+            .header(
+                "user-agent",
+                format!("rbw/{}", env!("CARGO_PKG_VERSION")),
+            )
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
