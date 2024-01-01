@@ -1214,7 +1214,7 @@ pub fn edit(
         }
         _ => {
             return Err(anyhow::anyhow!(
-                "modifications are only supported for login entries"
+                "modifications are only supported for login and note entries"
             ));
         }
     };
