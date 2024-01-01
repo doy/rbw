@@ -148,7 +148,7 @@ fn parse_message(
         rmpv::decode::read_value(&mut &data[len_buffer_length..]).ok()?;
 
     let unpacked_message = unpacked_messagepack.as_array()?;
-    let message_type = unpacked_message.get(0)?.as_u64()?;
+    let message_type = unpacked_message.first()?.as_u64()?;
     // invocation
     if message_type != 1 {
         return None;
@@ -159,7 +159,7 @@ fn parse_message(
     }
 
     let args = unpacked_message.get(4)?.as_array()?;
-    let map = args.get(0)?.as_map()?;
+    let map = args.first()?.as_map()?;
     for (k, v) in map {
         if k.as_str()? == "Type" {
             let ty = v.as_i64()?;

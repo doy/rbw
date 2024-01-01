@@ -40,7 +40,7 @@ impl Timeout {
                             futures_util::stream::once(tokio::time::sleep(
                                 dur,
                             ))
-                            .map(|_| Event::Timer)
+                            .map(|()| Event::Timer)
                             .boxed(),
                         );
                     }

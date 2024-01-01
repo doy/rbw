@@ -671,16 +671,16 @@ impl std::convert::TryFrom<&String> for ListField {
     }
 }
 
-const HELP_PW: &str = r#"
+const HELP_PW: &str = r"
 # The first line of this file will be the password, and the remainder of the
 # file (after any blank lines after the password) will be stored as a note.
 # Lines with leading # will be ignored.
-"#;
+";
 
-const HELP_NOTES: &str = r#"
+const HELP_NOTES: &str = r"
 # The content of this file will be stored as a note.
 # Lines with leading # will be ignored.
-"#;
+";
 
 pub fn config_show() -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
@@ -819,8 +819,7 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
     let mut ciphers: Vec<DecryptedCipher> = db
         .entries
         .iter()
-        .cloned()
-        .map(|entry| decrypt_cipher(&entry))
+        .map(decrypt_cipher)
         .collect::<anyhow::Result<_>>()?;
     ciphers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
@@ -1193,14 +1192,13 @@ pub fn edit(
             };
             (data, notes, history)
         }
-        DecryptedData::SecureNote {} =>
-        {
+        DecryptedData::SecureNote {} => {
             let data = rbw::db::EntryData::SecureNote {};
 
-            let editor_content = match decrypted.notes {
-                Some(notes) => format!("{notes}\n"),
-                None => format!("\n"),
-            };
+            let editor_content = decrypted.notes.map_or_else(
+                || "\n".to_string(),
+                |notes| format!("{notes}\n"),
+            );
             let contents = rbw::edit::edit(&editor_content, HELP_NOTES)?;
 
             // prepend blank line to be parsed as pw by `parse_editor`
@@ -1415,10 +1413,10 @@ fn find_entry_raw(
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
     let mut matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
         .iter()
-        .cloned()
-        .filter(|(_, decrypted_cipher)| {
+        .filter(|&(_, decrypted_cipher)| {
             decrypted_cipher.exact_match(name, username, folder, true)
         })
+        .cloned()
         .collect();
 
     if matches.len() == 1 {
@@ -1428,10 +1426,10 @@ fn find_entry_raw(
     if folder.is_none() {
         matches = entries
             .iter()
-            .cloned()
-            .filter(|(_, decrypted_cipher)| {
+            .filter(|&(_, decrypted_cipher)| {
                 decrypted_cipher.exact_match(name, username, folder, false)
             })
+            .cloned()
             .collect();
 
         if matches.len() == 1 {
@@ -1441,10 +1439,10 @@ fn find_entry_raw(
 
     matches = entries
         .iter()
-        .cloned()
-        .filter(|(_, decrypted_cipher)| {
+        .filter(|&(_, decrypted_cipher)| {
             decrypted_cipher.partial_match(name, username, folder, true)
         })
+        .cloned()
         .collect();
 
     if matches.len() == 1 {
@@ -1454,10 +1452,10 @@ fn find_entry_raw(
     if folder.is_none() {
         matches = entries
             .iter()
-            .cloned()
-            .filter(|(_, decrypted_cipher)| {
+            .filter(|&(_, decrypted_cipher)| {
                 decrypted_cipher.partial_match(name, username, folder, false)
             })
+            .cloned()
             .collect();
         if matches.len() == 1 {
             return Ok(matches[0].clone());
@@ -1763,8 +1761,11 @@ fn parse_editor(contents: &str) -> (Option<String>, Option<String>) {
     let mut notes: String = lines
         .skip_while(|line| line.is_empty())
         .filter(|line| !line.starts_with('#'))
-        .map(|line| format!("{line}\n"))
-        .collect();
+        .fold(String::new(), |mut notes, line| {
+            notes.push_str(line);
+            notes.push('\n');
+            notes
+        });
     while notes.ends_with('\n') {
         notes.pop();
     }
@@ -1846,6 +1847,13 @@ fn generate_totp(secret: &str) -> anyhow::Result<String> {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)?
             .as_secs(),
     ))
+}
+
+fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
+    field.map_or_else(
+        || false,
+        |field| val_display_or_store(clipboard, &format!("{name}: {field}")),
+    )
 }
 
 #[cfg(test)]
@@ -2010,11 +2018,4 @@ mod test {
             },
         )
     }
-}
-
-fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
-    field.map_or_else(
-        || false,
-        |field| val_display_or_store(clipboard, &format!("{name}: {field}")),
-    )
 }

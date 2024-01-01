@@ -22,9 +22,7 @@ pub enum Error {
     FailedToParsePinentry { out: String },
 
     #[error("failed to read from stdin: {err}")]
-    FailedToReadFromStdin {
-        err: std::io::Error,
-    },
+    FailedToReadFromStdin { err: std::io::Error },
 
     #[error(
         "failed to run editor {}: {err}",

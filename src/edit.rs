@@ -3,10 +3,10 @@ use crate::prelude::*;
 use std::io::{Read as _, Write as _};
 
 pub fn edit(contents: &str, help: &str) -> Result<String> {
-    if ! atty::is(atty::Stream::Stdin) {
+    if !atty::is(atty::Stream::Stdin) {
         // directly read from piped content
         return match std::io::read_to_string(std::io::stdin()) {
-            Err(e) => Err(Error::FailedToReadFromStdin{ err: e }),
+            Err(e) => Err(Error::FailedToReadFromStdin { err: e }),
             Ok(res) => Ok(res),
         };
     }
