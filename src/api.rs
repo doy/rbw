@@ -1041,7 +1041,12 @@ impl Client {
         history: &[crate::db::HistoryEntry],
     ) -> Result<()> {
         let mut req = CiphersPutReq {
-            ty: 1,
+            ty: match data {
+                crate::db::EntryData::Login {..} => 1,
+                crate::db::EntryData::SecureNote {..} => 2,
+                crate::db::EntryData::Card {..} => 3,
+                crate::db::EntryData::Identity {..} => 4,
+            },
             folder_id: folder_uuid.map(std::string::ToString::to_string),
             organization_id: org_id.map(std::string::ToString::to_string),
             name: name.to_string(),

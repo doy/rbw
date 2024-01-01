@@ -671,9 +671,14 @@ impl std::convert::TryFrom<&String> for ListField {
     }
 }
 
-const HELP: &str = r#"
+const HELP_PW: &str = r#"
 # The first line of this file will be the password, and the remainder of the
 # file (after any blank lines after the password) will be stored as a note.
+# Lines with leading # will be ignored.
+"#;
+
+const HELP_NOTES: &str = r#"
+# The content of this file will be stored as a note.
 # Lines with leading # will be ignored.
 "#;
 
@@ -939,7 +944,7 @@ pub fn add(
         .map(|username| crate::actions::encrypt(username, None))
         .transpose()?;
 
-    let contents = rbw::edit::edit("", HELP)?;
+    let contents = rbw::edit::edit("", HELP_PW)?;
 
     let (password, notes) = parse_editor(&contents);
     let password = password
@@ -1140,7 +1145,7 @@ pub fn edit(
                 contents.push_str(&format!("\n{notes}\n"));
             }
 
-            let contents = rbw::edit::edit(&contents, HELP)?;
+            let contents = rbw::edit::edit(&contents, HELP_NOTES)?;
 
             let (password, notes) = parse_editor(&contents);
             let password = password
@@ -1187,6 +1192,27 @@ pub fn edit(
                 totp: entry_totp.clone(),
             };
             (data, notes, history)
+        }
+        DecryptedData::SecureNote {} =>
+        {
+            let data = rbw::db::EntryData::SecureNote {};
+
+            let editor_content = match decrypted.notes {
+                Some(notes) => format!("{notes}\n"),
+                None => format!("\n"),
+            };
+            let contents = rbw::edit::edit(&editor_content, HELP_NOTES)?;
+
+            // prepend blank line to be parsed as pw by `parse_editor`
+            let (_, notes) = parse_editor(&format!("\n{contents}\n"));
+
+            let notes = notes
+                .map(|notes| {
+                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
+                })
+                .transpose()?;
+
+            (data, notes, entry.history)
         }
         _ => {
             return Err(anyhow::anyhow!(
