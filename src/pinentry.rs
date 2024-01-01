@@ -137,6 +137,14 @@ where
                 .read(&mut data[len..])
                 .await
                 .map_err(|source| Error::PinentryReadOutput { source })?;
+            if bytes == 0 {
+                return Err(Error::PinentryReadOutput {
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "unexpected EOF",
+                    ),
+                });
+            }
             len += bytes;
         }
     }
