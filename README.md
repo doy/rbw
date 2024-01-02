@@ -11,6 +11,11 @@ similar to the way that `ssh-agent` or `gpg-agent` work. This allows the client
 to be used in a much simpler way, with the background agent taking care of
 maintaining the necessary state.
 
+> [!CAUTION]
+> As this is an **unofficial** client, it is not suitable for use in any
+> mission-critical scripts or automation, as it can break at any moment due to
+> changes on Bitwarden's side.
+
 ## Maintenance
 
 I consider `rbw` to be essentially feature-complete for me at this point. While
