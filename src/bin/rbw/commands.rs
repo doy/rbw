@@ -1,7 +1,9 @@
 use anyhow::Context as _;
 use serde::Serialize;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;
 use std::io::prelude::Write;
+use url::Url;
 
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
@@ -12,6 +14,36 @@ const MISSING_CONFIG_HELP: &str =
         rbw config set base_url <url>\n\n\
     and, if your server has a non-default identity url:\n\n    \
         rbw config set identity_url <url>\n";
+
+#[derive(Debug, Clone)]
+pub enum Needle {
+    Name(String),
+    Uri(Url),
+    Uuid(String),
+}
+
+impl Display for Needle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let value = match &self {
+            Self::Name(name) => name.clone(),
+            Self::Uri(uri) => uri.to_string(),
+            Self::Uuid(uuid) => uuid.clone(),
+        };
+        write!(f, "{value}")
+    }
+}
+
+#[allow(clippy::unnecessary_wraps)]
+pub fn parse_needle(arg: &str) -> Result<Needle, std::num::ParseIntError> {
+    if uuid::Uuid::parse_str(arg).is_ok() {
+        return Ok(Needle::Uuid(String::from(arg)));
+    }
+    if let Ok(url) = Url::parse(arg) {
+        return Ok(Needle::Uri(url));
+    }
+
+    Ok(Needle::Name(arg.to_string()))
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -485,13 +517,57 @@ impl DecryptedCipher {
 
     fn exact_match(
         &self,
-        name: &str,
+        needle: &Needle,
         username: Option<&str>,
         folder: Option<&str>,
         try_match_folder: bool,
     ) -> bool {
-        if name != self.name {
-            return false;
+        match needle {
+            Needle::Name(name) => {
+                if &self.name != name {
+                    return false;
+                }
+            }
+            Needle::Uri(given_uri) => {
+                match &self.data {
+                    DecryptedData::Login {
+                        uris: Some(uris), ..
+                    } => {
+                        if !uris.iter().any(|uri| {
+                            let url = Url::parse(uri.uri.as_str());
+                            if url.is_err() {
+                                return false;
+                            }
+                            let url = url.unwrap();
+                            if url.scheme() != given_uri.scheme() {
+                                // Allow the case where we have a password
+                                // saved for http://example.com and we want
+                                // to get a password for https://example.com.
+                                if url.scheme() != "http"
+                                    || given_uri.scheme() != "https"
+                                {
+                                    return false;
+                                }
+                            }
+                            // match whole domain (including subdomains) in
+                            // exact match
+                            url.domain().is_some()
+                                && url.domain() == given_uri.domain()
+                        }) {
+                            return false;
+                        }
+                    }
+                    _ => {
+                        // not sure what else to do here, but open to suggestions
+                        return false;
+                    }
+                }
+            }
+            Needle::Uuid(uuid) => {
+                if &self.id != uuid {
+                    return false;
+                }
+            }
         }
 
         if let Some(given_username) = username {
@@ -530,13 +606,56 @@ impl DecryptedCipher {
 
     fn partial_match(
         &self,
-        name: &str,
+        needle: &Needle,
         username: Option<&str>,
         folder: Option<&str>,
         try_match_folder: bool,
     ) -> bool {
-        if !self.name.contains(name) {
-            return false;
+        match needle {
+            Needle::Name(name) => {
+                if !self.name.contains(name) {
+                    return false;
+                }
+            }
+            Needle::Uri(given_uri) => {
+                match &self.data {
+                    DecryptedData::Login {
+                        uris: Some(uris), ..
+                    } => {
+                        if !uris.iter().any(|uri| {
+                            let url = Url::parse(uri.uri.as_str());
+                            if url.is_err() {
+                                return false;
+                            }
+                            let url = url.unwrap();
+                            if url.scheme() != given_uri.scheme() {
+                                // Allow the case where we have a password
+                                // saved for http://example.com and we want
+                                // to get a password for https://example.com.
+                                if url.scheme() != "http"
+                                    || given_uri.scheme() != "https"
+                                {
+                                    return false;
+                                }
+                            }
+                            // TODO: only match top and 2nd level domains in partial match
+                            url.domain().is_some()
+                                && url.domain() == given_uri.domain()
+                        }) {
+                            return false;
+                        }
+                    }
+                    _ => {
+                        // not sure what else to do here, but open to suggestions
+                        return false;
+                    }
+                }
+            }
+            Needle::Uuid(uuid) => {
+                if &self.id != uuid {
+                    return false;
+                }
+            }
         }
 
         if let Some(given_username) = username {
@@ -857,7 +976,7 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
 }
 
 pub fn get(
-    name: &str,
+    needle: &Needle,
     user: Option<&str>,
     folder: Option<&str>,
     field: Option<&str>,
@@ -872,10 +991,10 @@ pub fn get(
     let desc = format!(
         "{}{}",
         user.map_or_else(String::new, |s| format!("{s}@")),
-        name
+        needle
     );
 
-    let (_, decrypted) = find_entry(&db, name, user, folder)
+    let (_, decrypted) = find_entry(&db, needle, user, folder)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
     if raw {
         decrypted.display_json(&desc)?;
@@ -905,8 +1024,9 @@ pub fn code(
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, user, folder)
-        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (_, decrypted) =
+        find_entry(&db, &Needle::Name(name.to_string()), user, folder)
+            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     if let DecryptedData::Login { totp, .. } = decrypted.data {
         if let Some(totp) = totp {
@@ -1133,8 +1253,9 @@ pub fn edit(
         name
     );
 
-    let (entry, decrypted) = find_entry(&db, name, username, folder)
-        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (entry, decrypted) =
+        find_entry(&db, &Needle::Name(name.to_string()), username, folder)
+            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     let (data, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
@@ -1255,8 +1376,9 @@ pub fn remove(
         name
     );
 
-    let (entry, _) = find_entry(&db, name, username, folder)
-        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (entry, _) =
+        find_entry(&db, &Needle::Name(name.to_string()), username, folder)
+            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     if let (Some(access_token), ()) =
         rbw::actions::remove(access_token, refresh_token, &entry.id)?
@@ -1285,8 +1407,9 @@ pub fn history(
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, username, folder)
-        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (_, decrypted) =
+        find_entry(&db, &Needle::Name(name.to_string()), username, folder)
+            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
     for history in decrypted.history {
         println!("{}: {}", history.last_used_date, history.password);
     }
@@ -1381,13 +1504,13 @@ fn version_or_quit() -> anyhow::Result<u32> {
 
 fn find_entry(
     db: &rbw::db::Db,
-    name: &str,
+    needle: &Needle,
     username: Option<&str>,
     folder: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    if uuid::Uuid::parse_str(name).is_ok() {
+    if let Needle::Uuid(uuid) = needle {
         for cipher in &db.entries {
-            if name == cipher.id {
+            if uuid == &cipher.id {
                 return Ok((cipher.clone(), decrypt_cipher(cipher)?));
             }
         }
@@ -1401,20 +1524,20 @@ fn find_entry(
                 decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
             })
             .collect::<anyhow::Result<_>>()?;
-        find_entry_raw(&ciphers, name, username, folder)
+        find_entry_raw(&ciphers, needle, username, folder)
     }
 }
 
 fn find_entry_raw(
     entries: &[(rbw::db::Entry, DecryptedCipher)],
-    name: &str,
+    needle: &Needle,
     username: Option<&str>,
     folder: Option<&str>,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
     let mut matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
         .iter()
         .filter(|&(_, decrypted_cipher)| {
-            decrypted_cipher.exact_match(name, username, folder, true)
+            decrypted_cipher.exact_match(needle, username, folder, true)
         })
         .cloned()
         .collect();
@@ -1427,7 +1550,7 @@ fn find_entry_raw(
         matches = entries
             .iter()
             .filter(|&(_, decrypted_cipher)| {
-                decrypted_cipher.exact_match(name, username, folder, false)
+                decrypted_cipher.exact_match(needle, username, folder, false)
             })
             .cloned()
             .collect();
@@ -1440,7 +1563,7 @@ fn find_entry_raw(
     matches = entries
         .iter()
         .filter(|&(_, decrypted_cipher)| {
-            decrypted_cipher.partial_match(name, username, folder, true)
+            decrypted_cipher.partial_match(needle, username, folder, true)
         })
         .cloned()
         .collect();
@@ -1453,7 +1576,8 @@ fn find_entry_raw(
         matches = entries
             .iter()
             .filter(|&(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder, false)
+                decrypted_cipher
+                    .partial_match(needle, username, folder, false)
             })
             .cloned()
             .collect();
@@ -1938,7 +2062,13 @@ mod test {
         idx: usize,
     ) -> bool {
         entries_eq(
-            &find_entry_raw(entries, name, username, folder).unwrap(),
+            &find_entry_raw(
+                entries,
+                &Needle::Name(name.to_string()),
+                username,
+                folder,
+            )
+            .unwrap(),
             &entries[idx],
         )
     }
@@ -1949,7 +2079,12 @@ mod test {
         username: Option<&str>,
         folder: Option<&str>,
     ) -> bool {
-        let res = find_entry_raw(entries, name, username, folder);
+        let res = find_entry_raw(
+            entries,
+            &Needle::Name(name.to_string()),
+            username,
+            folder,
+        );
         if let Err(e) = res {
             format!("{e}").contains("no entry found")
         } else {
@@ -1963,7 +2098,12 @@ mod test {
         username: Option<&str>,
         folder: Option<&str>,
     ) -> bool {
-        let res = find_entry_raw(entries, name, username, folder);
+        let res = find_entry_raw(
+            entries,
+            &Needle::Name(name.to_string()),
+            username,
+            folder,
+        );
         if let Err(e) = res {
             format!("{e}").contains("multiple entries found")
         } else {
