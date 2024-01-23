@@ -50,6 +50,8 @@ fn real_main() -> anyhow::Result<()> {
         .nth(1)
         .map_or(false, |arg| arg == "--no-daemonize");
 
+    rbw::dirs::make_all()?;
+
     let startup_ack = if no_daemonize {
         None
     } else {

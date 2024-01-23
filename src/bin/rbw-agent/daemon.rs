@@ -18,8 +18,6 @@ impl Drop for StartupAck {
 }
 
 pub fn daemonize() -> anyhow::Result<StartupAck> {
-    rbw::dirs::make_all()?;
-
     let stdout = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
