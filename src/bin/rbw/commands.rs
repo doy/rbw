@@ -489,8 +489,11 @@ impl DecryptedCipher {
         username: Option<&str>,
         folder: Option<&str>,
         try_match_folder: bool,
+        ignore_case: bool,
     ) -> bool {
-        if name != self.name {
+        if !((ignore_case && name.to_lowercase() == self.name.to_lowercase())
+            || name == self.name)
+        {
             return false;
         }
 
@@ -534,8 +537,12 @@ impl DecryptedCipher {
         username: Option<&str>,
         folder: Option<&str>,
         try_match_folder: bool,
+        ignore_case: bool,
     ) -> bool {
-        if !self.name.contains(name) {
+        if !((ignore_case
+            && self.name.to_lowercase().contains(&name.to_lowercase()))
+            || self.name.contains(name))
+        {
             return false;
         }
 
@@ -864,6 +871,7 @@ pub fn get(
     full: bool,
     raw: bool,
     clipboard: bool,
+    ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -875,7 +883,7 @@ pub fn get(
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, user, folder)
+    let (_, decrypted) = find_entry(&db, name, user, folder, ignore_case)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
     if raw {
         decrypted.display_json(&desc)?;
@@ -894,6 +902,7 @@ pub fn code(
     name: &str,
     user: Option<&str>,
     folder: Option<&str>,
+    ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -905,7 +914,7 @@ pub fn code(
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, user, folder)
+    let (_, decrypted) = find_entry(&db, name, user, folder, ignore_case)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     if let DecryptedData::Login { totp, .. } = decrypted.data {
@@ -1120,6 +1129,7 @@ pub fn edit(
     name: &str,
     username: Option<&str>,
     folder: Option<&str>,
+    ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1133,8 +1143,9 @@ pub fn edit(
         name
     );
 
-    let (entry, decrypted) = find_entry(&db, name, username, folder)
-        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (entry, decrypted) =
+        find_entry(&db, name, username, folder, ignore_case)
+            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     let (data, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
@@ -1242,6 +1253,7 @@ pub fn remove(
     name: &str,
     username: Option<&str>,
     folder: Option<&str>,
+    ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1255,7 +1267,7 @@ pub fn remove(
         name
     );
 
-    let (entry, _) = find_entry(&db, name, username, folder)
+    let (entry, _) = find_entry(&db, name, username, folder, ignore_case)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     if let (Some(access_token), ()) =
@@ -1274,6 +1286,7 @@ pub fn history(
     name: &str,
     username: Option<&str>,
     folder: Option<&str>,
+    ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1285,7 +1298,7 @@ pub fn history(
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, username, folder)
+    let (_, decrypted) = find_entry(&db, name, username, folder, ignore_case)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
     for history in decrypted.history {
         println!("{}: {}", history.last_used_date, history.password);
@@ -1384,6 +1397,7 @@ fn find_entry(
     name: &str,
     username: Option<&str>,
     folder: Option<&str>,
+    ignore_case: bool,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
     if uuid::Uuid::parse_str(name).is_ok() {
         for cipher in &db.entries {
@@ -1401,7 +1415,7 @@ fn find_entry(
                 decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
             })
             .collect::<anyhow::Result<_>>()?;
-        find_entry_raw(&ciphers, name, username, folder)
+        find_entry_raw(&ciphers, name, username, folder, ignore_case)
     }
 }
 
@@ -1410,11 +1424,18 @@ fn find_entry_raw(
     name: &str,
     username: Option<&str>,
     folder: Option<&str>,
+    ignore_case: bool,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
     let mut matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
         .iter()
         .filter(|&(_, decrypted_cipher)| {
-            decrypted_cipher.exact_match(name, username, folder, true)
+            decrypted_cipher.exact_match(
+                name,
+                username,
+                folder,
+                true,
+                ignore_case,
+            )
         })
         .cloned()
         .collect();
@@ -1427,7 +1448,13 @@ fn find_entry_raw(
         matches = entries
             .iter()
             .filter(|&(_, decrypted_cipher)| {
-                decrypted_cipher.exact_match(name, username, folder, false)
+                decrypted_cipher.exact_match(
+                    name,
+                    username,
+                    folder,
+                    false,
+                    ignore_case,
+                )
             })
             .cloned()
             .collect();
@@ -1440,7 +1467,13 @@ fn find_entry_raw(
     matches = entries
         .iter()
         .filter(|&(_, decrypted_cipher)| {
-            decrypted_cipher.partial_match(name, username, folder, true)
+            decrypted_cipher.partial_match(
+                name,
+                username,
+                folder,
+                true,
+                ignore_case,
+            )
         })
         .cloned()
         .collect();
@@ -1453,7 +1486,13 @@ fn find_entry_raw(
         matches = entries
             .iter()
             .filter(|&(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(name, username, folder, false)
+                decrypted_cipher.partial_match(
+                    name,
+                    username,
+                    folder,
+                    false,
+                    ignore_case,
+                )
             })
             .cloned()
             .collect();
@@ -1875,58 +1914,154 @@ mod test {
         ];
 
         assert!(
-            one_match(entries, "github", Some("foo"), None, 0),
+            one_match(entries, "github", Some("foo"), None, 0, false),
             "foo@github"
         );
-        assert!(one_match(entries, "github", None, None, 0), "github");
         assert!(
-            one_match(entries, "gitlab", Some("foo"), None, 1),
+            one_match(entries, "GITHUB", Some("foo"), None, 0, true),
+            "foo@GITHUB"
+        );
+        assert!(one_match(entries, "github", None, None, 0, false), "github");
+        assert!(one_match(entries, "GITHUB", None, None, 0, true), "GITHUB");
+        assert!(
+            one_match(entries, "gitlab", Some("foo"), None, 1, false),
             "foo@gitlab"
         );
-        assert!(one_match(entries, "git", Some("bar"), None, 2), "bar@git");
         assert!(
-            one_match(entries, "gitter", Some("ba"), None, 3),
+            one_match(entries, "GITLAB", Some("foo"), None, 1, true),
+            "foo@GITLAB"
+        );
+        assert!(
+            one_match(entries, "git", Some("bar"), None, 2, false),
+            "bar@git"
+        );
+        assert!(
+            one_match(entries, "GIT", Some("bar"), None, 2, true),
+            "bar@GIT"
+        );
+        assert!(
+            one_match(entries, "gitter", Some("ba"), None, 3, false),
             "ba@gitter"
         );
-        assert!(one_match(entries, "git", Some("foo"), None, 4), "foo@git");
-        assert!(one_match(entries, "git", None, None, 4), "git");
-        assert!(one_match(entries, "bitwarden", None, None, 5), "bitwarden");
         assert!(
-            one_match(entries, "github", Some("foo"), Some("websites"), 6),
+            one_match(entries, "GITTER", Some("ba"), None, 3, true),
+            "ba@GITTER"
+        );
+        assert!(
+            one_match(entries, "git", Some("foo"), None, 4, false),
+            "foo@git"
+        );
+        assert!(
+            one_match(entries, "GIT", Some("foo"), None, 4, true),
+            "foo@GIT"
+        );
+        assert!(one_match(entries, "git", None, None, 4, false), "git");
+        assert!(one_match(entries, "GIT", None, None, 4, true), "GIT");
+        assert!(
+            one_match(entries, "bitwarden", None, None, 5, false),
+            "bitwarden"
+        );
+        assert!(
+            one_match(entries, "BITWARDEN", None, None, 5, true),
+            "BITWARDEN"
+        );
+        assert!(
+            one_match(
+                entries,
+                "github",
+                Some("foo"),
+                Some("websites"),
+                6,
+                false
+            ),
             "websites/foo@github"
         );
         assert!(
-            one_match(entries, "github", Some("foo"), Some("ssh"), 7),
+            one_match(
+                entries,
+                "GITHUB",
+                Some("foo"),
+                Some("websites"),
+                6,
+                true
+            ),
+            "websites/foo@GITHUB"
+        );
+        assert!(
+            one_match(entries, "github", Some("foo"), Some("ssh"), 7, false),
             "ssh/foo@github"
         );
         assert!(
-            one_match(entries, "github", Some("root"), None, 8),
+            one_match(entries, "GITHUB", Some("foo"), Some("ssh"), 7, true),
+            "ssh/foo@GITHUB"
+        );
+        assert!(
+            one_match(entries, "github", Some("root"), None, 8, false),
             "ssh/root@github"
+        );
+        assert!(
+            one_match(entries, "GITHUB", Some("root"), None, 8, true),
+            "ssh/root@GITHUB"
         );
 
         assert!(
-            no_matches(entries, "gitlab", Some("baz"), None),
+            no_matches(entries, "gitlab", Some("baz"), None, false),
             "baz@gitlab"
         );
         assert!(
-            no_matches(entries, "bitbucket", Some("foo"), None),
+            no_matches(entries, "GITLAB", Some("baz"), None, true),
+            "baz@"
+        );
+        assert!(
+            no_matches(entries, "bitbucket", Some("foo"), None, false),
             "foo@bitbucket"
         );
         assert!(
-            no_matches(entries, "github", Some("foo"), Some("bar")),
+            no_matches(entries, "BITBUCKET", Some("foo"), None, true),
+            "foo@BITBUCKET"
+        );
+        assert!(
+            no_matches(entries, "github", Some("foo"), Some("bar"), false),
             "bar/foo@github"
         );
         assert!(
-            no_matches(entries, "gitlab", Some("foo"), Some("bar")),
+            no_matches(entries, "GITHUB", Some("foo"), Some("bar"), true),
+            "bar/foo@"
+        );
+        assert!(
+            no_matches(entries, "gitlab", Some("foo"), Some("bar"), false),
             "bar/foo@gitlab"
         );
-
-        assert!(many_matches(entries, "gitlab", None, None), "gitlab");
-        assert!(many_matches(entries, "gi", Some("foo"), None), "foo@gi");
-        assert!(many_matches(entries, "git", Some("ba"), None), "ba@git");
         assert!(
-            many_matches(entries, "github", Some("foo"), Some("s")),
+            no_matches(entries, "GITLAB", Some("foo"), Some("bar"), true),
+            "bar/foo@GITLAB"
+        );
+
+        assert!(many_matches(entries, "gitlab", None, None, false), "gitlab");
+        assert!(many_matches(entries, "gitlab", None, None, true), "GITLAB");
+        assert!(
+            many_matches(entries, "gi", Some("foo"), None, false),
+            "foo@gi"
+        );
+        assert!(
+            many_matches(entries, "GI", Some("foo"), None, true),
+            "foo@GI"
+        );
+        assert!(
+            many_matches(entries, "git", Some("ba"), None, false),
+            "ba@git"
+        );
+        assert!(
+            many_matches(entries, "GIT", Some("ba"), None, true),
+            "ba@GIT"
+        );
+        assert!(
+            many_matches(entries, "github", Some("foo"), Some("s"), false),
             "s/foo@github"
+        );
+        assert!(
+            many_matches(entries, "GITHUB", Some("foo"), Some("s"), true),
+            "s/foo@GITHUB"
         );
     }
 
@@ -1936,9 +2071,11 @@ mod test {
         username: Option<&str>,
         folder: Option<&str>,
         idx: usize,
+        ignore_case: bool,
     ) -> bool {
         entries_eq(
-            &find_entry_raw(entries, name, username, folder).unwrap(),
+            &find_entry_raw(entries, name, username, folder, ignore_case)
+                .unwrap(),
             &entries[idx],
         )
     }
@@ -1948,8 +2085,10 @@ mod test {
         name: &str,
         username: Option<&str>,
         folder: Option<&str>,
+        ignore_case: bool,
     ) -> bool {
-        let res = find_entry_raw(entries, name, username, folder);
+        let res =
+            find_entry_raw(entries, name, username, folder, ignore_case);
         if let Err(e) = res {
             format!("{e}").contains("no entry found")
         } else {
@@ -1962,8 +2101,10 @@ mod test {
         name: &str,
         username: Option<&str>,
         folder: Option<&str>,
+        ignore_case: bool,
     ) -> bool {
-        let res = find_entry_raw(entries, name, username, folder);
+        let res =
+            find_entry_raw(entries, name, username, folder, ignore_case);
         if let Err(e) = res {
             format!("{e}").contains("multiple entries found")
         } else {

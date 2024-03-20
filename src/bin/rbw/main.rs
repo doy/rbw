@@ -85,6 +85,8 @@ enum Opt {
         raw: bool,
         #[structopt(long, help = "Copy result to clipboard")]
         clipboard: bool,
+        #[structopt(short, long, help = "Ignore case")]
+        ignorecase: bool,
     },
 
     #[command(about = "Display the authenticator code for a given entry")]
@@ -95,6 +97,8 @@ enum Opt {
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[arg(short, long, help = "Ignore case")]
+        ignorecase: bool,
     },
 
     #[command(
@@ -193,6 +197,8 @@ enum Opt {
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[arg(short, long, help = "Ignore case")]
+        ignorecase: bool,
     },
 
     #[command(about = "Remove a given entry", visible_alias = "rm")]
@@ -203,6 +209,8 @@ enum Opt {
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[arg(short, long, help = "Ignore case")]
+        ignorecase: bool,
     },
 
     #[command(about = "View the password history for a given entry")]
@@ -213,6 +221,8 @@ enum Opt {
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[arg(short, long, help = "Ignore case")]
+        ignorecase: bool,
     },
 
     #[command(about = "Lock the password database")]
@@ -325,6 +335,7 @@ fn main() {
             full,
             raw,
             clipboard,
+            ignorecase,
         } => commands::get(
             name,
             user.as_deref(),
@@ -333,10 +344,19 @@ fn main() {
             *full,
             *raw,
             *clipboard,
+            *ignorecase,
         ),
-        Opt::Code { name, user, folder } => {
-            commands::code(name, user.as_deref(), folder.as_deref())
-        }
+        Opt::Code {
+            name,
+            user,
+            folder,
+            ignorecase,
+        } => commands::code(
+            name,
+            user.as_deref(),
+            folder.as_deref(),
+            *ignorecase,
+        ),
         Opt::Add {
             name,
             user,
@@ -387,15 +407,39 @@ fn main() {
                 ty,
             )
         }
-        Opt::Edit { name, user, folder } => {
-            commands::edit(name, user.as_deref(), folder.as_deref())
-        }
-        Opt::Remove { name, user, folder } => {
-            commands::remove(name, user.as_deref(), folder.as_deref())
-        }
-        Opt::History { name, user, folder } => {
-            commands::history(name, user.as_deref(), folder.as_deref())
-        }
+        Opt::Edit {
+            name,
+            user,
+            folder,
+            ignorecase,
+        } => commands::edit(
+            name,
+            user.as_deref(),
+            folder.as_deref(),
+            *ignorecase,
+        ),
+        Opt::Remove {
+            name,
+            user,
+            folder,
+            ignorecase,
+        } => commands::remove(
+            name,
+            user.as_deref(),
+            folder.as_deref(),
+            *ignorecase,
+        ),
+        Opt::History {
+            name,
+            user,
+            folder,
+            ignorecase,
+        } => commands::history(
+            name,
+            user.as_deref(),
+            folder.as_deref(),
+            *ignorecase,
+        ),
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),
         Opt::StopAgent => commands::stop_agent(),
