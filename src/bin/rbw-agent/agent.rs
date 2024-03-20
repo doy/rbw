@@ -209,12 +209,7 @@ async fn handle_request(
             true
         }
         rbw::protocol::Action::CheckLock => {
-            crate::actions::check_lock(
-                sock,
-                state.clone(),
-                req.tty.as_deref(),
-            )
-            .await?;
+            crate::actions::check_lock(sock, state.clone()).await?;
             false
         }
         rbw::protocol::Action::Lock => {
