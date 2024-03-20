@@ -991,6 +991,7 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn get(
     needle: &Needle,
     user: Option<&str>,
