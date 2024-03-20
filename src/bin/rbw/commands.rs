@@ -863,6 +863,7 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn get(
     name: &str,
     user: Option<&str>,
