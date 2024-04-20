@@ -74,6 +74,14 @@ configuration options:
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
 
+### Profiles
+
+`rbw` supports different configuration profiles, which can be switched
+between by using the `RBW_PROFILE` environment variable. Setting it to a name
+(for example, `RBW_PROFILE=work` or `RBW_PROFILE=personal`) can be used to
+switch between several different vaults - each will use its own separate
+configuration, local vault, and agent.
+
 ## Usage
 
 Commands can generally be used directly, and will handle logging in or
