@@ -65,6 +65,7 @@ copypasta = "0.10.1"
 rmpv = "1.0.2"
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
 is-terminal = "0.4.12"
+regex = "1.10.4"
 
 [package.metadata.deb]
 depends = "pinentry"

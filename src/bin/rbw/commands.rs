@@ -19,7 +19,7 @@ const MISSING_CONFIG_HELP: &str =
 pub enum Needle {
     Name(String),
     Uri(Url),
-    Uuid(String),
+    Uuid(uuid::Uuid),
 }
 
 impl Display for Needle {
@@ -27,16 +27,16 @@ impl Display for Needle {
         let value = match &self {
             Self::Name(name) => name.clone(),
             Self::Uri(uri) => uri.to_string(),
-            Self::Uuid(uuid) => uuid.clone(),
+            Self::Uuid(uuid) => uuid.to_string(),
         };
         write!(f, "{value}")
     }
 }
 
 #[allow(clippy::unnecessary_wraps)]
-pub fn parse_needle(arg: &str) -> Result<Needle, std::num::ParseIntError> {
-    if uuid::Uuid::parse_str(arg).is_ok() {
-        return Ok(Needle::Uuid(String::from(arg)));
+pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
+    if let Ok(uuid) = uuid::Uuid::parse_str(arg) {
+        return Ok(Needle::Uuid(uuid));
     }
     if let Ok(url) = Url::parse(arg) {
         return Ok(Needle::Uri(url));
@@ -533,27 +533,8 @@ impl DecryptedCipher {
                     DecryptedData::Login {
                         uris: Some(uris), ..
                     } => {
-                        if !uris.iter().any(|uri| {
-                            let url = Url::parse(uri.uri.as_str());
-                            if url.is_err() {
-                                return false;
-                            }
-                            let url = url.unwrap();
-                            if url.scheme() != given_uri.scheme() {
-                                // Allow the case where we have a password
-                                // saved for http://example.com and we want
-                                // to get a password for https://example.com.
-                                if url.scheme() != "http"
-                                    || given_uri.scheme() != "https"
-                                {
-                                    return false;
-                                }
-                            }
-                            // match whole domain (including subdomains) in
-                            // exact match
-                            url.domain().is_some()
-                                && url.domain() == given_uri.domain()
-                        }) {
+                        if !uris.iter().any(|uri| uri.matches_url(given_uri))
+                        {
                             return false;
                         }
                     }
@@ -564,7 +545,7 @@ impl DecryptedCipher {
                 }
             }
             Needle::Uuid(uuid) => {
-                if &self.id != uuid {
+                if uuid::Uuid::parse_str(&self.id) != Ok(*uuid) {
                     return false;
                 }
             }
@@ -606,56 +587,13 @@ impl DecryptedCipher {
 
     fn partial_match(
         &self,
-        needle: &Needle,
+        name: &str,
         username: Option<&str>,
         folder: Option<&str>,
         try_match_folder: bool,
     ) -> bool {
-        match needle {
-            Needle::Name(name) => {
-                if !self.name.contains(name) {
-                    return false;
-                }
-            }
-            Needle::Uri(given_uri) => {
-                match &self.data {
-                    DecryptedData::Login {
-                        uris: Some(uris), ..
-                    } => {
-                        if !uris.iter().any(|uri| {
-                            let url = Url::parse(uri.uri.as_str());
-                            if url.is_err() {
-                                return false;
-                            }
-                            let url = url.unwrap();
-                            if url.scheme() != given_uri.scheme() {
-                                // Allow the case where we have a password
-                                // saved for http://example.com and we want
-                                // to get a password for https://example.com.
-                                if url.scheme() != "http"
-                                    || given_uri.scheme() != "https"
-                                {
-                                    return false;
-                                }
-                            }
-                            // TODO: only match top and 2nd level domains in partial match
-                            url.domain().is_some()
-                                && url.domain() == given_uri.domain()
-                        }) {
-                            return false;
-                        }
-                    }
-                    _ => {
-                        // not sure what else to do here, but open to suggestions
-                        return false;
-                    }
-                }
-            }
-            Needle::Uuid(uuid) => {
-                if &self.id != uuid {
-                    return false;
-                }
-            }
+        if !self.name.contains(name) {
+            return false;
         }
 
         if let Some(given_username) = username {
@@ -767,6 +705,80 @@ struct DecryptedHistoryEntry {
 struct DecryptedUri {
     uri: String,
     match_type: Option<rbw::api::UriMatchType>,
+}
+
+impl DecryptedUri {
+    fn matches_url(&self, url: &Url) -> bool {
+        match self.match_type.unwrap_or(rbw::api::UriMatchType::Domain) {
+            rbw::api::UriMatchType::Domain => {
+                let Some(given_domain_port) = domain_port(url) else {
+                    return false;
+                };
+                if let Ok(self_url) = url::Url::parse(&self.uri) {
+                    if let Some(self_domain_port) = domain_port(&self_url) {
+                        if self_url.scheme() == url.scheme()
+                            && (self_domain_port == given_domain_port
+                                || given_domain_port.ends_with(&format!(
+                                    ".{self_domain_port}"
+                                )))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                self.uri == given_domain_port
+                    || given_domain_port.ends_with(&format!(".{}", self.uri))
+            }
+            rbw::api::UriMatchType::Host => {
+                let Some(given_host_port) = host_port(url) else {
+                    return false;
+                };
+                if let Ok(self_url) = url::Url::parse(&self.uri) {
+                    if let Some(self_host_port) = host_port(&self_url) {
+                        if self_url.scheme() == url.scheme()
+                            && self_host_port == given_host_port
+                        {
+                            return true;
+                        }
+                    }
+                }
+                self.uri == given_host_port
+            }
+            rbw::api::UriMatchType::StartsWith => {
+                url.to_string().starts_with(&self.uri)
+            }
+            rbw::api::UriMatchType::Exact => url.to_string() == self.uri,
+            rbw::api::UriMatchType::RegularExpression => {
+                let Ok(rx) = regex::Regex::new(&self.uri) else {
+                    return false;
+                };
+                rx.is_match(url.as_ref())
+            }
+            rbw::api::UriMatchType::Never => false,
+        }
+    }
+}
+
+fn host_port(url: &Url) -> Option<String> {
+    let Some(host) = url.host_str() else {
+        return None;
+    };
+    Some(
+        url.port().map_or_else(
+            || host.to_string(),
+            |port| format!("{host}:{port}"),
+        ),
+    )
+}
+
+fn domain_port(url: &Url) -> Option<String> {
+    let Some(domain) = url.domain() else {
+        return None;
+    };
+    Some(url.port().map_or_else(
+        || domain.to_string(),
+        |port| format!("{domain}:{port}"),
+    ))
 }
 
 enum ListField {
@@ -1510,7 +1522,7 @@ fn find_entry(
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
     if let Needle::Uuid(uuid) = needle {
         for cipher in &db.entries {
-            if uuid == &cipher.id {
+            if uuid::Uuid::parse_str(&cipher.id) == Ok(*uuid) {
                 return Ok((cipher.clone(), decrypt_cipher(cipher)?));
             }
         }
@@ -1560,29 +1572,31 @@ fn find_entry_raw(
         }
     }
 
-    matches = entries
-        .iter()
-        .filter(|&(_, decrypted_cipher)| {
-            decrypted_cipher.partial_match(needle, username, folder, true)
-        })
-        .cloned()
-        .collect();
-
-    if matches.len() == 1 {
-        return Ok(matches[0].clone());
-    }
-
-    if folder.is_none() {
+    if let Needle::Name(name) = needle {
         matches = entries
             .iter()
             .filter(|&(_, decrypted_cipher)| {
-                decrypted_cipher
-                    .partial_match(needle, username, folder, false)
+                decrypted_cipher.partial_match(name, username, folder, true)
             })
             .cloned()
             .collect();
+
         if matches.len() == 1 {
             return Ok(matches[0].clone());
+        }
+
+        if folder.is_none() {
+            matches = entries
+                .iter()
+                .filter(|&(_, decrypted_cipher)| {
+                    decrypted_cipher
+                        .partial_match(name, username, folder, false)
+                })
+                .cloned()
+                .collect();
+            if matches.len() == 1 {
+                return Ok(matches[0].clone());
+            }
         }
     }
 

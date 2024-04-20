@@ -1346,6 +1346,7 @@ dependencies = [
  "percent-encoding",
  "pkcs8",
  "rand",
+ "regex",
  "region",
  "reqwest",
  "rmpv",
