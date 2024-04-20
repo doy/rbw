@@ -1,19 +1,13 @@
+use std::os::fd::AsRawFd as _;
+
 pub struct StartupAck {
-    writer: std::os::unix::io::RawFd,
+    writer: std::os::unix::io::OwnedFd,
 }
 
 impl StartupAck {
-    pub fn ack(&self) -> anyhow::Result<()> {
-        nix::unistd::write(self.writer, &[0])?;
-        nix::unistd::close(self.writer)?;
+    pub fn ack(self) -> anyhow::Result<()> {
+        nix::unistd::write(&self.writer, &[0])?;
         Ok(())
-    }
-}
-
-impl Drop for StartupAck {
-    fn drop(&mut self) {
-        // best effort close here, can't do better in a destructor
-        let _ = nix::unistd::close(self.writer);
     }
 }
 
@@ -34,18 +28,18 @@ pub fn daemonize() -> anyhow::Result<StartupAck> {
         .stderr(stderr);
     let res = match daemonize.execute() {
         daemonize::Outcome::Parent(_) => {
+            drop(w);
+            let mut buf = [0; 1];
             // unwraps are necessary because not really a good way to handle
             // errors here otherwise
-            let _ = nix::unistd::close(w);
-            let mut buf = [0; 1];
-            nix::unistd::read(r, &mut buf).unwrap();
-            nix::unistd::close(r).unwrap();
+            nix::unistd::read(r.as_raw_fd(), &mut buf).unwrap();
+            drop(r);
             std::process::exit(0);
         }
         daemonize::Outcome::Child(res) => res,
     };
 
-    let _ = nix::unistd::close(r);
+    drop(r);
 
     match res {
         Ok(_) => (),

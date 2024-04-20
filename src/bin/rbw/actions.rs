@@ -33,9 +33,9 @@ pub fn quit() -> anyhow::Result<()> {
             std::fs::File::open(pidfile)?.read_to_string(&mut pid)?;
             let pid = nix::unistd::Pid::from_raw(pid.trim_end().parse()?);
             sock.send(&rbw::protocol::Request {
-                tty: nix::unistd::ttyname(0).ok().and_then(|p| {
-                    p.to_str().map(std::string::ToString::to_string)
-                }),
+                tty: nix::unistd::ttyname(std::io::stdin()).ok().and_then(
+                    |p| p.to_str().map(std::string::ToString::to_string),
+                ),
                 action: rbw::protocol::Action::Quit,
             })?;
             wait_for_exit(pid);
@@ -57,7 +57,7 @@ pub fn decrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(0)
+        tty: nix::unistd::ttyname(std::io::stdin())
             .ok()
             .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action: rbw::protocol::Action::Decrypt {
@@ -82,7 +82,7 @@ pub fn encrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(0)
+        tty: nix::unistd::ttyname(std::io::stdin())
             .ok()
             .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action: rbw::protocol::Action::Encrypt {
@@ -110,7 +110,7 @@ pub fn clipboard_store(text: &str) -> anyhow::Result<()> {
 pub fn version() -> anyhow::Result<u32> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(0)
+        tty: nix::unistd::ttyname(std::io::stdin())
             .ok()
             .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action: rbw::protocol::Action::Version,
@@ -130,7 +130,7 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     let mut sock = connect()?;
 
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(0)
+        tty: nix::unistd::ttyname(std::io::stdin())
             .ok()
             .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
         action,

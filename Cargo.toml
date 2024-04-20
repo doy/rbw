@@ -13,58 +13,58 @@ license = "MIT"
 include = ["src/**/*", "bin/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
 
 [dependencies]
-aes = "0.8.3"
-anyhow = "1.0.78"
-argon2 = "0.5.2"
+aes = "0.8.4"
+anyhow = "1.0.82"
+argon2 = "0.5.3"
 arrayvec = "0.7.4"
-async-trait = "0.1.76"
+async-trait = "0.1.80"
 base32 = "0.4.0"
-base64 = "0.21.5"
+base64 = "0.22.0"
 block-padding = "0.3.3"
 cbc = { version = "0.1.2", features = ["alloc", "std"] }
-clap = { version = "4.4.12", features = ["wrap_help", "derive"] }
-clap_complete = "4.4.5"
+clap = { version = "4.5.4", features = ["wrap_help", "derive"] }
+clap_complete = "4.5.2"
 daemonize = "0.5.0"
 # TODO: directories 5.0.1 uses MPL code, which isn't license-compatible
 # we should switch to something else at some point
 directories = "=5.0.0"
-env_logger = "0.10.1"
+env_logger = "0.11.3"
 futures = "0.3.30"
 futures-channel = "0.3.30"
 futures-util = "0.3.30"
 hkdf = "0.12.4"
 hmac = { version = "0.12.1", features = ["std"] }
 humantime = "2.1.0"
-libc = "0.2.151"
-log = "0.4.20"
-nix = "0.26"
+libc = "0.2.153"
+log = "0.4.21"
+nix = { version = "0.28", features = ["process", "signal", "term", "user"] }
 pbkdf2 = "0.12.2"
 percent-encoding = "2.3.1"
 pkcs8 = "0.10.2"
 rand = "0.8.5"
-region = "3.0.0"
-reqwest = { version = "0.11.23", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+region = "3.0.2"
+reqwest = { version = "0.12.4", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
 rsa = "0.9.6"
-serde = { version = "1.0.193", features = ["derive"] }
-serde_json = "1.0.109"
-serde_path_to_error = "0.1.14"
-serde_repr = "0.1.17"
+serde = { version = "1.0.198", features = ["derive"] }
+serde_json = "1.0.116"
+serde_path_to_error = "0.1.16"
+serde_repr = "0.1.19"
 sha1 = "0.10.6"
 sha2 = "0.10.8"
-tempfile = "3.9.0"
+tempfile = "3.10.1"
 terminal_size = "0.3.0"
-textwrap = "0.16.0"
-thiserror = "1.0.53"
-tokio = { version = "1.35.1", features = ["full"] }
-tokio-stream = { version = "0.1.14", features = ["net"] }
+textwrap = "0.16.1"
+thiserror = "1.0.58"
+tokio = { version = "1.37.0", features = ["full"] }
+tokio-stream = { version = "0.1.15", features = ["net"] }
 totp-lite = "2.0.1"
 url = "2.5.0"
-uuid = { version = "1.6.1", features = ["v4"] }
+uuid = { version = "1.8.0", features = ["v4"] }
 zeroize = "1.7.0"
-copypasta = "0.10.0"
-rmpv = "1.0.1"
-tokio-tungstenite = { version = "0.20", features = ["rustls-tls-native-roots"] }
-is-terminal = "0.4.10"
+copypasta = "0.10.1"
+rmpv = "1.0.2"
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
+is-terminal = "0.4.12"
 
 [package.metadata.deb]
 depends = "pinentry"
