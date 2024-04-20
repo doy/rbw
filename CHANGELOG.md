@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.10.0] - 2024-04-20
+
+### Added
+
+* `rbw get` now supports searching by URL as well (proxict, #132)
+* `rbw code` now supports `--clipboard`, and has an alias of `rbw totp` (#127)
+
+### Changed
+
+* Set a user agent for all API calls, not just logging in (#165)
+
+### Fixed
+
+* Also create runtime directories when running with `--no-daemonize` (Wim de With, #155)
+* Fix builds on NetBSD (#105)
+* Fix logging in when the configured email address differs in case from the email address used when registering (#158)
+* Fix editing passwords inadvertently clearing custom field values (#142)
+
 ## [1.9.0] - 2024-01-01
 
 ### Added
