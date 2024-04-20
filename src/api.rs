@@ -713,7 +713,7 @@ impl Client {
                 .map_err(|e| Error::CreateReqwestClient { source: e })?;
             Ok(reqwest::Client::builder()
                 .user_agent(format!(
-                    "{}-{}",
+                    "{}/{}",
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION")
                 ))
@@ -723,7 +723,7 @@ impl Client {
         } else {
             Ok(reqwest::Client::builder()
                 .user_agent(format!(
-                    "{}-{}",
+                    "{}/{}",
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION")
                 ))
@@ -836,10 +836,6 @@ impl Client {
             .header(
                 "auth-email",
                 crate::base64::encode_url_safe_no_pad(email),
-            )
-            .header(
-                "user-agent",
-                format!("rbw/{}", env!("CARGO_PKG_VERSION")),
             )
             .send()
             .await
