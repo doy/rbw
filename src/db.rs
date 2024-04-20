@@ -147,8 +147,10 @@ pub enum EntryData {
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
 )]
 pub struct Field {
+    pub ty: crate::api::FieldType,
     pub name: Option<String>,
     pub value: Option<String>,
+    pub linked_id: Option<crate::api::LinkedIdType>,
 }
 
 #[derive(

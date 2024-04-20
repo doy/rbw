@@ -362,7 +362,7 @@ struct SyncResCipher {
     #[serde(rename = "PasswordHistory", alias = "passwordHistory")]
     password_history: Option<Vec<SyncResPasswordHistory>>,
     #[serde(rename = "Fields", alias = "fields")]
-    fields: Option<Vec<SyncResField>>,
+    fields: Option<Vec<CipherField>>,
     #[serde(rename = "DeletedDate", alias = "deletedDate")]
     deleted_date: Option<String>,
 }
@@ -463,8 +463,10 @@ impl SyncResCipher {
             fields
                 .iter()
                 .map(|field| crate::db::Field {
+                    ty: field.ty,
                     name: field.name.clone(),
                     value: field.value.clone(),
+                    linked_id: field.linked_id,
                 })
                 .collect()
         });
@@ -582,6 +584,75 @@ struct CipherIdentity {
     username: Option<String>,
 }
 
+#[derive(
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+)]
+#[repr(u16)]
+pub enum FieldType {
+    Text = 0,
+    Hidden = 1,
+    Boolean = 2,
+    Linked = 3,
+}
+
+#[derive(
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+)]
+#[repr(u16)]
+pub enum LinkedIdType {
+    LoginUsername = 100,
+    LoginPassword = 101,
+    CardCardholderName = 300,
+    CardExpMonth = 301,
+    CardExpYear = 302,
+    CardCode = 303,
+    CardBrand = 304,
+    CardNumber = 305,
+    IdentityTitle = 400,
+    IdentityMiddleName = 401,
+    IdentityAddress1 = 402,
+    IdentityAddress2 = 403,
+    IdentityAddress3 = 404,
+    IdentityCity = 405,
+    IdentityState = 406,
+    IdentityPostalCode = 407,
+    IdentityCountry = 408,
+    IdentityCompany = 409,
+    IdentityEmail = 410,
+    IdentityPhone = 411,
+    IdentitySsn = 412,
+    IdentityUsername = 413,
+    IdentityPassportNumber = 414,
+    IdentityLicenseNumber = 415,
+    IdentityFirstName = 416,
+    IdentityLastName = 417,
+    IdentityFullName = 418,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct CipherField {
+    #[serde(rename = "Type", alias = "type")]
+    ty: FieldType,
+    #[serde(rename = "Name", alias = "name")]
+    name: Option<String>,
+    #[serde(rename = "Value", alias = "value")]
+    value: Option<String>,
+    #[serde(rename = "LinkedId", alias = "linkedId")]
+    linked_id: Option<LinkedIdType>,
+}
+
 // this is just a name and some notes, both of which are already on the cipher
 // object
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -593,16 +664,6 @@ struct SyncResPasswordHistory {
     last_used_date: String,
     #[serde(rename = "Password", alias = "password")]
     password: Option<String>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct SyncResField {
-    #[serde(rename = "Type", alias = "type")]
-    ty: u32,
-    #[serde(rename = "Name", alias = "name")]
-    name: Option<String>,
-    #[serde(rename = "Value", alias = "value")]
-    value: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -633,6 +694,7 @@ struct CiphersPutReq {
     login: Option<CipherLogin>,
     card: Option<CipherCard>,
     identity: Option<CipherIdentity>,
+    fields: Vec<CipherField>,
     #[serde(rename = "secureNote")]
     secure_note: Option<CipherSecureNote>,
     #[serde(rename = "passwordHistory")]
@@ -1042,6 +1104,7 @@ impl Client {
         org_id: Option<&str>,
         name: &str,
         data: &crate::db::EntryData,
+        fields: &[crate::db::Field],
         notes: Option<&str>,
         folder_uuid: Option<&str>,
         history: &[crate::db::HistoryEntry],
@@ -1061,6 +1124,15 @@ impl Client {
             card: None,
             identity: None,
             secure_note: None,
+            fields: fields
+                .iter()
+                .map(|field| CipherField {
+                    ty: field.ty,
+                    name: field.name.clone(),
+                    value: field.value.clone(),
+                    linked_id: field.linked_id,
+                })
+                .collect(),
             password_history: history
                 .iter()
                 .map(|entry| CiphersPutReqHistory {

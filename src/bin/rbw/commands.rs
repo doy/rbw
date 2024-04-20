@@ -1266,7 +1266,7 @@ pub fn edit(
         find_entry(&db, &Needle::Name(name.to_string()), username, folder)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
-    let (data, notes, history) = match &decrypted.data {
+    let (data, fields, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
             let mut contents =
                 format!("{}\n", password.as_deref().unwrap_or(""));
@@ -1320,7 +1320,7 @@ pub fn edit(
                 uris: entry_uris.clone(),
                 totp: entry_totp.clone(),
             };
-            (data, notes, history)
+            (data, entry.fields, notes, history)
         }
         DecryptedData::SecureNote {} => {
             let data = rbw::db::EntryData::SecureNote {};
@@ -1340,7 +1340,7 @@ pub fn edit(
                 })
                 .transpose()?;
 
-            (data, notes, entry.history)
+            (data, entry.fields, notes, entry.history)
         }
         _ => {
             return Err(anyhow::anyhow!(
@@ -1356,6 +1356,7 @@ pub fn edit(
         entry.org_id.as_deref(),
         &entry.name,
         &data,
+        &fields,
         notes.as_deref(),
         entry.folder_id.as_deref(),
         &history,
