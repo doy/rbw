@@ -87,7 +87,10 @@ enum Opt {
         clipboard: bool,
     },
 
-    #[command(about = "Display the authenticator code for a given entry")]
+    #[command(
+        about = "Display the authenticator code for a given entry",
+        visible_alias = "totp"
+    )]
     Code {
         #[arg(help = "Name or UUID of the entry to display")]
         name: String,
