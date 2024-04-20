@@ -760,9 +760,7 @@ impl DecryptedUri {
 }
 
 fn host_port(url: &Url) -> Option<String> {
-    let Some(host) = url.host_str() else {
-        return None;
-    };
+    let host = url.host_str()?;
     Some(
         url.port().map_or_else(
             || host.to_string(),
@@ -772,9 +770,7 @@ fn host_port(url: &Url) -> Option<String> {
 }
 
 fn domain_port(url: &Url) -> Option<String> {
-    let Some(domain) = url.domain() else {
-        return None;
-    };
+    let domain = url.domain()?;
     Some(url.port().map_or_else(
         || domain.to_string(),
         |port| format!("{domain}:{port}"),
