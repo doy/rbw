@@ -709,20 +709,26 @@ impl Client {
                     file: client_cert_path.clone(),
                 }
             })?;
-            let pem = reqwest::Identity::from_pem(&buf).map_err(|e| {
-                Error::LoadClientCertReqwest {
-                    source: e,
-                    file: client_cert_path.clone(),
-                }
-            })?;
-            Ok(reqwest::Client::builder().identity(pem).build().map_err(
-                |e| Error::LoadClientCertReqwest {
-                    source: e,
-                    file: client_cert_path.clone(),
-                },
-            )?)
+            let pem = reqwest::Identity::from_pem(&buf)
+                .map_err(|e| Error::CreateReqwestClient { source: e })?;
+            Ok(reqwest::Client::builder()
+                .user_agent(format!(
+                    "{}-{}",
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .identity(pem)
+                .build()
+                .map_err(|e| Error::CreateReqwestClient { source: e })?)
         } else {
-            Ok(reqwest::Client::new())
+            Ok(reqwest::Client::builder()
+                .user_agent(format!(
+                    "{}-{}",
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .build()
+                .map_err(|e| Error::CreateReqwestClient { source: e })?)
         }
     }
 

@@ -15,6 +15,9 @@ pub enum Error {
         file: std::path::PathBuf,
     },
 
+    #[error("failed to create reqwest client")]
+    CreateReqwestClient { source: reqwest::Error },
+
     #[error("failed to decrypt")]
     Decrypt { source: block_padding::UnpadError },
 
@@ -124,12 +127,6 @@ pub enum Error {
     #[error("failed to load client cert from {}", .file.display())]
     LoadClientCert {
         source: tokio::io::Error,
-        file: std::path::PathBuf,
-    },
-
-    #[error("failed to load client cert from {}", .file.display())]
-    LoadClientCertReqwest {
-        source: reqwest::Error,
         file: std::path::PathBuf,
     },
 
