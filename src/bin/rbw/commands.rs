@@ -2001,15 +2001,15 @@ mod test {
     #[test]
     fn test_find_entry() {
         let entries = &[
-            make_entry("github", Some("foo"), None),
-            make_entry("gitlab", Some("foo"), None),
-            make_entry("gitlab", Some("bar"), None),
-            make_entry("gitter", Some("baz"), None),
-            make_entry("git", Some("foo"), None),
-            make_entry("bitwarden", None, None),
-            make_entry("github", Some("foo"), Some("websites")),
-            make_entry("github", Some("foo"), Some("ssh")),
-            make_entry("github", Some("root"), Some("ssh")),
+            make_entry("github", Some("foo"), None, &[]),
+            make_entry("gitlab", Some("foo"), None, &[]),
+            make_entry("gitlab", Some("bar"), None, &[]),
+            make_entry("gitter", Some("baz"), None, &[]),
+            make_entry("git", Some("foo"), None, &[]),
+            make_entry("bitwarden", None, None, &[]),
+            make_entry("github", Some("foo"), Some("websites"), &[]),
+            make_entry("github", Some("foo"), Some("ssh"), &[]),
+            make_entry("github", Some("root"), Some("ssh"), &[]),
         ];
 
         assert!(
@@ -2068,9 +2068,624 @@ mod test {
         );
     }
 
+    #[test]
+    fn test_find_by_uuid() {
+        let entries = &[
+            make_entry("github", Some("foo"), None, &[]),
+            make_entry("gitlab", Some("foo"), None, &[]),
+            make_entry("gitlab", Some("bar"), None, &[]),
+        ];
+
+        assert!(
+            one_match(entries, &entries[0].0.id, None, None, 0),
+            "foo@github"
+        );
+        assert!(
+            one_match(entries, &entries[1].0.id, None, None, 1),
+            "foo@gitlab"
+        );
+        assert!(
+            one_match(entries, &entries[2].0.id, None, None, 2),
+            "bar@gitlab"
+        );
+
+        assert!(
+            one_match(
+                entries,
+                &entries[0].0.id.to_uppercase(),
+                None,
+                None,
+                0
+            ),
+            "foo@github"
+        );
+        assert!(
+            one_match(
+                entries,
+                &entries[0].0.id.to_lowercase(),
+                None,
+                None,
+                0
+            ),
+            "foo@github"
+        );
+    }
+
+    #[test]
+    fn test_find_by_url_default() {
+        let entries = &[
+            make_entry("one", None, None, &[("https://one.com/", None)]),
+            make_entry("two", None, None, &[("https://two.com/login", None)]),
+            make_entry(
+                "three",
+                None,
+                None,
+                &[("https://login.three.com/", None)],
+            ),
+            make_entry("four", None, None, &[("four.com", None)]),
+            make_entry(
+                "five",
+                None,
+                None,
+                &[("https://five.com:8080/", None)],
+            ),
+            make_entry("six", None, None, &[("six.com:8080", None)]),
+        ];
+
+        assert!(one_match(entries, "https://one.com/", None, None, 0), "one");
+        assert!(
+            one_match(entries, "https://login.one.com/", None, None, 0),
+            "one"
+        );
+        assert!(
+            one_match(entries, "https://one.com:443/", None, None, 0),
+            "one"
+        );
+        assert!(no_matches(entries, "one.com", None, None), "one");
+        assert!(no_matches(entries, "https", None, None), "one");
+        assert!(no_matches(entries, "com", None, None), "one");
+        assert!(no_matches(entries, "https://com/", None, None), "one");
+
+        assert!(one_match(entries, "https://two.com/", None, None, 1), "two");
+        assert!(
+            one_match(entries, "https://two.com/other-page", None, None, 1),
+            "two"
+        );
+
+        assert!(
+            one_match(entries, "https://login.three.com/", None, None, 2),
+            "three"
+        );
+        assert!(
+            no_matches(entries, "https://three.com/", None, None),
+            "three"
+        );
+
+        assert!(
+            one_match(entries, "https://four.com/", None, None, 3),
+            "four"
+        );
+
+        assert!(
+            one_match(entries, "https://five.com:8080/", None, None, 4),
+            "five"
+        );
+        assert!(no_matches(entries, "https://five.com/", None, None), "five");
+
+        assert!(
+            one_match(entries, "https://six.com:8080/", None, None, 5),
+            "six"
+        );
+        assert!(no_matches(entries, "https://six.com/", None, None), "six");
+    }
+
+    #[test]
+    fn test_find_by_url_domain() {
+        let entries = &[
+            make_entry(
+                "one",
+                None,
+                None,
+                &[("https://one.com/", Some(rbw::api::UriMatchType::Domain))],
+            ),
+            make_entry(
+                "two",
+                None,
+                None,
+                &[(
+                    "https://two.com/login",
+                    Some(rbw::api::UriMatchType::Domain),
+                )],
+            ),
+            make_entry(
+                "three",
+                None,
+                None,
+                &[(
+                    "https://login.three.com/",
+                    Some(rbw::api::UriMatchType::Domain),
+                )],
+            ),
+            make_entry(
+                "four",
+                None,
+                None,
+                &[("four.com", Some(rbw::api::UriMatchType::Domain))],
+            ),
+            make_entry(
+                "five",
+                None,
+                None,
+                &[(
+                    "https://five.com:8080/",
+                    Some(rbw::api::UriMatchType::Domain),
+                )],
+            ),
+            make_entry(
+                "six",
+                None,
+                None,
+                &[("six.com:8080", Some(rbw::api::UriMatchType::Domain))],
+            ),
+        ];
+
+        assert!(one_match(entries, "https://one.com/", None, None, 0), "one");
+        assert!(
+            one_match(entries, "https://login.one.com/", None, None, 0),
+            "one"
+        );
+        assert!(
+            one_match(entries, "https://one.com:443/", None, None, 0),
+            "one"
+        );
+        assert!(no_matches(entries, "one.com", None, None), "one");
+        assert!(no_matches(entries, "https", None, None), "one");
+        assert!(no_matches(entries, "com", None, None), "one");
+        assert!(no_matches(entries, "https://com/", None, None), "one");
+
+        assert!(one_match(entries, "https://two.com/", None, None, 1), "two");
+        assert!(
+            one_match(entries, "https://two.com/other-page", None, None, 1),
+            "two"
+        );
+
+        assert!(
+            one_match(entries, "https://login.three.com/", None, None, 2),
+            "three"
+        );
+        assert!(
+            no_matches(entries, "https://three.com/", None, None),
+            "three"
+        );
+
+        assert!(
+            one_match(entries, "https://four.com/", None, None, 3),
+            "four"
+        );
+
+        assert!(
+            one_match(entries, "https://five.com:8080/", None, None, 4),
+            "five"
+        );
+        assert!(no_matches(entries, "https://five.com/", None, None), "five");
+
+        assert!(
+            one_match(entries, "https://six.com:8080/", None, None, 5),
+            "six"
+        );
+        assert!(no_matches(entries, "https://six.com/", None, None), "six");
+    }
+
+    #[test]
+    fn test_find_by_url_host() {
+        let entries = &[
+            make_entry(
+                "one",
+                None,
+                None,
+                &[("https://one.com/", Some(rbw::api::UriMatchType::Host))],
+            ),
+            make_entry(
+                "two",
+                None,
+                None,
+                &[(
+                    "https://two.com/login",
+                    Some(rbw::api::UriMatchType::Host),
+                )],
+            ),
+            make_entry(
+                "three",
+                None,
+                None,
+                &[(
+                    "https://login.three.com/",
+                    Some(rbw::api::UriMatchType::Host),
+                )],
+            ),
+            make_entry(
+                "four",
+                None,
+                None,
+                &[("four.com", Some(rbw::api::UriMatchType::Host))],
+            ),
+            make_entry(
+                "five",
+                None,
+                None,
+                &[(
+                    "https://five.com:8080/",
+                    Some(rbw::api::UriMatchType::Host),
+                )],
+            ),
+            make_entry(
+                "six",
+                None,
+                None,
+                &[("six.com:8080", Some(rbw::api::UriMatchType::Host))],
+            ),
+        ];
+
+        assert!(one_match(entries, "https://one.com/", None, None, 0), "one");
+        assert!(
+            no_matches(entries, "https://login.one.com/", None, None),
+            "one"
+        );
+        assert!(
+            one_match(entries, "https://one.com:443/", None, None, 0),
+            "one"
+        );
+        assert!(no_matches(entries, "one.com", None, None), "one");
+        assert!(no_matches(entries, "https", None, None), "one");
+        assert!(no_matches(entries, "com", None, None), "one");
+        assert!(no_matches(entries, "https://com/", None, None), "one");
+
+        assert!(one_match(entries, "https://two.com/", None, None, 1), "two");
+        assert!(
+            one_match(entries, "https://two.com/other-page", None, None, 1),
+            "two"
+        );
+
+        assert!(
+            one_match(entries, "https://login.three.com/", None, None, 2),
+            "three"
+        );
+        assert!(
+            no_matches(entries, "https://three.com/", None, None),
+            "three"
+        );
+
+        assert!(
+            one_match(entries, "https://four.com/", None, None, 3),
+            "four"
+        );
+
+        assert!(
+            one_match(entries, "https://five.com:8080/", None, None, 4),
+            "five"
+        );
+        assert!(no_matches(entries, "https://five.com/", None, None), "five");
+
+        assert!(
+            one_match(entries, "https://six.com:8080/", None, None, 5),
+            "six"
+        );
+        assert!(no_matches(entries, "https://six.com/", None, None), "six");
+    }
+
+    #[test]
+    fn test_find_by_url_starts_with() {
+        let entries = &[
+            make_entry(
+                "one",
+                None,
+                None,
+                &[(
+                    "https://one.com/",
+                    Some(rbw::api::UriMatchType::StartsWith),
+                )],
+            ),
+            make_entry(
+                "two",
+                None,
+                None,
+                &[(
+                    "https://two.com/login",
+                    Some(rbw::api::UriMatchType::StartsWith),
+                )],
+            ),
+            make_entry(
+                "three",
+                None,
+                None,
+                &[(
+                    "https://login.three.com/",
+                    Some(rbw::api::UriMatchType::StartsWith),
+                )],
+            ),
+        ];
+
+        assert!(one_match(entries, "https://one.com/", None, None, 0), "one");
+        assert!(
+            no_matches(entries, "https://login.one.com/", None, None),
+            "one"
+        );
+        assert!(
+            one_match(entries, "https://one.com:443/", None, None, 0),
+            "one"
+        );
+        assert!(no_matches(entries, "one.com", None, None), "one");
+        assert!(no_matches(entries, "https", None, None), "one");
+        assert!(no_matches(entries, "com", None, None), "one");
+        assert!(no_matches(entries, "https://com/", None, None), "one");
+
+        assert!(
+            one_match(entries, "https://two.com/login", None, None, 1),
+            "two"
+        );
+        assert!(
+            one_match(entries, "https://two.com/login/sso", None, None, 1),
+            "two"
+        );
+        assert!(no_matches(entries, "https://two.com/", None, None), "two");
+        assert!(
+            no_matches(entries, "https://two.com/other-page", None, None),
+            "two"
+        );
+
+        assert!(
+            one_match(entries, "https://login.three.com/", None, None, 2),
+            "three"
+        );
+        assert!(
+            no_matches(entries, "https://three.com/", None, None),
+            "three"
+        );
+    }
+
+    #[test]
+    fn test_find_by_url_exact() {
+        let entries = &[
+            make_entry(
+                "one",
+                None,
+                None,
+                &[("https://one.com/", Some(rbw::api::UriMatchType::Exact))],
+            ),
+            make_entry(
+                "two",
+                None,
+                None,
+                &[(
+                    "https://two.com/login",
+                    Some(rbw::api::UriMatchType::Exact),
+                )],
+            ),
+            make_entry(
+                "three",
+                None,
+                None,
+                &[(
+                    "https://login.three.com/",
+                    Some(rbw::api::UriMatchType::Exact),
+                )],
+            ),
+        ];
+
+        assert!(one_match(entries, "https://one.com/", None, None, 0), "one");
+        assert!(
+            no_matches(entries, "https://login.one.com/", None, None),
+            "one"
+        );
+        assert!(
+            one_match(entries, "https://one.com:443/", None, None, 0),
+            "one"
+        );
+        assert!(no_matches(entries, "one.com", None, None), "one");
+        assert!(no_matches(entries, "https", None, None), "one");
+        assert!(no_matches(entries, "com", None, None), "one");
+        assert!(no_matches(entries, "https://com/", None, None), "one");
+
+        assert!(
+            one_match(entries, "https://two.com/login", None, None, 1),
+            "two"
+        );
+        assert!(
+            no_matches(entries, "https://two.com/login/sso", None, None),
+            "two"
+        );
+        assert!(no_matches(entries, "https://two.com/", None, None), "two");
+        assert!(
+            no_matches(entries, "https://two.com/other-page", None, None),
+            "two"
+        );
+
+        assert!(
+            one_match(entries, "https://login.three.com/", None, None, 2),
+            "three"
+        );
+        assert!(
+            no_matches(entries, "https://three.com/", None, None),
+            "three"
+        );
+    }
+
+    #[test]
+    fn test_find_by_url_regex() {
+        let entries = &[
+            make_entry(
+                "one",
+                None,
+                None,
+                &[(
+                    r"^https://one\.com/$",
+                    Some(rbw::api::UriMatchType::RegularExpression),
+                )],
+            ),
+            make_entry(
+                "two",
+                None,
+                None,
+                &[(
+                    r"^https://two\.com/(login|start)",
+                    Some(rbw::api::UriMatchType::RegularExpression),
+                )],
+            ),
+            make_entry(
+                "three",
+                None,
+                None,
+                &[(
+                    r"^https://(login\.)?three\.com/$",
+                    Some(rbw::api::UriMatchType::RegularExpression),
+                )],
+            ),
+        ];
+
+        assert!(one_match(entries, "https://one.com/", None, None, 0), "one");
+        assert!(
+            no_matches(entries, "https://login.one.com/", None, None),
+            "one"
+        );
+        assert!(
+            one_match(entries, "https://one.com:443/", None, None, 0),
+            "one"
+        );
+        assert!(no_matches(entries, "one.com", None, None), "one");
+        assert!(no_matches(entries, "https", None, None), "one");
+        assert!(no_matches(entries, "com", None, None), "one");
+        assert!(no_matches(entries, "https://com/", None, None), "one");
+
+        assert!(
+            one_match(entries, "https://two.com/login", None, None, 1),
+            "two"
+        );
+        assert!(
+            one_match(entries, "https://two.com/start", None, None, 1),
+            "two"
+        );
+        assert!(
+            one_match(entries, "https://two.com/login/sso", None, None, 1),
+            "two"
+        );
+        assert!(no_matches(entries, "https://two.com/", None, None), "two");
+        assert!(
+            no_matches(entries, "https://two.com/other-page", None, None),
+            "two"
+        );
+
+        assert!(
+            one_match(entries, "https://login.three.com/", None, None, 2),
+            "three"
+        );
+        assert!(
+            one_match(entries, "https://three.com/", None, None, 2),
+            "three"
+        );
+        assert!(
+            no_matches(entries, "https://www.three.com/", None, None),
+            "three"
+        );
+    }
+
+    #[test]
+    fn test_find_by_url_never() {
+        let entries = &[
+            make_entry(
+                "one",
+                None,
+                None,
+                &[("https://one.com/", Some(rbw::api::UriMatchType::Never))],
+            ),
+            make_entry(
+                "two",
+                None,
+                None,
+                &[(
+                    "https://two.com/login",
+                    Some(rbw::api::UriMatchType::Never),
+                )],
+            ),
+            make_entry(
+                "three",
+                None,
+                None,
+                &[(
+                    "https://login.three.com/",
+                    Some(rbw::api::UriMatchType::Never),
+                )],
+            ),
+            make_entry(
+                "four",
+                None,
+                None,
+                &[("four.com", Some(rbw::api::UriMatchType::Never))],
+            ),
+            make_entry(
+                "five",
+                None,
+                None,
+                &[(
+                    "https://five.com:8080/",
+                    Some(rbw::api::UriMatchType::Never),
+                )],
+            ),
+            make_entry(
+                "six",
+                None,
+                None,
+                &[("six.com:8080", Some(rbw::api::UriMatchType::Never))],
+            ),
+        ];
+
+        assert!(no_matches(entries, "https://one.com/", None, None), "one");
+        assert!(
+            no_matches(entries, "https://login.one.com/", None, None),
+            "one"
+        );
+        assert!(
+            no_matches(entries, "https://one.com:443/", None, None),
+            "one"
+        );
+        assert!(no_matches(entries, "one.com", None, None), "one");
+        assert!(no_matches(entries, "https", None, None), "one");
+        assert!(no_matches(entries, "com", None, None), "one");
+        assert!(no_matches(entries, "https://com/", None, None), "one");
+
+        assert!(no_matches(entries, "https://two.com/", None, None), "two");
+        assert!(
+            no_matches(entries, "https://two.com/other-page", None, None),
+            "two"
+        );
+
+        assert!(
+            no_matches(entries, "https://login.three.com/", None, None),
+            "three"
+        );
+        assert!(
+            no_matches(entries, "https://three.com/", None, None),
+            "three"
+        );
+
+        assert!(no_matches(entries, "https://four.com/", None, None), "four");
+
+        assert!(
+            no_matches(entries, "https://five.com:8080/", None, None),
+            "five"
+        );
+        assert!(no_matches(entries, "https://five.com/", None, None), "five");
+
+        assert!(
+            no_matches(entries, "https://six.com:8080/", None, None),
+            "six"
+        );
+        assert!(no_matches(entries, "https://six.com/", None, None), "six");
+    }
+
+    #[track_caller]
     fn one_match(
         entries: &[(rbw::db::Entry, DecryptedCipher)],
-        name: &str,
+        needle: &str,
         username: Option<&str>,
         folder: Option<&str>,
         idx: usize,
@@ -2078,7 +2693,7 @@ mod test {
         entries_eq(
             &find_entry_raw(
                 entries,
-                &Needle::Name(name.to_string()),
+                &parse_needle(needle).unwrap(),
                 username,
                 folder,
             )
@@ -2087,15 +2702,16 @@ mod test {
         )
     }
 
+    #[track_caller]
     fn no_matches(
         entries: &[(rbw::db::Entry, DecryptedCipher)],
-        name: &str,
+        needle: &str,
         username: Option<&str>,
         folder: Option<&str>,
     ) -> bool {
         let res = find_entry_raw(
             entries,
-            &Needle::Name(name.to_string()),
+            &parse_needle(needle).unwrap(),
             username,
             folder,
         );
@@ -2106,15 +2722,16 @@ mod test {
         }
     }
 
+    #[track_caller]
     fn many_matches(
         entries: &[(rbw::db::Entry, DecryptedCipher)],
-        name: &str,
+        needle: &str,
         username: Option<&str>,
         folder: Option<&str>,
     ) -> bool {
         let res = find_entry_raw(
             entries,
-            &Needle::Name(name.to_string()),
+            &parse_needle(needle).unwrap(),
             username,
             folder,
         );
@@ -2125,6 +2742,7 @@ mod test {
         }
     }
 
+    #[track_caller]
     fn entries_eq(
         a: &(rbw::db::Entry, DecryptedCipher),
         b: &(rbw::db::Entry, DecryptedCipher),
@@ -2136,10 +2754,12 @@ mod test {
         name: &str,
         username: Option<&str>,
         folder: Option<&str>,
+        uris: &[(&str, Option<rbw::api::UriMatchType>)],
     ) -> (rbw::db::Entry, DecryptedCipher) {
+        let id = uuid::Uuid::new_v4();
         (
             rbw::db::Entry {
-                id: "irrelevant".to_string(),
+                id: id.to_string(),
                 org_id: None,
                 folder: folder.map(|_| "encrypted folder name".to_string()),
                 folder_id: None,
@@ -2149,7 +2769,13 @@ mod test {
                         "this is the encrypted username".to_string()
                     }),
                     password: None,
-                    uris: vec![],
+                    uris: uris
+                        .iter()
+                        .map(|(_, match_type)| rbw::db::Uri {
+                            uri: "this is the encrypted uri".to_string(),
+                            match_type: *match_type,
+                        })
+                        .collect(),
                     totp: None,
                 },
                 fields: vec![],
@@ -2157,14 +2783,21 @@ mod test {
                 history: vec![],
             },
             DecryptedCipher {
-                id: "irrelevant".to_string(),
+                id: id.to_string(),
                 folder: folder.map(std::string::ToString::to_string),
                 name: name.to_string(),
                 data: DecryptedData::Login {
                     username: username.map(std::string::ToString::to_string),
                     password: None,
                     totp: None,
-                    uris: None,
+                    uris: Some(
+                        uris.iter()
+                            .map(|(uri, match_type)| DecryptedUri {
+                                uri: (*uri).to_string(),
+                                match_type: *match_type,
+                            })
+                            .collect(),
+                    ),
                 },
                 fields: vec![],
                 notes: None,
