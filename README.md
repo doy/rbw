@@ -45,7 +45,7 @@ If you are not using the `edge` version of alpine you have to [enable the reposi
 ### Other
 
 With a working Rust installation, `rbw` can be installed via `cargo install
-rbw`. This requires that the
+--locked rbw`. This requires that the
 [`pinentry`](https://www.gnupg.org/related_software/pinentry/index.en.html)
 program is installed (to display password prompts).
 
