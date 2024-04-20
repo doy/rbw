@@ -17,6 +17,8 @@ impl Identity {
         memory: Option<u32>,
         parallelism: Option<u32>,
     ) -> Result<Self> {
+        let email = email.trim().to_lowercase();
+
         let iterations = std::num::NonZeroU32::new(iterations)
             .ok_or(Error::Pbkdf2ZeroIterations)?;
 
