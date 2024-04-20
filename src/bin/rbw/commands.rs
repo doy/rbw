@@ -1274,7 +1274,7 @@ pub fn edit(
                 contents.push_str(&format!("\n{notes}\n"));
             }
 
-            let contents = rbw::edit::edit(&contents, HELP_NOTES)?;
+            let contents = rbw::edit::edit(&contents, HELP_PW)?;
 
             let (password, notes) = parse_editor(&contents);
             let password = password
