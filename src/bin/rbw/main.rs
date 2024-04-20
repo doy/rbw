@@ -71,8 +71,8 @@ enum Opt {
 
     #[command(about = "Display the password for a given entry")]
     Get {
-        #[arg(help = "Name or UUID of the entry to display")]
-        name: String,
+        #[arg(help = "Name, URI or UUID of the entry to display", value_parser = commands::parse_needle)]
+        needle: commands::Needle,
         #[arg(help = "Username of the entry to display")]
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
@@ -318,7 +318,7 @@ fn main() {
         Opt::Sync => commands::sync(),
         Opt::List { fields } => commands::list(fields),
         Opt::Get {
-            name,
+            needle,
             user,
             folder,
             field,
@@ -326,7 +326,7 @@ fn main() {
             raw,
             clipboard,
         } => commands::get(
-            name,
+            needle,
             user.as_deref(),
             folder.as_deref(),
             field.as_deref(),
