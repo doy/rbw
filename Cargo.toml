@@ -65,7 +65,7 @@ rmpv = "1.0.2"
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
 is-terminal = "0.4.12"
 regex = "1.10.4"
-rustix = { version = "0.38.33", features = ["termios", "procfs", "process"] }
+rustix = { version = "0.38.33", features = ["termios", "procfs", "process", "pipe"] }
 
 [package.metadata.deb]
 depends = "pinentry"
