@@ -108,7 +108,7 @@ fn runtime_dir() -> std::path::PathBuf {
                 "{}/{}-{}",
                 std::env::temp_dir().to_string_lossy(),
                 &profile(),
-                nix::unistd::getuid().as_raw()
+                rustix::process::getuid().as_raw()
             )
             .into()
         },

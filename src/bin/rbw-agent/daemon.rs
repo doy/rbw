@@ -1,12 +1,10 @@
-use std::os::fd::AsRawFd as _;
-
 pub struct StartupAck {
     writer: std::os::unix::io::OwnedFd,
 }
 
 impl StartupAck {
     pub fn ack(self) -> anyhow::Result<()> {
-        nix::unistd::write(&self.writer, &[0])?;
+        rustix::io::write(&self.writer, &[0])?;
         Ok(())
     }
 }
@@ -21,7 +19,7 @@ pub fn daemonize() -> anyhow::Result<StartupAck> {
         .create(true)
         .open(rbw::dirs::agent_stderr_file())?;
 
-    let (r, w) = nix::unistd::pipe()?;
+    let (r, w) = rustix::pipe::pipe()?;
     let daemonize = daemonize::Daemonize::new()
         .pid_file(rbw::dirs::pid_file())
         .stdout(stdout)
@@ -32,7 +30,7 @@ pub fn daemonize() -> anyhow::Result<StartupAck> {
             let mut buf = [0; 1];
             // unwraps are necessary because not really a good way to handle
             // errors here otherwise
-            nix::unistd::read(r.as_raw_fd(), &mut buf).unwrap();
+            rustix::io::read(&r, &mut buf).unwrap();
             drop(r);
             std::process::exit(0);
         }

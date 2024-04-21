@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use anyhow::{bail, Context as _};
 use std::io::Read as _;
 
 pub fn register() -> anyhow::Result<()> {
@@ -31,11 +31,17 @@ pub fn quit() -> anyhow::Result<()> {
             let pidfile = rbw::dirs::pid_file();
             let mut pid = String::new();
             std::fs::File::open(pidfile)?.read_to_string(&mut pid)?;
-            let pid = nix::unistd::Pid::from_raw(pid.trim_end().parse()?);
+            let Some(pid) =
+                rustix::process::Pid::from_raw(pid.trim_end().parse()?)
+            else {
+                bail!("failed to read pid from pidfile");
+            };
             sock.send(&rbw::protocol::Request {
-                tty: nix::unistd::ttyname(std::io::stdin()).ok().and_then(
-                    |p| p.to_str().map(std::string::ToString::to_string),
-                ),
+                tty: rustix::termios::ttyname(std::io::stdin(), vec![])
+                    .ok()
+                    .and_then(|p| {
+                        p.to_str().map(std::string::ToString::to_string).ok()
+                    }),
                 action: rbw::protocol::Action::Quit,
             })?;
             wait_for_exit(pid);
@@ -57,9 +63,11 @@ pub fn decrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(std::io::stdin())
+        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
             .ok()
-            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
+            .and_then(|p| {
+                p.to_str().map(std::string::ToString::to_string).ok()
+            }),
         action: rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -82,9 +90,11 @@ pub fn encrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(std::io::stdin())
+        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
             .ok()
-            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
+            .and_then(|p| {
+                p.to_str().map(std::string::ToString::to_string).ok()
+            }),
         action: rbw::protocol::Action::Encrypt {
             plaintext: plaintext.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -110,9 +120,11 @@ pub fn clipboard_store(text: &str) -> anyhow::Result<()> {
 pub fn version() -> anyhow::Result<u32> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(std::io::stdin())
+        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
             .ok()
-            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
+            .and_then(|p| {
+                p.to_str().map(std::string::ToString::to_string).ok()
+            }),
         action: rbw::protocol::Action::Version,
     })?;
 
@@ -130,9 +142,11 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     let mut sock = connect()?;
 
     sock.send(&rbw::protocol::Request {
-        tty: nix::unistd::ttyname(std::io::stdin())
+        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
             .ok()
-            .and_then(|p| p.to_str().map(std::string::ToString::to_string)),
+            .and_then(|p| {
+                p.to_str().map(std::string::ToString::to_string).ok()
+            }),
         action,
     })?;
 
@@ -158,9 +172,9 @@ fn connect() -> anyhow::Result<crate::sock::Sock> {
     })
 }
 
-fn wait_for_exit(pid: nix::unistd::Pid) {
+fn wait_for_exit(pid: rustix::process::Pid) {
     loop {
-        if nix::sys::signal::kill(pid, None).is_err() {
+        if rustix::process::test_kill_process(pid).is_err() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
