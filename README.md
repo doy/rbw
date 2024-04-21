@@ -37,6 +37,16 @@ You can download a Debian package from
 [`minisign`](https://github.com/jedisct1/minisign), and can be verified using
 the public key `RWTM0AZ5RpROOfAIWx1HvYQ6pw1+FKwN6526UFTKNImP/Hz3ynCFst3r`.
 
+### Homebrew
+
+`rbw` is available in the [Homebrew repository](https://formulae.brew.sh/formula/rbw). You can install it via `brew install rbw`.
+
+### Nix
+
+`rbw` is available in the
+[NixOS repository](https://search.nixos.org/packages?show=rbw). You can try
+it out via `nix-shell -p rbw`.
+
 ### Alpine
 
 `rbw` is available in the [testing repository](https://pkgs.alpinelinux.org/packages?name=rbw).
