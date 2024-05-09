@@ -1948,6 +1948,7 @@ struct TotpParams {
     digits: u32,
     period: u64,
 }
+
 fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
     base32::decode(
         base32::Alphabet::RFC4648 { padding: false },
@@ -1955,6 +1956,7 @@ fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
     )
     .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
 }
+
 fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
     if let Ok(u) = url::Url::parse(secret) {
         if u.scheme() != "otpauth" {
@@ -1990,7 +1992,7 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                         anyhow::anyhow!("period parameter in totp url must be a valid integer.")
                     })?
                 }
-                None => 30,
+                None => totp_lite::DEFAULT_STEP,
             }
         })
     } else {
@@ -1998,7 +2000,7 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
             secret: decode_totp_secret(secret)?,
             algorithm: String::from("SHA1"),
             digits: 6,
-            period: 30,
+            period: totp_lite::DEFAULT_STEP,
         })
     }
 }
