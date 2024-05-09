@@ -1018,7 +1018,7 @@ pub fn get(
 }
 
 pub fn code(
-    name: &str,
+    needle: &Needle,
     user: Option<&str>,
     folder: Option<&str>,
     clipboard: bool,
@@ -1030,12 +1030,11 @@ pub fn code(
     let desc = format!(
         "{}{}",
         user.map_or_else(String::new, |s| format!("{s}@")),
-        name
+        needle
     );
 
-    let (_, decrypted) =
-        find_entry(&db, &Needle::Name(name.to_string()), user, folder)
-            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (_, decrypted) = find_entry(&db, needle, user, folder)
+        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     if let DecryptedData::Login { totp, .. } = decrypted.data {
         if let Some(totp) = totp {

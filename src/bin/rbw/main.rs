@@ -92,8 +92,8 @@ enum Opt {
         visible_alias = "totp"
     )]
     Code {
-        #[arg(help = "Name or UUID of the entry to display")]
-        name: String,
+        #[arg(help = "Name, URI or UUID of the entry to display", value_parser = commands::parse_needle)]
+        needle: commands::Needle,
         #[arg(help = "Username of the entry to display")]
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
@@ -340,12 +340,12 @@ fn main() {
             *clipboard,
         ),
         Opt::Code {
-            name,
+            needle,
             user,
             folder,
             clipboard,
         } => commands::code(
-            name,
+            needle,
             user.as_deref(),
             folder.as_deref(),
             *clipboard,
