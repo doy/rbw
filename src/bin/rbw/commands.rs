@@ -1943,8 +1943,21 @@ fn remove_db() -> anyhow::Result<()> {
     )
 }
 
-fn parse_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
-    let secret_str = if let Ok(u) = url::Url::parse(secret) {
+struct TotpParams {
+    secret: Vec<u8>,
+    algorithm: String,
+    digits: u32,
+    period: u64,
+}
+fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
+    base32::decode(
+        base32::Alphabet::RFC4648 { padding: false },
+        &secret.replace(' ', ""),
+    )
+    .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
+}
+fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
+    if let Ok(u) = url::Url::parse(secret) {
         if u.scheme() != "otpauth" {
             return Err(anyhow::anyhow!(
                 "totp secret url must have otpauth scheme"
@@ -1957,32 +1970,73 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
         }
         let query: std::collections::HashMap<_, _> =
             u.query_pairs().collect();
-        query
-            .get("secret")
-            .ok_or_else(|| {
-                anyhow::anyhow!("totp secret url must have secret")
-            })?
-            .to_string()
+        Ok(TotpParams {
+            secret: decode_totp_secret(query
+                .get("secret")
+                .ok_or_else(|| {
+                    anyhow::anyhow!("totp secret url must have secret")
+                })?)?,
+            algorithm:query.get("algorithm").map_or_else(||{String::from("SHA1")},|alg|{alg.to_string()} ),
+            digits: match query.get("digits") {
+                Some(dig) => {
+                    dig.parse::<u32>().map_err(|_|{
+                        anyhow::anyhow!("digits parameter in totp url must be a valid integer.")
+                    })?
+                }
+                None => 6,
+            },
+            period: match query.get("period") {
+                Some(dig) => {
+                    dig.parse::<u64>().map_err(|_|{
+                        anyhow::anyhow!("period parameter in totp url must be a valid integer.")
+                    })?
+                }
+                None => 30,
+            }
+        })
     } else {
-        secret.to_string()
-    };
-    base32::decode(
-        base32::Alphabet::RFC4648 { padding: false },
-        &secret_str.replace(' ', ""),
-    )
-    .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
+        Ok(TotpParams {
+            secret: decode_totp_secret(secret)?,
+            algorithm: String::from("SHA1"),
+            digits: 6,
+            period: 30,
+        })
+    }
 }
 
 fn generate_totp(secret: &str) -> anyhow::Result<String> {
-    let key = parse_totp_secret(secret)?;
-    Ok(totp_lite::totp_custom::<totp_lite::Sha1>(
-        totp_lite::DEFAULT_STEP,
-        6,
-        &key,
-        std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
-            .as_secs(),
-    ))
+    let totp_params = parse_totp_secret(secret)?;
+    let alg = totp_params.algorithm.as_str();
+    match alg {
+        "SHA1" => Ok(totp_lite::totp_custom::<totp_lite::Sha1>(
+            totp_params.period,
+            totp_params.digits,
+            &totp_params.secret,
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+                .as_secs(),
+        )),
+        "SHA256" => Ok(totp_lite::totp_custom::<totp_lite::Sha256>(
+            totp_params.period,
+            totp_params.digits,
+            &totp_params.secret,
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+                .as_secs(),
+        )),
+        "SHA512" => Ok(totp_lite::totp_custom::<totp_lite::Sha512>(
+            totp_params.period,
+            totp_params.digits,
+            &totp_params.secret,
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+                .as_secs(),
+        )),
+        _ => Err(anyhow::anyhow!(format!(
+            "{} is not a valid totp algorithm",
+            alg
+        ))),
+    }
 }
 
 fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
