@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.10.1] - 2024-05-08
+
+### Added
+
+* `rbw code` supports TOTP codes which use a SHA256 or SHA512 hash (Jonas, #172)
+
+### Fixed
+
+* Fix `rbw code` searching by UUID (Robert Günzler, #169)
+
 ## [1.10.0] - 2024-04-20
 
 ### Added
