@@ -4,11 +4,21 @@
 
 use crate::prelude::*;
 
+use std::{
+    io::{prelude::*, BufReader},
+    net::TcpListener,
+};
+
 use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
 
+use open;
+use rand::{distributions::Alphanumeric, Rng};
+use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt as _;
+use url::Url;
+use urlencoding;
 
 #[derive(
     serde_repr::Serialize_repr,
@@ -274,7 +284,10 @@ struct PreloginRes {
 #[derive(serde::Serialize, Debug)]
 struct ConnectPasswordReq {
     grant_type: String,
-    username: String,
+    username: Option<String>,
+    code: Option<String>,
+    code_verifier: Option<String>,
+    redirect_uri: Option<String>,
     password: Option<String>,
     scope: String,
     client_id: String,
@@ -732,6 +745,7 @@ struct FoldersPostReq {
 pub struct Client {
     base_url: String,
     identity_url: String,
+    ui_url: String,
     client_cert_path: Option<std::path::PathBuf>,
 }
 
@@ -740,11 +754,13 @@ impl Client {
     pub fn new(
         base_url: &str,
         identity_url: &str,
+        ui_url: &str,
         client_cert_path: Option<&std::path::Path>,
     ) -> Self {
         Self {
             base_url: base_url.to_string(),
             identity_url: identity_url.to_string(),
+            ui_url: ui_url.to_string(),
             client_cert_path: client_cert_path
                 .map(std::path::Path::to_path_buf),
         }
@@ -819,8 +835,11 @@ impl Client {
     ) -> Result<()> {
         let connect_req = ConnectPasswordReq {
             grant_type: "client_credentials".to_string(),
-            username: email.to_string(),
+            username: Some(email.to_string()),
             password: None,
+            code: None,
+            code_verifier: None,
+            redirect_uri: None,
             scope: "api".to_string(),
             // XXX unwraps here are not necessarily safe
             client_id: String::from_utf8(apikey.client_id().to_vec())
@@ -865,26 +884,63 @@ impl Client {
     pub async fn login(
         &self,
         email: &str,
+        sso_id: Option<&str>,
         device_id: &str,
         password_hash: &crate::locked::PasswordHash,
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
     ) -> Result<(String, String, String)> {
-        let connect_req = ConnectPasswordReq {
-            grant_type: "password".to_string(),
-            username: email.to_string(),
-            password: Some(crate::base64::encode(password_hash.hash())),
-            scope: "api offline_access".to_string(),
-            client_id: "desktop".to_string(),
-            client_secret: None,
-            device_type: 8,
-            device_identifier: device_id.to_string(),
-            device_name: "rbw".to_string(),
-            device_push_token: String::new(),
-            two_factor_token: two_factor_token
-                .map(std::string::ToString::to_string),
-            two_factor_provider: two_factor_provider.map(|ty| ty as u32),
-        };
+        let connect_req;
+        match sso_id {
+            Some(sso_id) => {
+                let (sso_code, sso_code_verifier, callback_url) =
+                    self.obtain_sso_code(sso_id).await?;
+
+                connect_req = ConnectPasswordReq {
+                    grant_type: "authorization_code".to_string(),
+                    username: None,
+                    password: None,
+                    code: Some(sso_code),
+                    code_verifier: Some(sso_code_verifier),
+                    redirect_uri: Some(callback_url.to_string()),
+                    scope: "api offline_access".to_string(),
+                    client_id: "cli".to_string(),
+                    client_secret: None,
+                    device_type: 8,
+                    device_identifier: device_id.to_string(),
+                    device_name: "rbw".to_string(),
+                    device_push_token: String::new(),
+                    two_factor_token: two_factor_token
+                        .map(std::string::ToString::to_string),
+                    two_factor_provider: two_factor_provider
+                        .map(|ty| ty as u32),
+                };
+            }
+            None => {
+                connect_req = ConnectPasswordReq {
+                    grant_type: "password".to_string(),
+                    username: Some(email.to_string()),
+                    password: Some(crate::base64::encode(
+                        password_hash.hash(),
+                    )),
+                    code: None,
+                    code_verifier: None,
+                    redirect_uri: None,
+                    scope: "api offline_access".to_string(),
+                    client_id: "desktop".to_string(),
+                    client_secret: None,
+                    device_type: 8,
+                    device_identifier: device_id.to_string(),
+                    device_name: "rbw".to_string(),
+                    device_push_token: String::new(),
+                    two_factor_token: two_factor_token
+                        .map(std::string::ToString::to_string),
+                    two_factor_provider: two_factor_provider
+                        .map(|ty| ty as u32),
+                };
+            }
+        }
+
         let client = self.reqwest_client().await?;
         let res = client
             .post(&self.identity_url("/connect/token"))
@@ -898,6 +954,7 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
+
         if res.status() == reqwest::StatusCode::OK {
             let connect_res: ConnectPasswordRes =
                 res.json_with_path().await?;
@@ -922,6 +979,141 @@ impl Client {
                 }
             }
         }
+    }
+
+    async fn obtain_sso_code(
+        &self,
+        sso_id: &str,
+    ) -> Result<(String, String, String)> {
+        let state: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+
+        let sso_code_verifier: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+
+        let mut hasher = Sha256::new();
+        hasher.update(sso_code_verifier.clone());
+        let code_challenge =
+            crate::base64::encode_url_safe_no_pad(hasher.finalize());
+
+        let port = match (8065..8070)
+            .find(|&port| TcpListener::bind(("127.0.0.1", port)).is_ok())
+        {
+            Some(value) => value,
+            None => {
+                return Err(Error::FailedToFindFreePort {
+                    range: "(8065..8070)".to_string(),
+                })
+            }
+        };
+
+        let listener = match TcpListener::bind(("127.0.0.1", port)) {
+            Ok(value) => value,
+            Err(e) => return Err(Error::CreateSSOCallbackServer { err: e }),
+        };
+
+        let callback_server =
+            self.start_sso_callback_server(&listener, state.as_str());
+
+        let callback_url =
+            "http://localhost:".to_string() + port.to_string().as_str();
+
+        if let Err(e) = open::that(
+            self.ui_url.clone()
+                + "/#/sso?clientId="
+                + "cli"
+                + "&redirectUri="
+                + urlencoding::encode(callback_url.as_str())
+                    .into_owned()
+                    .as_str()
+                + "&state="
+                + state.as_str()
+                + "&codeChallenge="
+                + code_challenge.as_str()
+                + "&identifier="
+                + sso_id,
+        ) {
+            // TODO: probably it'd be better to display the URL in the console if the automatic
+            // open operation fails, instead of failing the whole process? E.g. docker container
+            // case
+            return Err(Error::FailedToOpenWebBrowser { err: e });
+        }
+
+        let sso_code = match callback_server.await {
+            Ok(value) => value,
+            Err(e) => return Err(e),
+        };
+
+        Ok((sso_code, sso_code_verifier, callback_url.to_string()))
+    }
+
+    async fn start_sso_callback_server(
+        &self,
+        listener: &TcpListener,
+        state: &str,
+    ) -> Result<String> {
+        let (mut stream, _) = listener.accept().unwrap();
+
+        let buf_reader = BufReader::new(&mut stream);
+        let http_status_line: String =
+            buf_reader.lines().nth(0).unwrap().unwrap();
+
+        let absolute_url = "http://localhost".to_string()
+            + http_status_line.split_whitespace().nth(1).unwrap();
+        let url = Url::try_from(absolute_url.as_str()).unwrap();
+
+        let mut query_pairs = url.query_pairs().into_owned();
+        let sso_code = query_pairs
+            .find(|pair| pair.0 == "code")
+            .ok_or(Error::FailedToProcessSSOCallback {
+                msg: "Could not obtain code from the URL".to_string(),
+            })?
+            .1;
+        let received_state = query_pairs
+            .find(|pair| pair.0 == "state")
+            .ok_or(Error::FailedToProcessSSOCallback {
+                msg: "Could not obtain state from the URL".to_string(),
+            })?
+            .1;
+
+        let states_match =
+            received_state.split("_identifier=").nth(0).unwrap()
+                == state.split("_identifier=").nth(0).unwrap();
+
+        let (status_line, contents) = if states_match {
+            ("HTTP/1.1 200 OK",
+                "<html><head><title>Success | rbw</title></head><body> \
+                  <h1>Successfully authenticated with rbw</h1> \
+                  <p>You may now close this tab and return to the terminal.</p> \
+                  </body></html>")
+        } else {
+            ("HTTP/1.1 400 Bad Request",
+                "<html><head><title>Failed | rbw</title></head><body> \
+                  <h1>Something went wrong logging into the rbw</h1> \
+                  <p>You may now close this tab and return to the terminal.</p> \
+                  </body></html>",
+                 )
+        };
+        let length = contents.len();
+
+        let response = format!(
+                "{status_line}\r\nContent-Length: {length}\r\nContent-Type: text/html\r\n\r\n{contents}"
+            );
+        stream.write_all(response.as_bytes()).unwrap();
+
+        if !states_match {
+            return Err(Error::SSOCallbackStatesDoNotMatch {
+                msg: format!("sent: {state}, received: {received_state}"),
+            });
+        }
+
+        Ok(sso_code)
     }
 
     pub async fn sync(

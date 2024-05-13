@@ -823,8 +823,10 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
         .unwrap_or_else(|_| rbw::config::Config::new());
     match key {
         "email" => config.email = Some(value.to_string()),
+        "sso_id" => config.sso_id = Some(value.to_string()),
         "base_url" => config.base_url = Some(value.to_string()),
         "identity_url" => config.identity_url = Some(value.to_string()),
+        "ui_url" => config.ui_url = Some(value.to_string()),
         "notifications_url" => {
             config.notifications_url = Some(value.to_string());
         }
@@ -868,8 +870,10 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
         .unwrap_or_else(|_| rbw::config::Config::new());
     match key {
         "email" => config.email = None,
+        "sso_id" => config.sso_id = None,
         "base_url" => config.base_url = None,
         "identity_url" => config.identity_url = None,
+        "ui_url" => config.ui_url = None,
         "notifications_url" => config.notifications_url = None,
         "client_cert_path" => config.client_cert_path = None,
         "lock_timeout" => {

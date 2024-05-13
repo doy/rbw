@@ -6,8 +6,10 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Config {
     pub email: Option<String>,
+    pub sso_id: Option<String>,
     pub base_url: Option<String>,
     pub identity_url: Option<String>,
+    pub ui_url: Option<String>,
     pub notifications_url: Option<String>,
     #[serde(default = "default_lock_timeout")]
     pub lock_timeout: u64,
@@ -25,8 +27,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             email: None,
+            sso_id: None,
             base_url: None,
             identity_url: None,
+            ui_url: None,
             notifications_url: None,
             lock_timeout: default_lock_timeout(),
             sync_interval: default_sync_interval(),
@@ -172,6 +176,14 @@ impl Config {
                 },
             )
         })
+    }
+
+    #[must_use]
+    pub fn ui_url(&self) -> String {
+        // TODO: default to either vault.bitwarden.com or vault.bitwarden.eu based on the base_url?
+        self.ui_url
+            .clone()
+            .unwrap_or_else(|| "https://vault.bitwarden.com".to_string())
     }
 
     #[must_use]
