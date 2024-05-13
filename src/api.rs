@@ -902,7 +902,7 @@ impl Client {
                     password: None,
                     code: Some(sso_code),
                     code_verifier: Some(sso_code_verifier),
-                    redirect_uri: Some(callback_url.to_string()),
+                    redirect_uri: Some(callback_url),
                     scope: "api offline_access".to_string(),
                     client_id: "cli".to_string(),
                     client_secret: None,
@@ -1002,15 +1002,12 @@ impl Client {
         let code_challenge =
             crate::base64::encode_url_safe_no_pad(hasher.finalize());
 
-        let port = match (8065..8070)
+        let Some(port) = (8065..8070)
             .find(|&port| TcpListener::bind(("127.0.0.1", port)).is_ok())
-        {
-            Some(value) => value,
-            None => {
-                return Err(Error::FailedToFindFreePort {
-                    range: "(8065..8070)".to_string(),
-                })
-            }
+        else {
+            return Err(Error::FailedToFindFreePort {
+                range: "(8065..8070)".to_string(),
+            });
         };
 
         let listener = match TcpListener::bind(("127.0.0.1", port)) {
@@ -1019,7 +1016,7 @@ impl Client {
         };
 
         let callback_server =
-            self.start_sso_callback_server(&listener, state.as_str());
+            async { start_sso_callback_server(&listener, state.as_str()) };
 
         let callback_url =
             "http://localhost:".to_string() + port.to_string().as_str();
@@ -1051,69 +1048,6 @@ impl Client {
         };
 
         Ok((sso_code, sso_code_verifier, callback_url.to_string()))
-    }
-
-    async fn start_sso_callback_server(
-        &self,
-        listener: &TcpListener,
-        state: &str,
-    ) -> Result<String> {
-        let (mut stream, _) = listener.accept().unwrap();
-
-        let buf_reader = BufReader::new(&mut stream);
-        let http_status_line: String =
-            buf_reader.lines().nth(0).unwrap().unwrap();
-
-        let absolute_url = "http://localhost".to_string()
-            + http_status_line.split_whitespace().nth(1).unwrap();
-        let url = Url::try_from(absolute_url.as_str()).unwrap();
-
-        let mut query_pairs = url.query_pairs().into_owned();
-        let sso_code = query_pairs
-            .find(|pair| pair.0 == "code")
-            .ok_or(Error::FailedToProcessSSOCallback {
-                msg: "Could not obtain code from the URL".to_string(),
-            })?
-            .1;
-        let received_state = query_pairs
-            .find(|pair| pair.0 == "state")
-            .ok_or(Error::FailedToProcessSSOCallback {
-                msg: "Could not obtain state from the URL".to_string(),
-            })?
-            .1;
-
-        let states_match =
-            received_state.split("_identifier=").nth(0).unwrap()
-                == state.split("_identifier=").nth(0).unwrap();
-
-        let (status_line, contents) = if states_match {
-            ("HTTP/1.1 200 OK",
-                "<html><head><title>Success | rbw</title></head><body> \
-                  <h1>Successfully authenticated with rbw</h1> \
-                  <p>You may now close this tab and return to the terminal.</p> \
-                  </body></html>")
-        } else {
-            ("HTTP/1.1 400 Bad Request",
-                "<html><head><title>Failed | rbw</title></head><body> \
-                  <h1>Something went wrong logging into the rbw</h1> \
-                  <p>You may now close this tab and return to the terminal.</p> \
-                  </body></html>",
-                 )
-        };
-        let length = contents.len();
-
-        let response = format!(
-                "{status_line}\r\nContent-Length: {length}\r\nContent-Type: text/html\r\n\r\n{contents}"
-            );
-        stream.write_all(response.as_bytes()).unwrap();
-
-        if !states_match {
-            return Err(Error::SSOCallbackStatesDoNotMatch {
-                msg: format!("sent: {state}, received: {received_state}"),
-            });
-        }
-
-        Ok(sso_code)
     }
 
     pub async fn sync(
@@ -1555,6 +1489,67 @@ impl Client {
     fn identity_url(&self, path: &str) -> String {
         format!("{}{}", self.identity_url, path)
     }
+}
+
+fn start_sso_callback_server(
+    listener: &TcpListener,
+    state: &str,
+) -> Result<String> {
+    let (mut stream, _) = listener.accept().unwrap();
+
+    let buf_reader = BufReader::new(&mut stream);
+    let http_status_line: String =
+        buf_reader.lines().next().unwrap().unwrap();
+
+    let absolute_url = "http://localhost".to_string()
+        + http_status_line.split_whitespace().nth(1).unwrap();
+    let url = Url::try_from(absolute_url.as_str()).unwrap();
+
+    let mut query_pairs = url.query_pairs().into_owned();
+    let sso_code = query_pairs
+        .find(|pair| pair.0 == "code")
+        .ok_or(Error::FailedToProcessSSOCallback {
+            msg: "Could not obtain code from the URL".to_string(),
+        })?
+        .1;
+    let received_state = query_pairs
+        .find(|pair| pair.0 == "state")
+        .ok_or(Error::FailedToProcessSSOCallback {
+            msg: "Could not obtain state from the URL".to_string(),
+        })?
+        .1;
+
+    let states_match = received_state.split("_identifier=").next().unwrap()
+        == state.split("_identifier=").next().unwrap();
+
+    let (status_line, contents) = if states_match {
+        ("HTTP/1.1 200 OK",
+                "<html><head><title>Success | rbw</title></head><body> \
+                  <h1>Successfully authenticated with rbw</h1> \
+                  <p>You may now close this tab and return to the terminal.</p> \
+                  </body></html>")
+    } else {
+        ("HTTP/1.1 400 Bad Request",
+                "<html><head><title>Failed | rbw</title></head><body> \
+                  <h1>Something went wrong logging into the rbw</h1> \
+                  <p>You may now close this tab and return to the terminal.</p> \
+                  </body></html>",
+                 )
+    };
+    let length = contents.len();
+
+    let response = format!(
+                "{status_line}\r\nContent-Length: {length}\r\nContent-Type: text/html\r\n\r\n{contents}"
+            );
+    stream.write_all(response.as_bytes()).unwrap();
+
+    if !states_match {
+        return Err(Error::SSOCallbackStatesDoNotMatch {
+            msg: format!("sent: {state}, received: {received_state}"),
+        });
+    }
+
+    Ok(sso_code)
 }
 
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
