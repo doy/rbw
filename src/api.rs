@@ -1448,7 +1448,7 @@ impl Client {
     ) -> Result<String> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
-            client_id: "desktop".to_string(),
+            client_id: "cli".to_string(),
             refresh_token: refresh_token.to_string(),
         };
         let client = reqwest::blocking::Client::new();
@@ -1467,7 +1467,7 @@ impl Client {
     ) -> Result<String> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
-            client_id: "desktop".to_string(),
+            client_id: "cli".to_string(),
             refresh_token: refresh_token.to_string(),
         };
         let client = self.reqwest_client().await?;
