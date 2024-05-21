@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.2] - 2024-05-20
+
+* Fix logging into the official Bitwarden server due to changes on their end
+  (Gabriel Górski, #175)
+
 ## [1.10.1] - 2024-05-08
 
 ### Added
