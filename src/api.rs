@@ -895,6 +895,8 @@ impl Client {
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
+            .header("Bitwarden-Client-Name", env!("CARGO_PKG_NAME"))
+            .header("Bitwarden-Client-Version", env!("CARGO_PKG_VERSION"))
             .header(
                 "auth-email",
                 crate::base64::encode_url_safe_no_pad(email),
