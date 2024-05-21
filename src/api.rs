@@ -702,12 +702,6 @@ struct CiphersPutReq {
 }
 
 #[derive(serde::Serialize, Debug)]
-struct CiphersPutReqLogin {
-    username: Option<String>,
-    password: Option<String>,
-}
-
-#[derive(serde::Serialize, Debug)]
 struct CiphersPutReqHistory {
     #[serde(rename = "LastUsedDate")]
     last_used_date: String,

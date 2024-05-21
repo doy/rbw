@@ -1095,7 +1095,7 @@ pub fn add(
         let (new_access_token, folders) =
             rbw::actions::list_folders(&access_token, refresh_token)?;
         if let Some(new_access_token) = new_access_token {
-            access_token = new_access_token.clone();
+            access_token.clone_from(&new_access_token);
             db.access_token = Some(new_access_token);
             save_db(&db)?;
         }
@@ -1118,7 +1118,7 @@ pub fn add(
                 &crate::actions::encrypt(folder_name, None)?,
             )?;
             if let Some(new_access_token) = new_access_token {
-                access_token = new_access_token.clone();
+                access_token.clone_from(&new_access_token);
                 db.access_token = Some(new_access_token);
                 save_db(&db)?;
             }
@@ -1188,7 +1188,7 @@ pub fn generate(
             let (new_access_token, folders) =
                 rbw::actions::list_folders(&access_token, refresh_token)?;
             if let Some(new_access_token) = new_access_token {
-                access_token = new_access_token.clone();
+                access_token.clone_from(&new_access_token);
                 db.access_token = Some(new_access_token);
                 save_db(&db)?;
             }
@@ -1213,7 +1213,7 @@ pub fn generate(
                     &crate::actions::encrypt(folder_name, None)?,
                 )?;
                 if let Some(new_access_token) = new_access_token {
-                    access_token = new_access_token.clone();
+                    access_token.clone_from(&new_access_token);
                     db.access_token = Some(new_access_token);
                     save_db(&db)?;
                 }
