@@ -184,7 +184,9 @@ pub async fn login(
                             break 'attempts;
                         }
                     }
-                    return Err(anyhow::anyhow!("TODO"));
+                    return Err(anyhow::anyhow!(
+                        "unsupported two factor methods: {providers:?}"
+                    ));
                 }
                 Err(rbw::error::Error::IncorrectPassword { message }) => {
                     if i == 3 {
