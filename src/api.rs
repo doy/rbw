@@ -282,16 +282,10 @@ struct PreloginRes {
 }
 
 #[derive(serde::Serialize, Debug)]
-struct ConnectPasswordReq {
+struct ConnectTokenReq {
     grant_type: String,
-    username: Option<String>,
-    code: Option<String>,
-    code_verifier: Option<String>,
-    redirect_uri: Option<String>,
-    password: Option<String>,
     scope: String,
     client_id: String,
-    client_secret: Option<String>,
     #[serde(rename = "deviceType")]
     device_type: u32,
     #[serde(rename = "deviceIdentifier")]
@@ -304,10 +298,39 @@ struct ConnectPasswordReq {
     two_factor_token: Option<String>,
     #[serde(rename = "twoFactorProvider")]
     two_factor_provider: Option<u32>,
+    #[serde(flatten)]
+    auth: ConnectTokenAuth,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(untagged)]
+enum ConnectTokenAuth {
+    Password(ConnectTokenPassword),
+    AuthCode(ConnectTokenAuthCode),
+    ClientCredentials(ConnectTokenClientCredentials),
+}
+
+#[derive(serde::Serialize, Debug)]
+struct ConnectTokenPassword {
+    username: String,
+    password: String,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct ConnectTokenAuthCode {
+    code: String,
+    code_verifier: String,
+    redirect_uri: String,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct ConnectTokenClientCredentials {
+    username: String,
+    client_secret: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
-struct ConnectPasswordRes {
+struct ConnectTokenRes {
     access_token: String,
     refresh_token: String,
     #[serde(rename = "Key", alias = "key")]
@@ -833,20 +856,21 @@ impl Client {
         device_id: &str,
         apikey: &crate::locked::ApiKey,
     ) -> Result<()> {
-        let connect_req = ConnectPasswordReq {
+        let connect_req = ConnectTokenReq {
+            auth: ConnectTokenAuth::ClientCredentials(
+                ConnectTokenClientCredentials {
+                    username: email.to_string(),
+                    client_secret: String::from_utf8(
+                        apikey.client_secret().to_vec(),
+                    )
+                    .unwrap(),
+                },
+            ),
             grant_type: "client_credentials".to_string(),
-            username: Some(email.to_string()),
-            password: None,
-            code: None,
-            code_verifier: None,
-            redirect_uri: None,
             scope: "api".to_string(),
             // XXX unwraps here are not necessarily safe
             client_id: String::from_utf8(apikey.client_id().to_vec())
                 .unwrap(),
-            client_secret: Some(
-                String::from_utf8(apikey.client_secret().to_vec()).unwrap(),
-            ),
             device_type: 8,
             device_identifier: device_id.to_string(),
             device_name: "rbw".to_string(),
@@ -890,22 +914,22 @@ impl Client {
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
     ) -> Result<(String, String, String)> {
-        let connect_req;
-        match sso_id {
+        let connect_req = match sso_id {
             Some(sso_id) => {
                 let (sso_code, sso_code_verifier, callback_url) =
                     self.obtain_sso_code(sso_id).await?;
 
-                connect_req = ConnectPasswordReq {
+                ConnectTokenReq {
+                    auth: ConnectTokenAuth::AuthCode(
+                        ConnectTokenAuthCode {
+                            code: sso_code,
+                            code_verifier: sso_code_verifier,
+                            redirect_uri: callback_url,
+                        },
+                    ),
                     grant_type: "authorization_code".to_string(),
-                    username: None,
-                    password: None,
-                    code: Some(sso_code),
-                    code_verifier: Some(sso_code_verifier),
-                    redirect_uri: Some(callback_url),
                     scope: "api offline_access".to_string(),
                     client_id: "cli".to_string(),
-                    client_secret: None,
                     device_type: 8,
                     device_identifier: device_id.to_string(),
                     device_name: "rbw".to_string(),
@@ -914,32 +938,28 @@ impl Client {
                         .map(std::string::ToString::to_string),
                     two_factor_provider: two_factor_provider
                         .map(|ty| ty as u32),
-                };
+                }
             }
-            None => {
-                connect_req = ConnectPasswordReq {
-                    grant_type: "password".to_string(),
-                    username: Some(email.to_string()),
-                    password: Some(crate::base64::encode(
-                        password_hash.hash(),
-                    )),
-                    code: None,
-                    code_verifier: None,
-                    redirect_uri: None,
-                    scope: "api offline_access".to_string(),
-                    client_id: "desktop".to_string(),
-                    client_secret: None,
-                    device_type: 8,
-                    device_identifier: device_id.to_string(),
-                    device_name: "rbw".to_string(),
-                    device_push_token: String::new(),
-                    two_factor_token: two_factor_token
-                        .map(std::string::ToString::to_string),
-                    two_factor_provider: two_factor_provider
-                        .map(|ty| ty as u32),
-                };
-            }
-        }
+            None => ConnectTokenReq {
+                auth: ConnectTokenAuth::Password(
+                    ConnectTokenPassword {
+                        username: email.to_string(),
+                        password: crate::base64::encode(password_hash.hash()),
+                    },
+                ),
+
+                grant_type: "password".to_string(),
+                scope: "api offline_access".to_string(),
+                client_id: "desktop".to_string(),
+                device_type: 8,
+                device_identifier: device_id.to_string(),
+                device_name: "rbw".to_string(),
+                device_push_token: String::new(),
+                two_factor_token: two_factor_token
+                    .map(std::string::ToString::to_string),
+                two_factor_provider: two_factor_provider.map(|ty| ty as u32),
+            },
+        };
 
         let client = self.reqwest_client().await?;
         let res = client
@@ -956,8 +976,7 @@ impl Client {
             .map_err(|source| Error::Reqwest { source })?;
 
         if res.status() == reqwest::StatusCode::OK {
-            let connect_res: ConnectPasswordRes =
-                res.json_with_path().await?;
+            let connect_res: ConnectTokenRes = res.json_with_path().await?;
             Ok((
                 connect_res.access_token,
                 connect_res.refresh_token,
