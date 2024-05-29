@@ -26,7 +26,7 @@ function setup() {
     cmd+="SETPROMPT Master Password\n"
     cmd+="SETDESC Please enter the master password for '$rbw_profile'\n"
     cmd+="GETPIN\n"
-    password="$(printf "$cmd" | pinentry | grep -E "^D " | cut -d' ' -f2)"
+    password="$(printf "$cmd" | pinentry | grep -E "^D " | cut -c3-)"
     if [ -n "$password" ]; then
         echo -n "$password" | secret-tool store --label="$rbw_profile master password" application rbw profile "$rbw_profile" type master_password
     fi
