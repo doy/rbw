@@ -35,18 +35,40 @@ function setup() {
 function getpin() {
     echo 'OK'
 
+    title=""
+    prompt=""
+    desc=""
+
     while IFS=' ' read -r command args ; do
         case "$command" in
-            SETPROMPT|SETTITLE| SETDESC)
+            SETTITLE)
+                title="$args"
+                echo 'OK'
+                ;;
+            SETDESC)
+                desc="$args"
+                echo 'OK'
+                ;;
+            SETPROMPT)
+                prompt="$args"
                 echo 'OK'
                 ;;
             GETPIN)
-                secret_value="$(secret-tool lookup application rbw profile "$rbw_profile" type master_password)"
-                if [ -z "$secret_value" ]; then
-                    exit 1
+                if [[ "$prompt" == "Master Password" ]]; then 
+                    secret_value="$(secret-tool lookup application rbw profile "$rbw_profile" type master_password)"
+                    if [ -z "$secret_value" ]; then
+                        exit 1
+                    fi
+                    printf 'D %s\n' "$secret_value"
+                    echo 'OK'
+                else
+                    cmd="SETTITLE $title\n"
+                    cmd+="SETPROMPT $prompt\n"
+                    cmd+="SETDESC $desc\n"
+                    cmd+="GETPIN\n"
+
+                    printf "$cmd" | pinentry
                 fi
-                printf 'D %s\n' "$secret_value"
-                echo 'OK'
                 ;;
             BYE)
                 exit
