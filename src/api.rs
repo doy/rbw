@@ -875,7 +875,7 @@ impl Client {
             username: email.to_string(),
             password: Some(crate::base64::encode(password_hash.hash())),
             scope: "api offline_access".to_string(),
-            client_id: "desktop".to_string(),
+            client_id: "browser".to_string(),
             client_secret: None,
             device_type: 8,
             device_identifier: device_id.to_string(),
@@ -1322,7 +1322,7 @@ impl Client {
     ) -> Result<String> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
-            client_id: "desktop".to_string(),
+            client_id: "browser".to_string(),
             refresh_token: refresh_token.to_string(),
         };
         let client = reqwest::blocking::Client::new();
@@ -1341,7 +1341,7 @@ impl Client {
     ) -> Result<String> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
-            client_id: "desktop".to_string(),
+            client_id: "browser".to_string(),
             refresh_token: refresh_token.to_string(),
         };
         let client = self.reqwest_client().await?;
