@@ -226,11 +226,6 @@ pub enum Error {
     #[error("error spawning pinentry")]
     Spawn { source: tokio::io::Error },
 
-    #[error(
-        "sso callback received state does not match the sent one ({msg})"
-    )]
-    SSOCallbackStatesDoNotMatch { msg: String },
-
     #[error("cipherstring type {ty} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again.")]
     TooOldCipherStringType { ty: String },
 

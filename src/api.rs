@@ -4,20 +4,20 @@
 
 use crate::prelude::*;
 
-use std::{
-    io::{prelude::*, BufReader},
-    net::TcpListener,
-};
-
 use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
 
+use axum::extract::{Query, State};
+use axum::http::{Response, StatusCode};
 use open;
 use rand::{distributions::Alphanumeric, Rng};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::io::AsyncReadExt as _;
-use url::Url;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use urlencoding;
 
 #[derive(
@@ -920,13 +920,11 @@ impl Client {
                     self.obtain_sso_code(sso_id).await?;
 
                 ConnectTokenReq {
-                    auth: ConnectTokenAuth::AuthCode(
-                        ConnectTokenAuthCode {
-                            code: sso_code,
-                            code_verifier: sso_code_verifier,
-                            redirect_uri: callback_url,
-                        },
-                    ),
+                    auth: ConnectTokenAuth::AuthCode(ConnectTokenAuthCode {
+                        code: sso_code,
+                        code_verifier: sso_code_verifier,
+                        redirect_uri: callback_url,
+                    }),
                     grant_type: "authorization_code".to_string(),
                     scope: "api offline_access".to_string(),
                     client_id: "cli".to_string(),
@@ -941,12 +939,10 @@ impl Client {
                 }
             }
             None => ConnectTokenReq {
-                auth: ConnectTokenAuth::Password(
-                    ConnectTokenPassword {
-                        username: email.to_string(),
-                        password: crate::base64::encode(password_hash.hash()),
-                    },
-                ),
+                auth: ConnectTokenAuth::Password(ConnectTokenPassword {
+                    username: email.to_string(),
+                    password: crate::base64::encode(password_hash.hash()),
+                }),
 
                 grant_type: "password".to_string(),
                 scope: "api offline_access".to_string(),
@@ -1021,21 +1017,15 @@ impl Client {
         let code_challenge =
             crate::base64::encode_url_safe_no_pad(hasher.finalize());
 
-        let Some(port) = (8065..8070)
-            .find(|&port| TcpListener::bind(("127.0.0.1", port)).is_ok())
-        else {
-            return Err(Error::FailedToFindFreePort {
-                range: "(8065..8070)".to_string(),
-            });
-        };
+        let port = find_free_port(8065, 8070).await?;
 
-        let listener = match TcpListener::bind(("127.0.0.1", port)) {
+        let listener = match TcpListener::bind(("127.0.0.1", port)).await {
             Ok(value) => value,
             Err(e) => return Err(Error::CreateSSOCallbackServer { err: e }),
         };
 
         let callback_server =
-            async { start_sso_callback_server(&listener, state.as_str()) };
+            start_sso_callback_server(listener, state.as_str());
 
         let callback_url =
             "http://localhost:".to_string() + port.to_string().as_str();
@@ -1510,65 +1500,113 @@ impl Client {
     }
 }
 
-fn start_sso_callback_server(
-    listener: &TcpListener,
+async fn find_free_port(bottom: u16, top: u16) -> Result<u16> {
+    for port in bottom..top {
+        if TcpListener::bind(("127.0.0.1", port)).await.is_ok() {
+            return Ok(port);
+        }
+    }
+
+    Err(Error::FailedToFindFreePort {
+        range: format!("({bottom}..{top})"),
+    })
+}
+
+#[derive(Clone)]
+struct SSOHandlerState {
+    state: String,
+    sender: Sender<Result<String>>,
+}
+
+async fn start_sso_callback_server(
+    listener: TcpListener,
     state: &str,
 ) -> Result<String> {
-    let (mut stream, _) = listener.accept().unwrap();
+    let (shut_sender, shut_receiver) = channel(1);
+    let (sender, mut receiver) = channel(1);
 
-    let buf_reader = BufReader::new(&mut stream);
-    let http_status_line: String =
-        buf_reader.lines().next().unwrap().unwrap();
+    let sso_handler_state = Arc::new(SSOHandlerState {
+        state: state.to_string(),
+        sender: shut_sender,
+    });
 
-    let absolute_url = "http://localhost".to_string()
-        + http_status_line.split_whitespace().nth(1).unwrap();
-    let url = Url::try_from(absolute_url.as_str()).unwrap();
+    let app = axum::Router::new()
+        .route("/", axum::routing::get(handle_sso_callback))
+        .with_state(sso_handler_state);
 
-    let mut query_pairs = url.query_pairs().into_owned();
-    let sso_code = query_pairs
-        .find(|pair| pair.0 == "code")
-        .ok_or(Error::FailedToProcessSSOCallback {
-            msg: "Could not obtain code from the URL".to_string(),
-        })?
-        .1;
-    let received_state = query_pairs
-        .find(|pair| pair.0 == "state")
-        .ok_or(Error::FailedToProcessSSOCallback {
-            msg: "Could not obtain state from the URL".to_string(),
-        })?
-        .1;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(sso_server_graceful_shutdown(
+            sender,
+            shut_receiver,
+        ))
+        .await
+        .map_err(|e| Error::FailedToProcessSSOCallback {
+            msg: e.to_string(),
+        })?;
 
-    let states_match = received_state.split("_identifier=").next().unwrap()
-        == state.split("_identifier=").next().unwrap();
+    receiver.recv().await.unwrap()
+}
 
-    let (status_line, contents) = if states_match {
-        ("HTTP/1.1 200 OK",
+async fn sso_server_graceful_shutdown(
+    sender: Sender<Result<String>>,
+    mut receiver: Receiver<Result<String>>,
+) {
+    sender.send(receiver.recv().await.unwrap()).await.unwrap();
+}
+
+async fn handle_sso_callback(
+    State(state): State<Arc<SSOHandlerState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response<String> {
+    match sso_query_code(&params, state.state.as_str()) {
+        Ok(sso_code) => {
+            state.sender.send(Ok(sso_code)).await.unwrap();
+
+            Response::builder().status(StatusCode::OK).
+            body(
                 "<html><head><title>Success | rbw</title></head><body> \
                   <h1>Successfully authenticated with rbw</h1> \
                   <p>You may now close this tab and return to the terminal.</p> \
-                  </body></html>")
-    } else {
-        ("HTTP/1.1 400 Bad Request",
+                  </body></html>".to_string()).unwrap()
+        }
+        Err(e) => {
+            state.sender.send(Err(e)).await.unwrap();
+
+            Response::builder().status(StatusCode::BAD_REQUEST).
+            body(
                 "<html><head><title>Failed | rbw</title></head><body> \
                   <h1>Something went wrong logging into the rbw</h1> \
                   <p>You may now close this tab and return to the terminal.</p> \
-                  </body></html>",
-                 )
-    };
-    let length = contents.len();
+                  </body></html>".to_string()).unwrap()
+        }
+    }
+}
 
-    let response = format!(
-                "{status_line}\r\nContent-Length: {length}\r\nContent-Type: text/html\r\n\r\n{contents}"
-            );
-    stream.write_all(response.as_bytes()).unwrap();
+fn sso_query_code(
+    params: &HashMap<String, String>,
+    state: &str,
+) -> Result<String> {
+    let sso_code =
+        params
+            .get("code")
+            .ok_or(Error::FailedToProcessSSOCallback {
+                msg: "Could not obtain code from the URL".to_string(),
+            })?;
 
-    if !states_match {
-        return Err(Error::SSOCallbackStatesDoNotMatch {
-            msg: format!("sent: {state}, received: {received_state}"),
+    let received_state =
+        params
+            .get("state")
+            .ok_or(Error::FailedToProcessSSOCallback {
+                msg: "Could not obtain state from the URL".to_string(),
+            })?;
+
+    if received_state.split("_identifier=").next().unwrap() != state {
+        return Err(Error::FailedToProcessSSOCallback {
+            msg: format!("SSO callback states do not match, sent: {state}, received: {received_state}"),
         });
     }
 
-    Ok(sso_code)
+    Ok(sso_code.to_string())
 }
 
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
