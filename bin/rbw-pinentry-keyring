@@ -9,7 +9,7 @@ function help() {
 Use this script as pinentry to store master password for rbw into your keyring
 
 Usage
-- run "rbw-pinentry-keyring setup" once to save master password to keyring
+- run "rbw-pinentry-keyring clear" to clear the master password from your keyring 
 - add "rbw-pinentry-keyring" as "pinentry" in rbw config (${XDG_CONFIG_HOME}/rbw/config.json)
 - use rbw as normal
 Notes
@@ -21,32 +21,62 @@ Notes
 EOHELP
 }
 
-function setup() {
-    cmd="SETTITLE rbw\n"
-    cmd+="SETPROMPT Master Password\n"
-    cmd+="SETDESC Please enter the master password for '$rbw_profile'\n"
-    cmd+="GETPIN\n"
-    password="$(printf "$cmd" | pinentry | grep -E "^D " | cut -d' ' -f2)"
-    if [ -n "$password" ]; then
-        echo -n "$password" | secret-tool store --label="$rbw_profile master password" application rbw profile "$rbw_profile" type master_password
-    fi
+function clear() {
+    secret-tool clear application rbw profile "$rbw_profile" type master_password
 }
 
 function getpin() {
     echo 'OK'
 
+    title=""
+    prompt=""
+    desc=""
+
     while IFS=' ' read -r command args ; do
         case "$command" in
-            SETPROMPT|SETTITLE| SETDESC)
+            SETTITLE)
+                title="$args"
+                echo 'OK'
+                ;;
+            SETDESC)
+                desc="$args"
+                echo 'OK'
+                ;;
+            SETPROMPT)
+                prompt="$args"
                 echo 'OK'
                 ;;
             GETPIN)
-                secret_value="$(secret-tool lookup application rbw profile "$rbw_profile" type master_password)"
-                if [ -z "$secret_value" ]; then
-                    exit 1
+                if [[ "$prompt" == "Master Password" ]]; then
+                    set +e
+                    secret_value="$(secret-tool lookup application rbw profile "$rbw_profile" type master_password)"
+                    err=$?
+                    set -e
+
+                    if [[ $err == 1 ]]; then
+                        cmd="SETTITLE rbw\n"
+                        cmd+="SETPROMPT Master Password\n"
+                        cmd+="SETDESC Please enter the master password for '$rbw_profile'\n"
+                        cmd+="GETPIN\n"
+                        secret_value="$(printf "$cmd" | pinentry | grep -E "^D " | cut -c3-)"
+                        if [ -n "$secret_value" ]; then
+                            echo -n "$secret_value" | secret-tool store --label="$rbw_profile master password" application rbw profile "$rbw_profile" type master_password >/dev/null 2>&1
+                        fi
+                    fi
+
+                    printf 'D %s\n' "$secret_value"
+                    echo 'OK'
+                else
+                    cmd="SETTITLE $title\n"
+                    cmd+="SETPROMPT $prompt\n"
+                    cmd+="SETDESC $desc\n"
+                    cmd+="GETPIN\n"
+
+                    secret_value="$(printf "$cmd" | pinentry | grep -E "^D " | cut -c3-)"
+
+                    printf 'D %s\n' "$secret_value"
+                    echo 'OK'
                 fi
-                printf 'D %s\n' "$secret_value"
-                echo 'OK'
                 ;;
             BYE)
                 exit
@@ -63,8 +93,8 @@ case "$command" in
     -h|--help|help)
         help
         ;;
-    -s|--setup|setup)
-        setup
+    -c|--clear|clear)
+        clear
         ;;
     *)
         getpin
