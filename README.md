@@ -66,11 +66,14 @@ configuration options:
 
 * `email`: The email address to use as the account name when logging into the
   Bitwarden server. Required.
+* `sso_id`: The SSO organization ID. Defaults to regular login process if unset.
 * `base_url`: The URL of the Bitwarden server to use. Defaults to the official
   server at `https://api.bitwarden.com/` if unset.
 * `identity_url`: The URL of the Bitwarden identity server to use. If unset,
   will use the `/identity` path on the configured `base_url`, or
   `https://identity.bitwarden.com/` if no `base_url` is set.
+* `ui_url`: The URL of the Bitwarden UI to use. If unset,
+  will default to `https://vault.bitwarden.com/`.
 * `notifications_url`: The URL of the Bitwarden notifications server to use.
   If unset, will use the `/notifications` path on the configured `base_url`,
   or `https://notifications.bitwarden.com/` if no `base_url` is set.

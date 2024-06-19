@@ -18,11 +18,23 @@ pub enum Error {
     #[error("failed to create reqwest client")]
     CreateReqwestClient { source: reqwest::Error },
 
+    #[error("failed to create sso callback server: {err}")]
+    CreateSSOCallbackServer { err: std::io::Error },
+
     #[error("failed to decrypt")]
     Decrypt { source: block_padding::UnpadError },
 
+    #[error("failed to find free port in {range}")]
+    FailedToFindFreePort { range: String },
+
     #[error("failed to parse pinentry output ({out:?})")]
     FailedToParsePinentry { out: String },
+
+    #[error("failed to process sso callback ({msg})")]
+    FailedToProcessSSOCallback { msg: String },
+
+    #[error("failed to open web browser: {err}")]
+    FailedToOpenWebBrowser { err: std::io::Error },
 
     #[error("failed to read from stdin: {err}")]
     FailedToReadFromStdin { err: std::io::Error },

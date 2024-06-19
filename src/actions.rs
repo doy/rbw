@@ -42,6 +42,7 @@ pub async fn login(
     let (access_token, refresh_token, protected_key) = client
         .login(
             email,
+            config.sso_id.as_deref(),
             &crate::config::device_id(&config).await?,
             &identity.master_password_hash,
             two_factor_token,
@@ -336,6 +337,7 @@ fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
     let client = crate::api::Client::new(
         &config.base_url(),
         &config.identity_url(),
+        &config.ui_url(),
         config.client_cert_path(),
     );
     Ok((client, config))
@@ -347,6 +349,7 @@ async fn api_client_async(
     let client = crate::api::Client::new(
         &config.base_url(),
         &config.identity_url(),
+        &config.ui_url(),
         config.client_cert_path(),
     );
     Ok((client, config))
