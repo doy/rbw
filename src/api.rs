@@ -1019,10 +1019,9 @@ impl Client {
 
         let port = find_free_port(8065, 8070).await?;
 
-        let listener = match TcpListener::bind(("127.0.0.1", port)).await {
-            Ok(value) => value,
-            Err(e) => return Err(Error::CreateSSOCallbackServer { err: e }),
-        };
+        let listener = TcpListener::bind(("127.0.0.1", port))
+            .await
+            .map_err(|e| Error::CreateSSOCallbackServer { err: e })?;
 
         let callback_server =
             start_sso_callback_server(listener, state.as_str());
@@ -1030,7 +1029,7 @@ impl Client {
         let callback_url =
             "http://localhost:".to_string() + port.to_string().as_str();
 
-        if let Err(e) = open::that(
+        open::that(
             self.ui_url.clone()
                 + "/#/sso?clientId="
                 + "cli"
@@ -1044,17 +1043,13 @@ impl Client {
                 + code_challenge.as_str()
                 + "&identifier="
                 + sso_id,
-        ) {
-            // TODO: probably it'd be better to display the URL in the console if the automatic
-            // open operation fails, instead of failing the whole process? E.g. docker container
-            // case
-            return Err(Error::FailedToOpenWebBrowser { err: e });
-        }
+        )
+        .map_err(|e| Error::FailedToOpenWebBrowser { err: e })?;
+        // TODO: probably it'd be better to display the URL in the console if the automatic
+        // open operation fails, instead of failing the whole process? E.g. docker container
+        // case
 
-        let sso_code = match callback_server.await {
-            Ok(value) => value,
-            Err(e) => return Err(e),
-        };
+        let sso_code = callback_server.await?;
 
         Ok((sso_code, sso_code_verifier, callback_url.to_string()))
     }
