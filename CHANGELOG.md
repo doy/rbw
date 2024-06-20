@@ -1,6 +1,28 @@
 # Changelog
 
+## [1.11.0] - 2024-06-20
+
+### Added
+
+* Support SSO login. (dezeroku, #174)
+* Added `rbw search`, which finds and displays the name of entries matching a
+  given search term.
+* Added `--ignorecase` as an option to several subcommands. (Maximilian
+  Götsch, #164)
+* The JSON output given by `--raw` now also includes the field type.
+
+### Fixed
+
+* Fixed the client id used when logging in, which was causing problems with
+  the official Bitwarden server. (Merlin Marek, #186)
+* Reworked `rbw-pinentry-keyring` to support passwords with spaces and 2fa
+  codes. (Henk van Maanen, #178)
+* Try less hard to parse input as a url (so that using `rbw get` on an entry
+  name containing a `:` works as expected).
+
 ## [1.10.2] - 2024-05-20
+
+### Fixed
 
 * Fix logging into the official Bitwarden server due to changes on their end
   (Gabriel Górski, #175)
