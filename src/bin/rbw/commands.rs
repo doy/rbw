@@ -736,7 +736,7 @@ enum DecryptedData {
 struct DecryptedField {
     name: Option<String>,
     value: Option<String>,
-    #[serde(serialize_with = "serialize_field_type")]
+    #[serde(serialize_with = "serialize_field_type", rename = "type")]
     ty: rbw::api::FieldType,
 }
 
