@@ -612,7 +612,12 @@ impl DecryptedCipher {
                     username: Some(found_username),
                     ..
                 } => {
-                    if !found_username.contains(given_username) {
+                    if !((ignore_case
+                        && found_username
+                            .to_lowercase()
+                            .contains(&given_username.to_lowercase()))
+                        || found_username.contains(given_username))
+                    {
                         return false;
                     }
                 }
