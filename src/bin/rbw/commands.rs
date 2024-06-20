@@ -39,7 +39,9 @@ pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
         return Ok(Needle::Uuid(uuid));
     }
     if let Ok(url) = Url::parse(arg) {
-        return Ok(Needle::Uri(url));
+        if url.is_special() {
+            return Ok(Needle::Uri(url));
+        }
     }
 
     Ok(Needle::Name(arg.to_string()))
