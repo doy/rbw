@@ -2011,7 +2011,7 @@ struct TotpParams {
 
 fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
     base32::decode(
-        base32::Alphabet::RFC4648 { padding: false },
+        base32::Alphabet::Rfc4648 { padding: false },
         &secret.replace(' ', ""),
     )
     .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
