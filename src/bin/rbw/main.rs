@@ -89,6 +89,14 @@ enum Opt {
         ignorecase: bool,
     },
 
+    #[command(about = "Search for entries")]
+    Search {
+        #[arg(help = "Search term to locate entries")]
+        term: String,
+        #[arg(long, help = "Folder name to search in")]
+        folder: Option<String>,
+    },
+
     #[command(
         about = "Display the authenticator code for a given entry",
         visible_alias = "totp"
@@ -259,6 +267,7 @@ impl Opt {
             Self::Sync => "sync".to_string(),
             Self::List { .. } => "list".to_string(),
             Self::Get { .. } => "get".to_string(),
+            Self::Search { .. } => "search".to_string(),
             Self::Code { .. } => "code".to_string(),
             Self::Add { .. } => "add".to_string(),
             Self::Generate { .. } => "generate".to_string(),
@@ -351,6 +360,9 @@ fn main() {
             *clipboard,
             *ignorecase,
         ),
+        Opt::Search { term, folder } => {
+            commands::search(term, folder.as_deref())
+        }
         Opt::Code {
             needle,
             user,

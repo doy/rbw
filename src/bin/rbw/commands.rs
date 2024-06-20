@@ -637,6 +637,41 @@ impl DecryptedCipher {
 
         true
     }
+
+    fn search_match(&self, term: &str, folder: Option<&str>) -> bool {
+        if let Some(folder) = folder {
+            if self.folder.as_deref() != Some(folder) {
+                return false;
+            }
+        }
+
+        let fields = [
+            Some(self.name.as_str()),
+            self.notes.as_deref(),
+            if let DecryptedData::Login {
+                username: Some(username),
+                ..
+            } = &self.data
+            {
+                Some(username)
+            } else {
+                None
+            },
+        ];
+        for field in fields
+            .iter()
+            .filter_map(|field| field.map(std::string::ToString::to_string))
+            .chain(self.fields.iter().filter_map(|field| {
+                field.value.as_ref().map(std::string::ToString::to_string)
+            }))
+        {
+            if field.to_lowercase().contains(&term.to_lowercase()) {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 fn val_display_or_store(clipboard: bool, password: &str) -> bool {
@@ -1046,6 +1081,46 @@ pub fn get(
         decrypted.display_field(&desc, field, clipboard);
     } else {
         decrypted.display_short(&desc, clipboard);
+    }
+
+    Ok(())
+}
+
+pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
+    unlock()?;
+
+    let db = load_db()?;
+
+    let found_entries: Vec<_> = db
+        .entries
+        .iter()
+        .map(decrypt_cipher)
+        .filter_map(|entry| {
+            entry
+                .map(|decrypted| {
+                    if decrypted.search_match(term, folder) {
+                        let mut display = decrypted.name;
+                        if let DecryptedData::Login {
+                            username: Some(username),
+                            ..
+                        } = decrypted.data
+                        {
+                            display = format!("{username}@{display}");
+                        }
+                        if let Some(folder) = decrypted.folder {
+                            display = format!("{folder}/{display}");
+                        }
+                        Some(display)
+                    } else {
+                        None
+                    }
+                })
+                .transpose()
+        })
+        .collect::<Result<_, anyhow::Error>>()?;
+
+    for name in found_entries {
+        println!("{name}");
     }
 
     Ok(())
