@@ -699,6 +699,25 @@ enum DecryptedData {
 struct DecryptedField {
     name: Option<String>,
     value: Option<String>,
+    #[serde(serialize_with = "serialize_field_type")]
+    ty: rbw::api::FieldType,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn serialize_field_type<S>(
+    ty: &rbw::api::FieldType,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let s = match ty {
+        rbw::api::FieldType::Text => "text",
+        rbw::api::FieldType::Hidden => "hidden",
+        rbw::api::FieldType::Boolean => "boolean",
+        rbw::api::FieldType::Linked => "linked",
+    };
+    serializer.serialize_str(s)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1724,6 +1743,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                         )
                     })
                     .transpose()?,
+                ty: field.ty,
             })
         })
         .collect::<anyhow::Result<_>>()?;
