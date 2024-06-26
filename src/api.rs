@@ -790,6 +790,15 @@ impl Client {
     }
 
     async fn reqwest_client(&self) -> Result<reqwest::Client> {
+        let mut default_headers = axum::http::HeaderMap::new();
+        default_headers.insert(
+            "Bitwarden-Client-Name",
+            axum::http::HeaderValue::from_static(env!("CARGO_PKG_NAME")),
+        );
+        default_headers.insert(
+            "Bitwarden-Client-Version",
+            axum::http::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+        );
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
             let mut f = tokio::fs::File::open(client_cert_path)
@@ -813,6 +822,7 @@ impl Client {
                     env!("CARGO_PKG_VERSION")
                 ))
                 .identity(pem)
+                .default_headers(default_headers)
                 .build()
                 .map_err(|e| Error::CreateReqwestClient { source: e })?)
         } else {
@@ -822,6 +832,7 @@ impl Client {
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION")
                 ))
+                .default_headers(default_headers)
                 .build()
                 .map_err(|e| Error::CreateReqwestClient { source: e })?)
         }
@@ -961,8 +972,6 @@ impl Client {
         let res = client
             .post(&self.identity_url("/connect/token"))
             .form(&connect_req)
-            .header("Bitwarden-Client-Name", env!("CARGO_PKG_NAME"))
-            .header("Bitwarden-Client-Version", env!("CARGO_PKG_VERSION"))
             .header(
                 "auth-email",
                 crate::base64::encode_url_safe_no_pad(email),
