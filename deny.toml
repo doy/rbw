@@ -26,12 +26,6 @@ skip = [
     { name = "bitflags", version = "1.3.2" },
     { name = "bitflags", version = "2.4.1" },
 
-    # see https://github.com/dignifiedquire/num-bigint/pull/58 and
-    # https://github.com/RustCrypto/RSA/issues/390 which should hopefully
-    # resolve this soon
-    { name = "spin", version = "0.5.2" },
-    { name = "spin", version = "0.9.8" },
-
     # axum currently depends on both of these
     { name = "sync_wrapper", version = "0.1.2" },
     { name = "sync_wrapper", version = "1.0.1" },
