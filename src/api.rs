@@ -847,7 +847,7 @@ impl Client {
         };
         let client = self.reqwest_client().await?;
         let res = client
-            .post(&self.api_url("/accounts/prelogin"))
+            .post(&self.identity_url("/accounts/prelogin"))
             .json(&prelogin)
             .send()
             .await
