@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 pub struct Config {
     pub email: Option<String>,
     pub sso_id: Option<String>,
+    pub client_id: Option<String>,
     pub base_url: Option<String>,
     pub identity_url: Option<String>,
     pub ui_url: Option<String>,
@@ -29,6 +30,7 @@ impl Default for Config {
         Self {
             email: None,
             sso_id: None,
+            client_id: None,
             base_url: None,
             identity_url: None,
             ui_url: None,
@@ -143,6 +145,13 @@ impl Config {
         Ok(())
     }
 
+    pub fn email(&self) -> Result<String> {
+        if self.email.is_none() {
+            return Err(Error::ConfigMissingEmail);
+        }
+        Ok(self.email.clone().unwrap())
+    }
+
     pub fn base_url(&self) -> String {
         self.base_url.clone().map_or_else(
             || "https://api.bitwarden.com".to_string(),
@@ -207,7 +216,7 @@ impl Config {
     }
 }
 
-pub async fn device_id(config: &Config) -> Result<String> {
+pub async fn device_id_async(config: &Config) -> Result<String> {
     let file = crate::dirs::device_id_file();
     if let Ok(mut fh) = tokio::fs::File::open(&file).await {
         let mut s = String::new();
@@ -235,6 +244,35 @@ pub async fn device_id(config: &Config) -> Result<String> {
                 file: file.clone(),
             }
         })?;
+        Ok(id)
+    }
+}
+
+pub fn device_id(config: &Config) -> Result<String> {
+    let file = crate::dirs::device_id_file();
+    if let Ok(mut fh) = std::fs::File::open(&file) {
+        let mut s = String::new();
+        fh.read_to_string(&mut s).map_err(|e| Error::LoadDeviceId {
+            source: e,
+            file: file.clone(),
+        })?;
+        Ok(s.trim().to_string())
+    } else {
+        let id = config.device_id.as_ref().map_or_else(
+            || uuid::Uuid::new_v4().hyphenated().to_string(),
+            String::to_string,
+        );
+        let mut fh = std::fs::File::create(&file).map_err(|e| {
+            Error::LoadDeviceId {
+                source: e,
+                file: file.clone(),
+            }
+        })?;
+        fh.write_all(id.as_bytes())
+            .map_err(|e| Error::LoadDeviceId {
+                source: e,
+                file: file.clone(),
+            })?;
         Ok(id)
     }
 }

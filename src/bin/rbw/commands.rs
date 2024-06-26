@@ -893,6 +893,7 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
     match key {
         "email" => config.email = Some(value.to_string()),
         "sso_id" => config.sso_id = Some(value.to_string()),
+        "client_id" => config.client_id = Some(value.to_string()),
         "base_url" => config.base_url = Some(value.to_string()),
         "identity_url" => config.identity_url = Some(value.to_string()),
         "ui_url" => config.ui_url = Some(value.to_string()),
@@ -940,6 +941,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
     match key {
         "email" => config.email = None,
         "sso_id" => config.sso_id = None,
+        "client_id" => config.client_id = None,
         "base_url" => config.base_url = None,
         "identity_url" => config.identity_url = None,
         "ui_url" => config.ui_url = None,
