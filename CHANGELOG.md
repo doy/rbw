@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.1] - 2024-06-26
+
+### Fixed
+
+* Updated the prelogin API endpoint to use the identity API instead of the
+  base API, to correspond with upcoming changes to the official Bitwarden
+  server (see https://github.com/bitwarden/server/pull/4206)
+
 ## [1.11.0] - 2024-06-20
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "rbw"
-version = "1.11.0"
+version = "1.11.1"
 authors = ["Jesse Luehrs <doy@tozt.net>"]
 edition = "2021"
 
