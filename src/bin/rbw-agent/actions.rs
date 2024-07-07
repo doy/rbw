@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use cli_clipboard::ClipboardProvider as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,

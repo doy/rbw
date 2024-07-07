@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use cli_clipboard::ClipboardProvider as _;
 use futures_util::StreamExt as _;
 
 use crate::notifications;
@@ -12,7 +13,7 @@ pub struct State {
     pub sync_timeout: crate::timeout::Timeout,
     pub sync_timeout_duration: std::time::Duration,
     pub notifications_handler: crate::notifications::Handler,
-    pub clipboard: Box<dyn copypasta::ClipboardProvider>,
+    pub clipboard: cli_clipboard::ClipboardContext,
 }
 
 impl State {
@@ -60,26 +61,7 @@ impl Agent {
             sync_timeout.set(sync_timeout_duration);
         }
         let notifications_handler = crate::notifications::Handler::new();
-        let clipboard: Box<dyn copypasta::ClipboardProvider> =
-            copypasta::ClipboardContext::new().map_or_else(
-                |e| {
-                    log::warn!("couldn't create clipboard context: {e}");
-                    let clipboard = Box::new(
-                        // infallible
-                        copypasta::nop_clipboard::NopClipboardContext::new()
-                            .unwrap(),
-                    );
-                    let clipboard: Box<dyn copypasta::ClipboardProvider> =
-                        clipboard;
-                    clipboard
-                },
-                |clipboard| {
-                    let clipboard = Box::new(clipboard);
-                    let clipboard: Box<dyn copypasta::ClipboardProvider> =
-                        clipboard;
-                    clipboard
-                },
-            );
+        let clipboard = cli_clipboard::ClipboardContext::new().unwrap();
         Ok(Self {
             timer_r,
             sync_timer_r,

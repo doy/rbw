@@ -24,7 +24,7 @@ block-padding = "0.3.3"
 cbc = { version = "0.1.2", features = ["alloc", "std"] }
 clap_complete = "4.5.40"
 clap = { version = "4.5.23", features = ["wrap_help", "derive"] }
-copypasta = "0.10.1"
+cli-clipboard = "0.4.0"
 daemonize = "0.5.0"
 # TODO: directories 5.0.1 uses MPL code, which isn't license-compatible
 # we should switch to something else at some point
