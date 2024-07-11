@@ -21,6 +21,8 @@ and merge pull requests implementing those features.
 
 ## Installation
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/rbw.svg?exclude_unsupported=1)](https://repology.org/project/rbw/versions)
+
 ### Arch Linux
 
 `rbw` is available in the [extra
@@ -36,6 +38,13 @@ You can download a Debian package from
 ](https://git.tozt.net/rbw/releases/deb/). The packages are signed by
 [`minisign`](https://github.com/jedisct1/minisign), and can be verified using
 the public key `RWTM0AZ5RpROOfAIWx1HvYQ6pw1+FKwN6526UFTKNImP/Hz3ynCFst3r`.
+
+### Fedora/EPEL
+
+`rbw` is available in [Fedora and EPEL 9](https://bodhi.fedoraproject.org/updates/?packages=rust-rbw)
+(for RHEL and compatible distributions).
+
+You can install it using `sudo dnf install rbw`.
 
 ### Homebrew
 
