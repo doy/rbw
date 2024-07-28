@@ -222,12 +222,14 @@ async fn handle_request(
         }
         rbw::protocol::Action::Decrypt {
             cipherstring,
+            entry_key,
             org_id,
         } => {
             crate::actions::decrypt(
                 sock,
                 state.clone(),
                 cipherstring,
+                entry_key.as_deref(),
                 org_id.as_deref(),
             )
             .await?;

@@ -16,6 +16,7 @@ pub struct Entry {
     pub fields: Vec<Field>,
     pub notes: Option<String>,
     pub history: Vec<HistoryEntry>,
+    pub key: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug, Clone, Eq, PartialEq)]

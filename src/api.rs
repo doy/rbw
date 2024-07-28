@@ -401,6 +401,8 @@ struct SyncResCipher {
     fields: Option<Vec<CipherField>>,
     #[serde(rename = "DeletedDate", alias = "deletedDate")]
     deleted_date: Option<String>,
+    #[serde(rename = "Key", alias = "key")]
+    key: Option<String>,
 }
 
 impl SyncResCipher {
@@ -516,6 +518,7 @@ impl SyncResCipher {
             fields,
             notes: self.notes.clone(),
             history,
+            key: self.key.clone(),
         })
     }
 }

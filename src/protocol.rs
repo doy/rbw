@@ -28,6 +28,7 @@ pub enum Action {
     Sync,
     Decrypt {
         cipherstring: String,
+        entry_key: Option<String>,
         org_id: Option<String>,
     },
     Encrypt {

@@ -1221,7 +1221,9 @@ pub fn add(
         let folders: Vec<(String, String)> = folders
             .iter()
             .cloned()
-            .map(|(id, name)| Ok((id, crate::actions::decrypt(&name, None)?)))
+            .map(|(id, name)| {
+                Ok((id, crate::actions::decrypt(&name, None, None)?))
+            })
             .collect::<anyhow::Result<_>>()?;
 
         for (id, name) in folders {
@@ -1315,7 +1317,7 @@ pub fn generate(
                 .iter()
                 .cloned()
                 .map(|(id, name)| {
-                    Ok((id, crate::actions::decrypt(&name, None)?))
+                    Ok((id, crate::actions::decrypt(&name, None, None)?))
                 })
                 .collect::<anyhow::Result<_>>()?;
 
@@ -1773,11 +1775,12 @@ fn find_entry_raw(
 fn decrypt_field(
     name: &str,
     field: Option<&str>,
+    entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> Option<String> {
     let field = field
         .as_ref()
-        .map(|field| crate::actions::decrypt(field, org_id))
+        .map(|field| crate::actions::decrypt(field, entry_key, org_id))
         .transpose();
     match field {
         Ok(field) => field,
@@ -1794,7 +1797,9 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None))
+        .map(|folder| {
+            crate::actions::decrypt(folder, entry.key.as_deref(), None)
+        })
         .transpose();
     let folder = match folder {
         Ok(folder) => folder,
@@ -1812,7 +1817,11 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .name
                     .as_ref()
                     .map(|name| {
-                        crate::actions::decrypt(name, entry.org_id.as_deref())
+                        crate::actions::decrypt(
+                            name,
+                            entry.key.as_deref(),
+                            entry.org_id.as_deref(),
+                        )
                     })
                     .transpose()?,
                 value: field
@@ -1821,6 +1830,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .map(|value| {
                         crate::actions::decrypt(
                             value,
+                            entry.key.as_deref(),
                             entry.org_id.as_deref(),
                         )
                     })
@@ -1832,7 +1842,13 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let notes = entry
         .notes
         .as_ref()
-        .map(|notes| crate::actions::decrypt(notes, entry.org_id.as_deref()))
+        .map(|notes| {
+            crate::actions::decrypt(
+                notes,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        })
         .transpose();
     let notes = match notes {
         Ok(notes) => notes,
@@ -1849,6 +1865,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 last_used_date: history_entry.last_used_date.clone(),
                 password: crate::actions::decrypt(
                     &history_entry.password,
+                    entry.key.as_deref(),
                     entry.org_id.as_deref(),
                 )?,
             })
@@ -1865,16 +1882,19 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             username: decrypt_field(
                 "username",
                 username.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             password: decrypt_field(
                 "password",
                 password.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             totp: decrypt_field(
                 "totp",
                 totp.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             uris: uris
@@ -1883,6 +1903,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     decrypt_field(
                         "uri",
                         Some(&s.uri),
+                        entry.key.as_deref(),
                         entry.org_id.as_deref(),
                     )
                     .map(|uri| DecryptedUri {
@@ -1903,31 +1924,37 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             cardholder_name: decrypt_field(
                 "cardholder_name",
                 cardholder_name.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             number: decrypt_field(
                 "number",
                 number.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             brand: decrypt_field(
                 "brand",
                 brand.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             exp_month: decrypt_field(
                 "exp_month",
                 exp_month.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             exp_year: decrypt_field(
                 "exp_year",
                 exp_year.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             code: decrypt_field(
                 "code",
                 code.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
         },
@@ -1953,86 +1980,103 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             title: decrypt_field(
                 "title",
                 title.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             first_name: decrypt_field(
                 "first_name",
                 first_name.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             middle_name: decrypt_field(
                 "middle_name",
                 middle_name.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             last_name: decrypt_field(
                 "last_name",
                 last_name.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             address1: decrypt_field(
                 "address1",
                 address1.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             address2: decrypt_field(
                 "address2",
                 address2.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             address3: decrypt_field(
                 "address3",
                 address3.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             city: decrypt_field(
                 "city",
                 city.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             state: decrypt_field(
                 "state",
                 state.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             postal_code: decrypt_field(
                 "postal_code",
                 postal_code.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             country: decrypt_field(
                 "country",
                 country.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             phone: decrypt_field(
                 "phone",
                 phone.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             email: decrypt_field(
                 "email",
                 email.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             ssn: decrypt_field(
                 "ssn",
                 ssn.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             license_number: decrypt_field(
                 "license_number",
                 license_number.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             passport_number: decrypt_field(
                 "passport_number",
                 passport_number.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             username: decrypt_field(
                 "username",
                 username.as_deref(),
+                entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
         },
@@ -2042,7 +2086,11 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         folder,
-        name: crate::actions::decrypt(&entry.name, entry.org_id.as_deref())?,
+        name: crate::actions::decrypt(
+            &entry.name,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )?,
         data,
         fields,
         notes,
@@ -3338,6 +3386,7 @@ mod test {
                 fields: vec![],
                 notes: None,
                 history: vec![],
+                key: None,
             },
             DecryptedCipher {
                 id: id.to_string(),

@@ -123,6 +123,7 @@ impl CipherString {
     pub fn decrypt_symmetric(
         &self,
         keys: &crate::locked::Keys,
+        entry_key: Option<&crate::locked::Keys>,
     ) -> Result<Vec<u8>> {
         if let Self::Symmetric {
             iv,
@@ -131,7 +132,7 @@ impl CipherString {
         } = self
         {
             let cipher = decrypt_common_symmetric(
-                keys,
+                entry_key.unwrap_or(keys),
                 iv,
                 ciphertext,
                 mac.as_deref(),

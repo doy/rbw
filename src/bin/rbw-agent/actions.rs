@@ -532,6 +532,7 @@ pub async fn decrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     cipherstring: &str,
+    entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.lock().await;
@@ -540,11 +541,23 @@ pub async fn decrypt(
             "failed to find decryption keys in in-memory state"
         ));
     };
+    let entry_key = if let Some(entry_key) = entry_key {
+        let key_cipherstring =
+            rbw::cipherstring::CipherString::new(entry_key)
+                .context("failed to parse individual item encryption key")?;
+        Some(rbw::locked::Keys::new(
+            key_cipherstring.decrypt_locked_symmetric(keys).context(
+                "failed to decrypt individual item encryption key",
+            )?,
+        ))
+    } else {
+        None
+    };
     let cipherstring = rbw::cipherstring::CipherString::new(cipherstring)
         .context("failed to parse encrypted secret")?;
     let plaintext = String::from_utf8(
         cipherstring
-            .decrypt_symmetric(keys)
+            .decrypt_symmetric(keys, entry_key.as_ref())
             .context("failed to decrypt encrypted secret")?,
     )
     .context("failed to parse decrypted secret")?;
