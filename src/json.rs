@@ -22,14 +22,13 @@ impl DeserializeJsonWithPath for reqwest::blocking::Response {
     }
 }
 
-#[async_trait::async_trait]
 pub trait DeserializeJsonWithPathAsync {
+    #[allow(async_fn_in_trait)]
     async fn json_with_path<T: serde::de::DeserializeOwned>(
         self,
     ) -> Result<T>;
 }
 
-#[async_trait::async_trait]
 impl DeserializeJsonWithPathAsync for reqwest::Response {
     async fn json_with_path<T: serde::de::DeserializeOwned>(
         self,

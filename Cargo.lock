@@ -1458,7 +1458,6 @@ dependencies = [
  "anyhow",
  "argon2",
  "arrayvec",
- "async-trait",
  "axum",
  "base32",
  "base64",
