@@ -2160,11 +2160,19 @@ struct TotpParams {
 }
 
 fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
-    base32::decode(
+    let secret = secret.trim();
+    let alphabets = [
         base32::Alphabet::Rfc4648 { padding: false },
-        &secret.replace(' ', "").to_uppercase(),
-    )
-    .ok_or_else(|| anyhow::anyhow!("totp secret was not valid base32"))
+        base32::Alphabet::Rfc4648 { padding: true },
+        base32::Alphabet::Rfc4648Lower { padding: false },
+        base32::Alphabet::Rfc4648Lower { padding: true },
+    ];
+    for alphabet in alphabets {
+        if let Some(secret) = base32::decode(alphabet, secret) {
+            return Ok(secret);
+        }
+    }
+    Err(anyhow::anyhow!("totp secret was not valid base32"))
 }
 
 fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
