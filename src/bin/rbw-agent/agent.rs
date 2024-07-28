@@ -26,7 +26,7 @@ impl State {
         self.priv_key.is_none() || self.org_keys.is_none()
     }
 
-    pub fn set_timeout(&mut self) {
+    pub fn set_timeout(&self) {
         self.timeout.set(self.timeout_duration);
     }
 
@@ -36,7 +36,7 @@ impl State {
         self.timeout.clear();
     }
 
-    pub fn set_sync_timeout(&mut self) {
+    pub fn set_sync_timeout(&self) {
         self.sync_timeout.set(self.sync_timeout_duration);
     }
 }

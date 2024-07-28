@@ -72,7 +72,7 @@ impl Handler {
     }
 
     pub async fn get_channel(
-        &mut self,
+        &self,
     ) -> tokio::sync::mpsc::UnboundedReceiver<Message> {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         self.sending_channels.write().await.push(tx);

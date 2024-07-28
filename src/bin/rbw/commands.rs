@@ -1667,9 +1667,9 @@ fn find_entry(
         let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
             .entries
             .iter()
-            .cloned()
             .map(|entry| {
-                decrypt_cipher(&entry).map(|decrypted| (entry, decrypted))
+                decrypt_cipher(entry)
+                    .map(|decrypted| (entry.clone(), decrypted))
             })
             .collect::<anyhow::Result<_>>()?;
         find_entry_raw(&ciphers, needle, username, folder, ignore_case)

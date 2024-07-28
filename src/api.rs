@@ -850,7 +850,7 @@ impl Client {
         };
         let client = self.reqwest_client().await?;
         let res = client
-            .post(&self.identity_url("/accounts/prelogin"))
+            .post(self.identity_url("/accounts/prelogin"))
             .json(&prelogin)
             .send()
             .await
@@ -894,7 +894,7 @@ impl Client {
         };
         let client = self.reqwest_client().await?;
         let res = client
-            .post(&self.identity_url("/connect/token"))
+            .post(self.identity_url("/connect/token"))
             .form(&connect_req)
             .send()
             .await
@@ -973,7 +973,7 @@ impl Client {
 
         let client = self.reqwest_client().await?;
         let res = client
-            .post(&self.identity_url("/connect/token"))
+            .post(self.identity_url("/connect/token"))
             .form(&connect_req)
             .header(
                 "auth-email",
@@ -1077,7 +1077,7 @@ impl Client {
     )> {
         let client = self.reqwest_client().await?;
         let res = client
-            .get(&self.api_url("/sync"))
+            .get(self.api_url("/sync"))
             .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await
@@ -1488,7 +1488,7 @@ impl Client {
         };
         let client = self.reqwest_client().await?;
         let res = client
-            .post(&self.identity_url("/connect/token"))
+            .post(self.identity_url("/connect/token"))
             .form(&connect_req)
             .send()
             .await
