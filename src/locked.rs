@@ -2,17 +2,35 @@ use zeroize::Zeroize;
 
 const LEN: usize = 4096;
 
+static REGION_LOCK_WORKS: std::sync::OnceLock<bool> =
+    std::sync::OnceLock::new();
+
 pub struct Vec {
     data: Box<arrayvec::ArrayVec<u8, LEN>>,
-    _lock: region::LockGuard,
+    _lock: Option<region::LockGuard>,
 }
 
 impl Default for Vec {
     fn default() -> Self {
         let data = Box::new(arrayvec::ArrayVec::<_, LEN>::new());
-        // XXX it'd be nice to handle this better than .unwrap(), but it'd be
-        // a lot of effort
-        let lock = region::lock(data.as_ptr(), data.capacity()).unwrap();
+        let lock = match REGION_LOCK_WORKS.get() {
+            Some(true) => {
+                Some(region::lock(data.as_ptr(), data.capacity()).unwrap())
+            }
+            Some(false) => None,
+            None => match region::lock(data.as_ptr(), data.capacity()) {
+                Ok(lock) => {
+                    let _ = REGION_LOCK_WORKS.set(true);
+                    Some(lock)
+                }
+                Err(e) => {
+                    if REGION_LOCK_WORKS.set(false).is_ok() {
+                        eprintln!("failed to lock memory region: {e}");
+                    }
+                    None
+                }
+            },
+        };
         Self { data, _lock: lock }
     }
 }
