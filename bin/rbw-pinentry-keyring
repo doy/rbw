@@ -6,18 +6,27 @@ set -eEuo pipefail
 
 function help() {
     cat <<EOHELP
-Use this script as pinentry to store master password for rbw into your keyring
+Usage: rbw-pinentry-keyring [options]
 
-Usage
-- run "rbw-pinentry-keyring clear" to clear the master password from your keyring 
-- add "rbw-pinentry-keyring" as "pinentry" in rbw config (${XDG_CONFIG_HOME}/rbw/config.json)
-- use rbw as normal
-Notes
-- needs "secret-tool" to access keyring
-- setup tested with pinentry-gnome3, but you can run the "secret-tool store"-command manually as well
-- master passwords are stored into the keyring as plaintext, so secure your keyring appropriately
-- supports multiple profiles, simply set RBW_PROFILE during setup
-- can easily be rewritten to use other backends than keyring by setting the "secret_value"-variable
+Use this script as pinentry to store master password for rbw into your keyring.
+
+Options:
+  -h, --help, help     Display this help message
+  -c, --clear, clear   Clear the stored master password from the keyring
+
+Notes:
+  - Ensure "secret-tool" is installed to access the keyring.
+  - Add "rbw-pinentry-keyring" as the "pinentry" in rbw configuration (${XDG_CONFIG_HOME}/rbw/config.json).
+  - Master passwords are stored in the keyring as plaintext; secure your keyring appropriately.
+  - Supports multiple profiles; set RBW_PROFILE during setup to specify the profile.
+  - Can easily be rewritten to use other backends than keyring by setting the "secret_value"-variable
+
+Setup:
+  - This script will setup keyring if rbw does not already exists in the keyring (tested with pinentry-gnome3),
+    but you can run the "secret-tool store"-command manually as well. For example:
+
+    $ echo -n MASTER_PASSWORD | secret-tool store --label="$rbw_profile master password" application rbw profile "$rbw_profile" type master_password
+
 EOHELP
 }
 
