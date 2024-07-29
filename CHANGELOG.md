@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.12.1] - 2024-07-28
+
+### Fixed
+
+* Fix decrypting folder names of entries with individual item encryption keys.
+
 ## [1.12.0] - 2024-07-28
 
 *NOTE: If you were affected by issue #163 (getting messages like `failed to
