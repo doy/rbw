@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* Fix preventing the password type selectors in `rbw generate` from being
+  used together. (antecrescent, #198)
+
 ## [1.12.1] - 2024-07-28
 
 ### Fixed

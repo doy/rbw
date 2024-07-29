@@ -145,8 +145,8 @@ enum Opt {
             password to the database.",
         visible_alias = "gen",
         group = clap::ArgGroup::new("password-type").args(&[
-            "no-symbols",
-            "only-numbers",
+            "no_symbols",
+            "only_numbers",
             "nonconfusables",
             "diceware",
         ])
