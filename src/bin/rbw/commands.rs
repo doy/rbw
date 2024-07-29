@@ -1797,9 +1797,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| {
-            crate::actions::decrypt(folder, entry.key.as_deref(), None)
-        })
+        .map(|folder| crate::actions::decrypt(folder, None, None))
         .transpose();
     let folder = match folder {
         Ok(folder) => folder,
