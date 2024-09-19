@@ -1,5 +1,7 @@
 # rbw
 
+![rbw logo](/src/assets/logo_251.png)
+
 This is an unofficial command line client for
 [Bitwarden](https://bitwarden.com/). Although it does come with its own
 [command line client](https://help.bitwarden.com/article/cli/), this client is
