@@ -683,7 +683,7 @@ pub enum LinkedIdType {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherField {
     #[serde(rename = "Type", alias = "type")]
-    ty: FieldType,
+    ty: Option<FieldType>,
     #[serde(rename = "Name", alias = "name")]
     name: Option<String>,
     #[serde(rename = "Value", alias = "value")]
