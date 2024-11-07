@@ -133,3 +133,4 @@ the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
 * [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden
 * [bw-ssh](https://framagit.org/Glandos/bw-ssh/): Manage SSH key passphrases in Bitwarden
 * [rbw-menu](https://github.com/rbuchberger/rbw-menu): Tiny menu picker for rbw
+* [ulauncher-rbw](https://0xacab.org/varac-projects/ulauncher-rbw): [Ulauncher](https://ulauncher.io/) rbw extension
