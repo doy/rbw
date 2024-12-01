@@ -767,6 +767,10 @@ struct FoldersPostReq {
     name: String,
 }
 
+// Used for the Bitwarden-Client-Name header. Accepted values:
+// https://github.com/bitwarden/server/blob/main/src/Core/Enums/BitwardenClient.cs
+const BITWARDEN_CLIENT: &'static str = "cli";
+
 #[derive(Debug)]
 pub struct Client {
     base_url: String,
@@ -796,7 +800,7 @@ impl Client {
         let mut default_headers = axum::http::HeaderMap::new();
         default_headers.insert(
             "Bitwarden-Client-Name",
-            axum::http::HeaderValue::from_static(env!("CARGO_PKG_NAME")),
+            axum::http::HeaderValue::from_static(BITWARDEN_CLIENT),
         );
         default_headers.insert(
             "Bitwarden-Client-Version",
