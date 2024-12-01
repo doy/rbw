@@ -816,6 +816,11 @@ impl Client {
             axum::http::HeaderValue::from_str(&DEVICE_TYPE.to_string())
                 .unwrap(),
         );
+        let user_agent = format!(
+            "{}/{}",
+            env!("CARGO_PKG_NAME"),
+            env!("CARGO_PKG_VERSION")
+        );
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
             let mut f = tokio::fs::File::open(client_cert_path)
@@ -833,22 +838,14 @@ impl Client {
             let pem = reqwest::Identity::from_pem(&buf)
                 .map_err(|e| Error::CreateReqwestClient { source: e })?;
             Ok(reqwest::Client::builder()
-                .user_agent(format!(
-                    "{}/{}",
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_PKG_VERSION")
-                ))
+                .user_agent(user_agent)
                 .identity(pem)
                 .default_headers(default_headers)
                 .build()
                 .map_err(|e| Error::CreateReqwestClient { source: e })?)
         } else {
             Ok(reqwest::Client::builder()
-                .user_agent(format!(
-                    "{}/{}",
-                    env!("CARGO_PKG_NAME"),
-                    env!("CARGO_PKG_VERSION")
-                ))
+                .user_agent(user_agent)
                 .default_headers(default_headers)
                 .build()
                 .map_err(|e| Error::CreateReqwestClient { source: e })?)
