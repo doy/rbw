@@ -771,6 +771,9 @@ struct FoldersPostReq {
 // https://github.com/bitwarden/server/blob/main/src/Core/Enums/BitwardenClient.cs
 const BITWARDEN_CLIENT: &'static str = "cli";
 
+// DeviceType.LinuxDesktop, as per Bitwarden API device types.
+const DEVICE_TYPE: u8 = 8;
+
 #[derive(Debug)]
 pub struct Client {
     base_url: String,
@@ -805,6 +808,13 @@ impl Client {
         default_headers.insert(
             "Bitwarden-Client-Version",
             axum::http::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+        );
+        default_headers.append(
+            "Device-Type",
+            // unwrap is safe here because DEVICE_TYPE is a number and digits
+            // are valid ASCII
+            axum::http::HeaderValue::from_str(&DEVICE_TYPE.to_string())
+                .unwrap(),
         );
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
@@ -889,7 +899,7 @@ impl Client {
             // XXX unwraps here are not necessarily safe
             client_id: String::from_utf8(apikey.client_id().to_vec())
                 .unwrap(),
-            device_type: 8,
+            device_type: DEVICE_TYPE as u32,
             device_identifier: device_id.to_string(),
             device_name: "rbw".to_string(),
             device_push_token: String::new(),
@@ -946,7 +956,7 @@ impl Client {
                     grant_type: "authorization_code".to_string(),
                     scope: "api offline_access".to_string(),
                     client_id: "cli".to_string(),
-                    device_type: 8,
+                    device_type: DEVICE_TYPE as u32,
                     device_identifier: device_id.to_string(),
                     device_name: "rbw".to_string(),
                     device_push_token: String::new(),
