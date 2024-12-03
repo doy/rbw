@@ -1643,9 +1643,8 @@ fn check_config() -> anyhow::Result<()> {
 }
 
 fn version_or_quit() -> anyhow::Result<u32> {
-    crate::actions::version().map_err(|e| {
+    crate::actions::version().inspect_err(|_e| {
         let _ = crate::actions::quit();
-        e
     })
 }
 
