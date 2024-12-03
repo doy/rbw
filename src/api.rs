@@ -100,7 +100,7 @@ impl<'de> serde::Deserialize<'de> for TwoFactorProviderType {
         D: serde::Deserializer<'de>,
     {
         struct TwoFactorProviderTypeVisitor;
-        impl<'de> serde::de::Visitor<'de> for TwoFactorProviderTypeVisitor {
+        impl serde::de::Visitor<'_> for TwoFactorProviderTypeVisitor {
             type Value = TwoFactorProviderType;
 
             fn expecting(
@@ -186,7 +186,7 @@ impl<'de> serde::Deserialize<'de> for KdfType {
         D: serde::Deserializer<'de>,
     {
         struct KdfTypeVisitor;
-        impl<'de> serde::de::Visitor<'de> for KdfTypeVisitor {
+        impl serde::de::Visitor<'_> for KdfTypeVisitor {
             type Value = KdfType;
 
             fn expecting(
