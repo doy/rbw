@@ -769,7 +769,7 @@ struct FoldersPostReq {
 
 // Used for the Bitwarden-Client-Name header. Accepted values:
 // https://github.com/bitwarden/server/blob/main/src/Core/Enums/BitwardenClient.cs
-const BITWARDEN_CLIENT: &'static str = "cli";
+const BITWARDEN_CLIENT: &str = "cli";
 
 // DeviceType.LinuxDesktop, as per Bitwarden API device types.
 const DEVICE_TYPE: u8 = 8;
@@ -896,7 +896,7 @@ impl Client {
             // XXX unwraps here are not necessarily safe
             client_id: String::from_utf8(apikey.client_id().to_vec())
                 .unwrap(),
-            device_type: DEVICE_TYPE as u32,
+            device_type: u32::from(DEVICE_TYPE),
             device_identifier: device_id.to_string(),
             device_name: "rbw".to_string(),
             device_push_token: String::new(),
@@ -953,7 +953,7 @@ impl Client {
                     grant_type: "authorization_code".to_string(),
                     scope: "api offline_access".to_string(),
                     client_id: "cli".to_string(),
-                    device_type: DEVICE_TYPE as u32,
+                    device_type: u32::from(DEVICE_TYPE),
                     device_identifier: device_id.to_string(),
                     device_name: "rbw".to_string(),
                     device_push_token: String::new(),
