@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use crate::protocol;
 
 use std::convert::TryFrom as _;
 use tokio::io::AsyncWriteExt as _;
@@ -8,20 +9,31 @@ pub async fn getpin(
     prompt: &str,
     desc: &str,
     err: Option<&str>,
-    tty: Option<&str>,
+    environment: &protocol::Environment,
     grab: bool,
 ) -> Result<crate::locked::Password> {
     let mut opts = tokio::process::Command::new(pinentry);
     opts.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
     let mut args = vec!["--timeout", "0"];
-    if let Some(tty) = tty {
+    if let Some(tty) = &environment.tty {
         args.extend(&["--ttyname", tty]);
+    }
+    // Not all pinentry appear to respect the --display flag, so we also keep the environment
+    // variable.
+    if let Some(display) = environment.env_vars.get("DISPLAY") {
+        args.extend(&["--display", display]);
     }
     if !grab {
         args.push("--grab");
     }
     opts.args(args);
+
+    for &env_var in protocol::ENVIRONMENT_VARIABLES {
+        opts.env_remove(env_var);
+    }
+    opts.envs(&environment.env_vars);
+
     let mut child = opts.spawn().map_err(|source| Error::Spawn { source })?;
     // unwrap is safe because we specified stdin as piped in the command opts
     // above

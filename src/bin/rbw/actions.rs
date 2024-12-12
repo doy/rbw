@@ -1,4 +1,5 @@
 use anyhow::{bail, Context as _};
+use std::collections::HashMap;
 use std::io::Read as _;
 
 pub fn register() -> anyhow::Result<()> {
@@ -37,11 +38,7 @@ pub fn quit() -> anyhow::Result<()> {
                 bail!("failed to read pid from pidfile");
             };
             sock.send(&rbw::protocol::Request {
-                tty: rustix::termios::ttyname(std::io::stdin(), vec![])
-                    .ok()
-                    .and_then(|p| {
-                        p.to_str().map(std::string::ToString::to_string).ok()
-                    }),
+                environment: get_environment(),
                 action: rbw::protocol::Action::Quit,
             })?;
             wait_for_exit(pid);
@@ -64,11 +61,7 @@ pub fn decrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
-            .ok()
-            .and_then(|p| {
-                p.to_str().map(std::string::ToString::to_string).ok()
-            }),
+        environment: get_environment(),
         action: rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
             entry_key: entry_key.map(std::string::ToString::to_string),
@@ -92,11 +85,7 @@ pub fn encrypt(
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
-            .ok()
-            .and_then(|p| {
-                p.to_str().map(std::string::ToString::to_string).ok()
-            }),
+        environment: get_environment(),
         action: rbw::protocol::Action::Encrypt {
             plaintext: plaintext.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -122,11 +111,7 @@ pub fn clipboard_store(text: &str) -> anyhow::Result<()> {
 pub fn version() -> anyhow::Result<u32> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request {
-        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
-            .ok()
-            .and_then(|p| {
-                p.to_str().map(std::string::ToString::to_string).ok()
-            }),
+        environment: get_environment(),
         action: rbw::protocol::Action::Version,
     })?;
 
@@ -144,11 +129,7 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     let mut sock = connect()?;
 
     sock.send(&rbw::protocol::Request {
-        tty: rustix::termios::ttyname(std::io::stdin(), vec![])
-            .ok()
-            .and_then(|p| {
-                p.to_str().map(std::string::ToString::to_string).ok()
-            }),
+        environment: get_environment(),
         action,
     })?;
 
@@ -181,4 +162,17 @@ fn wait_for_exit(pid: rustix::process::Pid) {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+}
+
+fn get_environment() -> rbw::protocol::Environment {
+    let tty = rustix::termios::ttyname(std::io::stdin(), vec![])
+        .ok()
+        .and_then(|p| p.to_str().map(String::from).ok());
+    let mut env_vars = HashMap::new();
+    for &env_var in rbw::protocol::ENVIRONMENT_VARIABLES {
+        if let Ok(var) = std::env::var(env_var) {
+            env_vars.insert(env_var.to_owned(), var);
+        }
+    }
+    rbw::protocol::Environment { tty, env_vars }
 }
