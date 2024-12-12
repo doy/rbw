@@ -2,7 +2,7 @@ use anyhow::Context as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
-    tty: Option<&str>,
+    environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
     let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
 
@@ -33,7 +33,7 @@ pub async fn register(
                 "API key client__id",
                 &format!("Log in to {host}"),
                 err.as_deref(),
-                tty,
+                environment,
                 false,
             )
             .await
@@ -43,7 +43,7 @@ pub async fn register(
                 "API key client__secret",
                 &format!("Log in to {host}"),
                 err.as_deref(),
-                tty,
+                environment,
                 false,
             )
             .await
@@ -79,7 +79,7 @@ pub async fn register(
 pub async fn login(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
-    tty: Option<&str>,
+    environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
     let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
 
@@ -110,7 +110,7 @@ pub async fn login(
                 "Master Password",
                 &format!("Log in to {host}"),
                 err.as_deref(),
-                tty,
+                environment,
                 true,
             )
             .await
@@ -161,7 +161,7 @@ pub async fn login(
                                 parallelism,
                                 protected_key,
                             ) = two_factor(
-                                tty,
+                                environment,
                                 &email,
                                 password.clone(),
                                 provider,
@@ -212,7 +212,7 @@ pub async fn login(
 }
 
 async fn two_factor(
-    tty: Option<&str>,
+    environment: &rbw::protocol::Environment,
     email: &str,
     password: rbw::locked::Password,
     provider: rbw::api::TwoFactorProviderType,
@@ -239,7 +239,7 @@ async fn two_factor(
             provider.header(),
             provider.message(),
             err.as_deref(),
-            tty,
+            environment,
             provider.grab(),
         )
         .await
@@ -363,7 +363,7 @@ async fn login_success(
 pub async fn unlock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
-    tty: Option<&str>,
+    environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
     if state.lock().await.needs_unlock() {
         let db = load_db().await?;
@@ -411,7 +411,7 @@ pub async fn unlock(
                     rbw::dirs::profile()
                 ),
                 err.as_deref(),
-                tty,
+                environment,
                 true,
             )
             .await
