@@ -58,7 +58,7 @@ function getpin() {
                         cmd+="SETPROMPT Master Password\n"
                         cmd+="SETDESC Please enter the master password for '$rbw_profile'\n"
                         cmd+="GETPIN\n"
-                        secret_value="$(printf "$cmd" | pinentry | grep -E "^D " | cut -c3-)"
+                        secret_value="$(printf "$cmd" | pinentry "$@" | grep -E "^D " | cut -c3-)"
                         if [ -n "$secret_value" ]; then
                             echo -n "$secret_value" | secret-tool store --label="$rbw_profile master password" application rbw profile "$rbw_profile" type master_password >/dev/null 2>&1
                         fi
@@ -72,7 +72,7 @@ function getpin() {
                     cmd+="SETDESC $desc\n"
                     cmd+="GETPIN\n"
 
-                    secret_value="$(printf "$cmd" | pinentry | grep -E "^D " | cut -c3-)"
+                    secret_value="$(printf "$cmd" | pinentry "$@" | grep -E "^D " | cut -c3-)"
 
                     printf 'D %s\n' "$secret_value"
                     echo 'OK'
@@ -97,6 +97,6 @@ case "$command" in
         clear
         ;;
     *)
-        getpin
+        getpin "$@"
         ;;
 esac
