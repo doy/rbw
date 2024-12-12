@@ -165,10 +165,14 @@ fn wait_for_exit(pid: rustix::process::Pid) {
 }
 
 fn get_environment() -> rbw::protocol::Environment {
-    let tty = rustix::termios::ttyname(std::io::stdin(), vec![])
-        .ok()
-        .and_then(|p| p.to_str().map(String::from).ok());
     let mut env_vars = HashMap::new();
+
+    let tty = std::env::var("RBW_TTY").ok().or_else(|| {
+        rustix::termios::ttyname(std::io::stdin(), vec![])
+            .ok()
+            .and_then(|p| p.to_str().map(String::from).ok())
+    });
+
     for &env_var in rbw::protocol::ENVIRONMENT_VARIABLES {
         if let Ok(var) = std::env::var(env_var) {
             env_vars.insert(env_var.to_owned(), var);
