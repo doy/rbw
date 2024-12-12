@@ -14,12 +14,12 @@ pub async fn getpin(
     let mut opts = tokio::process::Command::new(pinentry);
     opts.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
-    let mut args = vec!["-o", "0"];
+    let mut args = vec!["--timeout", "0"];
     if let Some(tty) = tty {
-        args.extend(&["-T", tty]);
+        args.extend(&["--ttyname", tty]);
     }
     if !grab {
-        args.push("-g");
+        args.push("--grab");
     }
     opts.args(args);
     let mut child = opts.spawn().map_err(|source| Error::Spawn { source })?;
