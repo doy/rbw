@@ -3,6 +3,7 @@ use serde::Serialize;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;
 use std::io::prelude::Write;
+use std::os::unix::ffi::OsStrExt as _;
 use url::Url;
 
 const MISSING_CONFIG_HELP: &str =
@@ -1618,11 +1619,10 @@ fn ensure_agent() -> anyhow::Result<()> {
 }
 
 fn ensure_agent_once() -> anyhow::Result<()> {
-    let agent_path = std::env::var("RBW_AGENT");
+    let agent_path = std::env::var_os("RBW_AGENT");
     let agent_path = agent_path
-        .as_ref()
-        .map(std::string::String::as_str)
-        .unwrap_or("rbw-agent");
+        .as_deref()
+        .unwrap_or_else(|| std::ffi::OsStr::from_bytes(b"rbw-agent"));
     let status = std::process::Command::new(agent_path)
         .status()
         .context("failed to run rbw-agent")?;
