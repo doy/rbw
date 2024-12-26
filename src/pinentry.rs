@@ -1,7 +1,7 @@
 use crate::prelude::*;
-use crate::protocol;
 
 use std::convert::TryFrom as _;
+
 use tokio::io::AsyncWriteExt as _;
 
 pub async fn getpin(
@@ -9,7 +9,7 @@ pub async fn getpin(
     prompt: &str,
     desc: &str,
     err: Option<&str>,
-    environment: &protocol::Environment,
+    environment: &crate::protocol::Environment,
     grab: bool,
 ) -> Result<crate::locked::Password> {
     let mut opts = tokio::process::Command::new(pinentry);
@@ -33,7 +33,7 @@ pub async fn getpin(
     }
     opts.args(args);
 
-    for env_var in &*protocol::ENVIRONMENT_VARIABLES_OS {
+    for env_var in &*crate::protocol::ENVIRONMENT_VARIABLES_OS {
         if let Some(val) = env_vars.get(env_var) {
             opts.env(env_var, val);
         } else {

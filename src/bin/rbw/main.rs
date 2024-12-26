@@ -13,9 +13,10 @@
 #![allow(clippy::multiple_crate_versions)]
 #![allow(clippy::large_enum_variant)]
 
+use std::io::Write as _;
+
 use anyhow::Context as _;
 use clap::{CommandFactory as _, Parser as _};
-use std::io::Write as _;
 
 mod actions;
 mod commands;

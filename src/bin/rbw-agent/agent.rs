@@ -2,8 +2,6 @@ use anyhow::Context as _;
 use cli_clipboard::ClipboardProvider as _;
 use futures_util::StreamExt as _;
 
-use crate::notifications;
-
 pub struct State {
     pub priv_key: Option<rbw::locked::Keys>,
     pub org_keys:
@@ -100,8 +98,8 @@ impl Agent {
                 notifications,
             )
             .map(|message| match message {
-                notifications::Message::Logout => Event::Timeout(()),
-                notifications::Message::Sync => Event::Sync(()),
+                crate::notifications::Message::Logout => Event::Timeout(()),
+                crate::notifications::Message::Sync => Event::Sync(()),
             })
             .boxed();
 

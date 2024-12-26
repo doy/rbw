@@ -1,5 +1,6 @@
-use anyhow::Context as _;
 use std::io::{BufRead as _, Write as _};
+
+use anyhow::Context as _;
 
 pub struct Sock(std::os::unix::net::UnixStream);
 

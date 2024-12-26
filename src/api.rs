@@ -4,21 +4,13 @@
 
 use crate::prelude::*;
 
+use rand::Rng as _;
+use sha2::Digest as _;
+use tokio::io::AsyncReadExt as _;
+
 use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
 };
-
-use axum::extract::{Query, State};
-use axum::http::{Response, StatusCode};
-use open;
-use rand::{distributions::Alphanumeric, Rng};
-use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::io::AsyncReadExt as _;
-use tokio::net::TcpListener;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use urlencoding;
 
 #[derive(
     serde_repr::Serialize_repr,
@@ -1024,25 +1016,25 @@ impl Client {
         sso_id: &str,
     ) -> Result<(String, String, String)> {
         let state: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
+            .sample_iter(&rand::distributions::Alphanumeric)
             .take(64)
             .map(char::from)
             .collect();
 
         let sso_code_verifier: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
+            .sample_iter(&rand::distributions::Alphanumeric)
             .take(64)
             .map(char::from)
             .collect();
 
-        let mut hasher = Sha256::new();
+        let mut hasher = sha2::Sha256::new();
         hasher.update(sso_code_verifier.clone());
         let code_challenge =
             crate::base64::encode_url_safe_no_pad(hasher.finalize());
 
         let port = find_free_port(8065, 8070).await?;
 
-        let listener = TcpListener::bind(("127.0.0.1", port))
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
             .await
             .map_err(|e| Error::CreateSSOCallbackServer { err: e })?;
 
@@ -1520,7 +1512,10 @@ impl Client {
 
 async fn find_free_port(bottom: u16, top: u16) -> Result<u16> {
     for port in bottom..top {
-        if TcpListener::bind(("127.0.0.1", port)).await.is_ok() {
+        if tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
             return Ok(port);
         }
     }
@@ -1533,17 +1528,17 @@ async fn find_free_port(bottom: u16, top: u16) -> Result<u16> {
 #[derive(Clone)]
 struct SSOHandlerState {
     state: String,
-    sender: Sender<Result<String>>,
+    sender: tokio::sync::mpsc::Sender<Result<String>>,
 }
 
 async fn start_sso_callback_server(
-    listener: TcpListener,
+    listener: tokio::net::TcpListener,
     state: &str,
 ) -> Result<String> {
-    let (shut_sender, shut_receiver) = channel(1);
-    let (sender, mut receiver) = channel(1);
+    let (shut_sender, shut_receiver) = tokio::sync::mpsc::channel(1);
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
 
-    let sso_handler_state = Arc::new(SSOHandlerState {
+    let sso_handler_state = std::sync::Arc::new(SSOHandlerState {
         state: state.to_string(),
         sender: shut_sender,
     });
@@ -1566,21 +1561,25 @@ async fn start_sso_callback_server(
 }
 
 async fn sso_server_graceful_shutdown(
-    sender: Sender<Result<String>>,
-    mut receiver: Receiver<Result<String>>,
+    sender: tokio::sync::mpsc::Sender<Result<String>>,
+    mut receiver: tokio::sync::mpsc::Receiver<Result<String>>,
 ) {
     sender.send(receiver.recv().await.unwrap()).await.unwrap();
 }
 
 async fn handle_sso_callback(
-    State(state): State<Arc<SSOHandlerState>>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Response<String> {
+    axum::extract::State(state): axum::extract::State<
+        std::sync::Arc<SSOHandlerState>,
+    >,
+    axum::extract::Query(params): axum::extract::Query<
+        std::collections::HashMap<String, String>,
+    >,
+) -> axum::http::Response<String> {
     match sso_query_code(&params, state.state.as_str()) {
         Ok(sso_code) => {
             state.sender.send(Ok(sso_code)).await.unwrap();
 
-            Response::builder().status(StatusCode::OK).
+            axum::http::Response::builder().status(axum::http::StatusCode::OK).
             body(
                 "<html><head><title>Success | rbw</title></head><body> \
                   <h1>Successfully authenticated with rbw</h1> \
@@ -1590,7 +1589,7 @@ async fn handle_sso_callback(
         Err(e) => {
             state.sender.send(Err(e)).await.unwrap();
 
-            Response::builder().status(StatusCode::BAD_REQUEST).
+            axum::http::Response::builder().status(axum::http::StatusCode::BAD_REQUEST).
             body(
                 "<html><head><title>Failed | rbw</title></head><body> \
                   <h1>Something went wrong logging into the rbw</h1> \
@@ -1601,7 +1600,7 @@ async fn handle_sso_callback(
 }
 
 fn sso_query_code(
-    params: &HashMap<String, String>,
+    params: &std::collections::HashMap<String, String>,
     state: &str,
 ) -> Result<String> {
     let sso_code =

@@ -1,4 +1,4 @@
-use zeroize::Zeroize;
+use zeroize::Zeroize as _;
 
 const LEN: usize = 4096;
 

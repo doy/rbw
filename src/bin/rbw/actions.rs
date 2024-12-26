@@ -1,6 +1,6 @@
-use anyhow::{bail, Context as _};
-use std::io::Read as _;
-use std::os::unix::ffi::OsStringExt as _;
+use std::{io::Read as _, os::unix::ffi::OsStringExt as _};
+
+use anyhow::Context as _;
 
 pub fn register() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Register)
@@ -35,7 +35,7 @@ pub fn quit() -> anyhow::Result<()> {
             let Some(pid) =
                 rustix::process::Pid::from_raw(pid.trim_end().parse()?)
             else {
-                bail!("failed to read pid from pidfile");
+                anyhow::bail!("failed to read pid from pidfile");
             };
             sock.send(&rbw::protocol::Request {
                 environment: get_environment(),

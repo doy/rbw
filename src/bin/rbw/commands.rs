@@ -1,10 +1,6 @@
+use std::{io::Write as _, os::unix::ffi::OsStrExt as _};
+
 use anyhow::Context as _;
-use serde::Serialize;
-use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::io;
-use std::io::prelude::Write;
-use std::os::unix::ffi::OsStrExt as _;
-use url::Url;
 
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
@@ -19,12 +15,12 @@ const MISSING_CONFIG_HELP: &str =
 #[derive(Debug, Clone)]
 pub enum Needle {
     Name(String),
-    Uri(Url),
+    Uri(url::Url),
     Uuid(uuid::Uuid),
 }
 
-impl Display for Needle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+impl std::fmt::Display for Needle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match &self {
             Self::Name(name) => name.clone(),
             Self::Uri(uri) => uri.to_string(),
@@ -39,7 +35,7 @@ pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
     if let Ok(uuid) = uuid::Uuid::parse_str(arg) {
         return Ok(Needle::Uuid(uuid));
     }
-    if let Ok(url) = Url::parse(arg) {
+    if let Ok(url) = url::Url::parse(arg) {
         if url.is_special() {
             return Ok(Needle::Uri(url));
         }
@@ -48,7 +44,7 @@ pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
     Ok(Needle::Name(arg.to_string()))
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
     id: String,
@@ -697,7 +693,7 @@ fn val_display_or_store(clipboard: bool, password: &str) -> bool {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[serde(untagged)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 enum DecryptedData {
@@ -737,7 +733,7 @@ enum DecryptedData {
     SecureNote,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedField {
     name: Option<String>,
@@ -768,14 +764,14 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedHistoryEntry {
     last_used_date: String,
     password: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedUri {
     uri: String,
@@ -783,7 +779,7 @@ struct DecryptedUri {
 }
 
 impl DecryptedUri {
-    fn matches_url(&self, url: &Url) -> bool {
+    fn matches_url(&self, url: &url::Url) -> bool {
         match self.match_type.unwrap_or(rbw::api::UriMatchType::Domain) {
             rbw::api::UriMatchType::Domain => {
                 let Some(given_domain_port) = domain_port(url) else {
@@ -834,7 +830,7 @@ impl DecryptedUri {
     }
 }
 
-fn host_port(url: &Url) -> Option<String> {
+fn host_port(url: &url::Url) -> Option<String> {
     let host = url.host_str()?;
     Some(
         url.port().map_or_else(
@@ -844,7 +840,7 @@ fn host_port(url: &Url) -> Option<String> {
     )
 }
 
-fn domain_port(url: &Url) -> Option<String> {
+fn domain_port(url: &url::Url) -> Option<String> {
     let domain = url.domain()?;
     Some(url.port().map_or_else(
         || domain.to_string(),
@@ -1053,7 +1049,7 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
 
         // write to stdout but don't panic when pipe get's closed
         // this happens when piping stdout in a shell
-        match writeln!(&mut io::stdout(), "{}", values.join("\t")) {
+        match writeln!(&mut std::io::stdout(), "{}", values.join("\t")) {
             Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
             res => res,
         }?;
