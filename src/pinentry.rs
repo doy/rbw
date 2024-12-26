@@ -33,8 +33,12 @@ pub async fn getpin(
     }
     opts.args(args);
 
-    for &env_var in protocol::ENVIRONMENT_VARIABLES {
-        opts.env_remove(env_var);
+    for env_var in &*protocol::ENVIRONMENT_VARIABLES_OS {
+        if let Some(val) = env_vars.get(env_var) {
+            opts.env(env_var, val);
+        } else {
+            opts.env_remove(env_var);
+        }
     }
     opts.envs(env_vars);
 

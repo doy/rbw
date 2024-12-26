@@ -142,6 +142,7 @@ impl Environment {
         self.env_vars
             .iter()
             .map(|(var, val)| (var.0.clone(), val.0.clone()))
+            .filter(|(var, _)| (*ENVIRONMENT_VARIABLES_OS).contains(var))
             .collect()
     }
 }
