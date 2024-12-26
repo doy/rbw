@@ -25,10 +25,6 @@ skip = [
     # https://github.com/darfink/region-rs/pull/25
     { name = "bitflags", version = "1.3.2" },
     { name = "bitflags", version = "2.4.1" },
-
-    # axum currently depends on both of these
-    { name = "sync_wrapper", version = "0.1.2" },
-    { name = "sync_wrapper", version = "1.0.1" },
 ]
 
 [licenses]
@@ -39,7 +35,7 @@ allow = [
     "BSD-3-Clause",
     "Apache-2.0",
     "ISC",
-    "Unicode-DFS-2016",
+    "Unicode-3.0",
 ]
 exceptions = [
     { name = "ring", allow = ["OpenSSL", "MIT", "ISC"] }
