@@ -1,6 +1,6 @@
 use anyhow::{bail, Context as _};
-use std::collections::HashMap;
 use std::io::Read as _;
+use std::os::unix::ffi::OsStringExt as _;
 
 pub fn register() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Register)
@@ -165,18 +165,16 @@ fn wait_for_exit(pid: rustix::process::Pid) {
 }
 
 fn get_environment() -> rbw::protocol::Environment {
-    let mut env_vars = HashMap::new();
-
-    let tty = std::env::var("RBW_TTY").ok().or_else(|| {
+    let tty = std::env::var_os("RBW_TTY").or_else(|| {
         rustix::termios::ttyname(std::io::stdin(), vec![])
             .ok()
-            .and_then(|p| p.to_str().map(String::from).ok())
+            .map(|p| std::ffi::OsString::from_vec(p.as_bytes().to_vec()))
     });
 
-    for &env_var in rbw::protocol::ENVIRONMENT_VARIABLES {
-        if let Ok(var) = std::env::var(env_var) {
-            env_vars.insert(env_var.to_owned(), var);
-        }
-    }
-    rbw::protocol::Environment { tty, env_vars }
+    let env_vars = std::env::vars_os()
+        .filter(|(var_name, _)| {
+            (*rbw::protocol::ENVIRONMENT_VARIABLES_OS).contains(var_name)
+        })
+        .collect();
+    rbw::protocol::Environment::new(tty, env_vars)
 }

@@ -15,24 +15,28 @@ pub async fn getpin(
     let mut opts = tokio::process::Command::new(pinentry);
     opts.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
-    let mut args = vec!["--timeout", "0"];
-    if let Some(tty) = &environment.tty {
-        args.extend(&["--ttyname", tty]);
+    let mut args = vec!["--timeout".into(), "0".into()];
+    if let Some(tty) = environment.tty() {
+        args.extend(["--ttyname".into(), tty.into()]);
     }
+
+    let env_vars = environment.env_vars();
     // Not all pinentry appear to respect the --display flag, so we also keep the environment
     // variable.
-    if let Some(display) = environment.env_vars.get("DISPLAY") {
-        args.extend(&["--display", display]);
+    if let Some(display) =
+        env_vars.get(std::ffi::OsString::from("DISPLAY").as_os_str())
+    {
+        args.extend(["--display".into(), display.clone()]);
     }
     if !grab {
-        args.push("--no-global-grab");
+        args.push("--no-global-grab".into());
     }
     opts.args(args);
 
     for &env_var in protocol::ENVIRONMENT_VARIABLES {
         opts.env_remove(env_var);
     }
-    opts.envs(&environment.env_vars);
+    opts.envs(env_vars);
 
     let mut child = opts.spawn().map_err(|source| Error::Spawn { source })?;
     // unwrap is safe because we specified stdin as piped in the command opts
