@@ -25,7 +25,7 @@ pub async fn getpin(
         args.extend(&["--display", display]);
     }
     if !grab {
-        args.push("--grab");
+        args.push("--no-global-grab");
     }
     opts.args(args);
 
