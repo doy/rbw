@@ -742,7 +742,7 @@ struct DecryptedField {
     ty: Option<rbw::api::FieldType>,
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
+#[allow(clippy::trivially_copy_pass_by_ref, clippy::ref_option)]
 fn serialize_field_type<S>(
     ty: &Option<rbw::api::FieldType>,
     serializer: S,
