@@ -21,8 +21,6 @@ and merge pull requests implementing those features.
 
 ## Installation
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/rbw.svg?exclude_unsupported=1)](https://repology.org/project/rbw/versions)
-
 ### Arch Linux
 
 `rbw` is available in the [extra
