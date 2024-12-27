@@ -12,6 +12,10 @@ impl Sock {
         &mut self,
         res: &rbw::protocol::Response,
     ) -> anyhow::Result<()> {
+        if let rbw::protocol::Response::Error { error } = res {
+            log::warn!("{error}");
+        }
+
         let Self(sock) = self;
         sock.write_all(
             serde_json::to_string(res)
