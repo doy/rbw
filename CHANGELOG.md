@@ -1,11 +1,16 @@
 # Changelog
 
-## Unreleased
+## [1.13.0] - 2024-12-26
 
 ### Fixed
 
 * Fix preventing the password type selectors in `rbw generate` from being
   used together. (antecrescent, #198)
+* Fix `--clipboard` on Wayland (Maksim Karelov, #192)
+* Fix parsing vaults with entries that have non-null field types (Tin Lai, #212)
+* Fix lock timeout being reset when checking version (aeber, #216)
+* Update API request headers to pass new stricter validation on the official bitwarden.com server (Davide Laezza, #219)
+* Make it possible to start the rbw agent process from a graphical session and then access it over SSH (Wim de With, #221)
 
 ## [1.12.1] - 2024-07-28
 
