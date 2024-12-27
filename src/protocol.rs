@@ -2,7 +2,6 @@ use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 
 // eventually it would be nice to make this a const function so that we could
 // just get the version from a variable directly, but this is fine for now
-#[must_use]
 pub fn version() -> u32 {
     let major = env!("CARGO_PKG_VERSION_MAJOR");
     let minor = env!("CARGO_PKG_VERSION_MINOR");
@@ -131,7 +130,6 @@ pub struct Environment {
 }
 
 impl Environment {
-    #[must_use]
     pub fn new(
         tty: Option<std::ffi::OsString>,
         env_vars: Vec<(std::ffi::OsString, std::ffi::OsString)>,
@@ -147,12 +145,10 @@ impl Environment {
         }
     }
 
-    #[must_use]
     pub fn tty(&self) -> Option<&std::ffi::OsStr> {
         self.tty.as_ref().map(|tty| tty.0.as_os_str())
     }
 
-    #[must_use]
     pub fn env_vars(
         &self,
     ) -> std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>

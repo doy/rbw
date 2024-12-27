@@ -42,23 +42,19 @@ impl Default for Config {
     }
 }
 
-#[must_use]
 pub fn default_lock_timeout() -> u64 {
     3600
 }
 
-#[must_use]
 pub fn default_sync_interval() -> u64 {
     3600
 }
 
-#[must_use]
 pub fn default_pinentry() -> String {
     "pinentry".to_string()
 }
 
 impl Config {
-    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -147,7 +143,6 @@ impl Config {
         Ok(())
     }
 
-    #[must_use]
     pub fn base_url(&self) -> String {
         self.base_url.clone().map_or_else(
             || "https://api.bitwarden.com".to_string(),
@@ -162,7 +157,6 @@ impl Config {
         )
     }
 
-    #[must_use]
     pub fn identity_url(&self) -> String {
         self.identity_url.clone().unwrap_or_else(|| {
             self.base_url.clone().map_or_else(
@@ -179,7 +173,6 @@ impl Config {
         })
     }
 
-    #[must_use]
     pub fn ui_url(&self) -> String {
         // TODO: default to either vault.bitwarden.com or vault.bitwarden.eu based on the base_url?
         self.ui_url
@@ -187,7 +180,6 @@ impl Config {
             .unwrap_or_else(|| "https://vault.bitwarden.com".to_string())
     }
 
-    #[must_use]
     pub fn notifications_url(&self) -> String {
         self.notifications_url.clone().unwrap_or_else(|| {
             self.base_url.clone().map_or_else(
@@ -204,12 +196,10 @@ impl Config {
         })
     }
 
-    #[must_use]
     pub fn client_cert_path(&self) -> Option<&std::path::Path> {
         self.client_cert_path.as_deref()
     }
 
-    #[must_use]
     pub fn server_name(&self) -> String {
         self.base_url
             .clone()

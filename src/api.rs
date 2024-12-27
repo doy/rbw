@@ -60,7 +60,6 @@ pub enum TwoFactorProviderType {
 }
 
 impl TwoFactorProviderType {
-    #[must_use]
     pub fn message(&self) -> &str {
         match *self {
             Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
@@ -70,7 +69,6 @@ impl TwoFactorProviderType {
         }
     }
 
-    #[must_use]
     pub fn header(&self) -> &str {
         match *self {
             Self::Authenticator => "Authenticator App",
@@ -80,7 +78,6 @@ impl TwoFactorProviderType {
         }
     }
 
-    #[must_use]
     pub fn grab(&self) -> bool {
         !matches!(self, Self::Email)
     }
@@ -775,7 +772,6 @@ pub struct Client {
 }
 
 impl Client {
-    #[must_use]
     pub fn new(
         base_url: &str,
         identity_url: &str,
