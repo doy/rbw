@@ -37,10 +37,10 @@ pub fn quit() -> anyhow::Result<()> {
             else {
                 anyhow::bail!("failed to read pid from pidfile");
             };
-            sock.send(&rbw::protocol::Request {
-                environment: get_environment(),
-                action: rbw::protocol::Action::Quit,
-            })?;
+            sock.send(&rbw::protocol::Request::new(
+                get_environment(),
+                rbw::protocol::Action::Quit,
+            ))?;
             wait_for_exit(pid);
             Ok(())
         }
@@ -60,14 +60,14 @@ pub fn decrypt(
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
-    sock.send(&rbw::protocol::Request {
-        environment: get_environment(),
-        action: rbw::protocol::Action::Decrypt {
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
             entry_key: entry_key.map(std::string::ToString::to_string),
             org_id: org_id.map(std::string::ToString::to_string),
         },
-    })?;
+    ))?;
 
     let res = sock.recv()?;
     match res {
@@ -84,13 +84,13 @@ pub fn encrypt(
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
-    sock.send(&rbw::protocol::Request {
-        environment: get_environment(),
-        action: rbw::protocol::Action::Encrypt {
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::Encrypt {
             plaintext: plaintext.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
         },
-    })?;
+    ))?;
 
     let res = sock.recv()?;
     match res {
@@ -110,10 +110,10 @@ pub fn clipboard_store(text: &str) -> anyhow::Result<()> {
 
 pub fn version() -> anyhow::Result<u32> {
     let mut sock = connect()?;
-    sock.send(&rbw::protocol::Request {
-        environment: get_environment(),
-        action: rbw::protocol::Action::Version,
-    })?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::Version,
+    ))?;
 
     let res = sock.recv()?;
     match res {
@@ -128,10 +128,7 @@ pub fn version() -> anyhow::Result<u32> {
 fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     let mut sock = connect()?;
 
-    sock.send(&rbw::protocol::Request {
-        environment: get_environment(),
-        action,
-    })?;
+    sock.send(&rbw::protocol::Request::new(get_environment(), action))?;
 
     let res = sock.recv()?;
     match res {

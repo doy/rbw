@@ -175,16 +175,16 @@ async fn handle_request(
     };
     let set_timeout = match &req.action {
         rbw::protocol::Action::Register => {
-            crate::actions::register(sock, &req.environment).await?;
+            crate::actions::register(sock, &req.environment()).await?;
             true
         }
         rbw::protocol::Action::Login => {
-            crate::actions::login(sock, state.clone(), &req.environment)
+            crate::actions::login(sock, state.clone(), &req.environment())
                 .await?;
             true
         }
         rbw::protocol::Action::Unlock => {
-            crate::actions::unlock(sock, state.clone(), &req.environment)
+            crate::actions::unlock(sock, state.clone(), &req.environment())
                 .await?;
             true
         }

@@ -15,8 +15,26 @@ pub fn version() -> u32 {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Request {
-    pub environment: Environment,
+    tty: Option<String>,
+    environment: Option<Environment>,
     pub action: Action,
+}
+
+impl Request {
+    pub fn new(environment: Environment, action: Action) -> Self {
+        Self {
+            tty: None,
+            environment: Some(environment),
+            action,
+        }
+    }
+
+    pub fn environment(self) -> Environment {
+        self.environment.unwrap_or_else(|| Environment {
+            tty: self.tty.map(|tty| SerializableOsString(tty.into())),
+            env_vars: vec![],
+        })
+    }
 }
 
 // Taken from https://github.com/gpg/gnupg/blob/36dbca3e6944d13e75e96eace634e58a7d7e201d/common/session-env.c#L62-L91
