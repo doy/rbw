@@ -1,9 +1,6 @@
 use anyhow::Context as _;
 use futures_util::StreamExt as _;
 
-#[cfg(feature = "clipboard")]
-use cli_clipboard::ClipboardProvider as _;
-
 pub struct State {
     pub priv_key: Option<rbw::locked::Keys>,
     pub org_keys:
@@ -14,7 +11,7 @@ pub struct State {
     pub sync_timeout_duration: std::time::Duration,
     pub notifications_handler: crate::notifications::Handler,
     #[cfg(feature = "clipboard")]
-    pub clipboard: cli_clipboard::ClipboardContext,
+    pub clipboard: arboard::Clipboard,
 }
 
 impl State {
@@ -74,7 +71,7 @@ impl Agent {
                 sync_timeout_duration,
                 notifications_handler,
                 #[cfg(feature = "clipboard")]
-                clipboard: cli_clipboard::ClipboardContext::new().unwrap(),
+                clipboard: arboard::Clipboard::new().unwrap(),
             })),
         })
     }
