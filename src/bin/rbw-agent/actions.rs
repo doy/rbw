@@ -1,5 +1,4 @@
 use anyhow::Context as _;
-use cli_clipboard::ClipboardProvider as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -591,11 +590,14 @@ pub async fn encrypt(
     Ok(())
 }
 
+#[cfg(feature = "clipboard")]
 pub async fn clipboard_store(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     text: &str,
 ) -> anyhow::Result<()> {
+    use cli_clipboard::ClipboardProvider as _;
+
     state
         .lock()
         .await
@@ -606,6 +608,20 @@ pub async fn clipboard_store(
         })?;
 
     respond_ack(sock).await?;
+
+    Ok(())
+}
+
+#[cfg(not(feature = "clipboard"))]
+pub async fn clipboard_store(
+    sock: &mut crate::sock::Sock,
+    _state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    _text: &str,
+) -> anyhow::Result<()> {
+    sock.send(&rbw::protocol::Response::Error {
+        error: "clipboard not supported".to_string(),
+    })
+    .await?;
 
     Ok(())
 }

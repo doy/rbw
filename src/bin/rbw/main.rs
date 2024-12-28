@@ -69,6 +69,7 @@ enum Opt {
         full: bool,
         #[structopt(long, help = "Display output as JSON")]
         raw: bool,
+        #[cfg(feature = "clipboard")]
         #[structopt(long, help = "Copy result to clipboard")]
         clipboard: bool,
         #[structopt(short, long, help = "Ignore case")]
@@ -94,6 +95,7 @@ enum Opt {
         user: Option<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[cfg(feature = "clipboard")]
         #[structopt(long, help = "Copy result to clipboard")]
         clipboard: bool,
         #[arg(short, long, help = "Ignore case")]
@@ -334,6 +336,7 @@ fn main() {
             field,
             full,
             raw,
+            #[cfg(feature = "clipboard")]
             clipboard,
             ignorecase,
         } => commands::get(
@@ -343,7 +346,10 @@ fn main() {
             field.as_deref(),
             *full,
             *raw,
+            #[cfg(feature = "clipboard")]
             *clipboard,
+            #[cfg(not(feature = "clipboard"))]
+            false,
             *ignorecase,
         ),
         Opt::Search { term, folder } => {
@@ -353,13 +359,17 @@ fn main() {
             needle,
             user,
             folder,
+            #[cfg(feature = "clipboard")]
             clipboard,
             ignorecase,
         } => commands::code(
             needle,
             user.as_deref(),
             folder.as_deref(),
+            #[cfg(feature = "clipboard")]
             *clipboard,
+            #[cfg(not(feature = "clipboard"))]
+            false,
             *ignorecase,
         ),
         Opt::Add {
