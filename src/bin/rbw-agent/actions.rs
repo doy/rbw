@@ -596,16 +596,12 @@ pub async fn clipboard_store(
     state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
     text: &str,
 ) -> anyhow::Result<()> {
-    use cli_clipboard::ClipboardProvider as _;
-
-    state
-        .lock()
-        .await
-        .clipboard
-        .set_contents(text.to_owned())
-        .map_err(|e| {
+    let mut state = state.lock().await;
+    if let Some(clipboard) = &mut state.clipboard {
+        clipboard.set_text(text).map_err(|e| {
             anyhow::anyhow!("couldn't store value to clipboard: {e}")
         })?;
+    }
 
     respond_ack(sock).await?;
 
