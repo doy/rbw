@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.13.2] - 2025-01-06
+
+## Fixed
+
+* Try another clipboard backend to try to fix cross platform issues. (Mag
+  Mell, #226)
+* `rbw unlocked` no longer starts the agent if it isn't running. (#223)
+* The cardholder_name field is now correctly populated for card entries.
+  (#204)
+* Fix ip address url matching when using the domain match type. (#211)
+* Make the behavior of matching urls with no paths when using the exact match
+  type more consistent. (#211)
+
 ## [1.13.1] - 2024-12-27
 
 ### Fixed
