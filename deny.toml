@@ -25,10 +25,6 @@ skip = [
     # https://github.com/darfink/region-rs/pull/25
     { name = "bitflags", version = "1.3.2" },
     { name = "bitflags", version = "2.4.1" },
-
-    # https://github.com/allie-wake-up/cli-clipboard/pull/21
-    { name = "syn", version = "1.0.109" },
-    { name = "syn", version = "2.0.91" },
 ]
 
 [licenses]
