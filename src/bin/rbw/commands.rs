@@ -782,23 +782,22 @@ impl DecryptedUri {
     fn matches_url(&self, url: &url::Url) -> bool {
         match self.match_type.unwrap_or(rbw::api::UriMatchType::Domain) {
             rbw::api::UriMatchType::Domain => {
-                let Some(given_domain_port) = domain_port(url) else {
+                let Some(given_host_port) = host_port(url) else {
                     return false;
                 };
                 if let Ok(self_url) = url::Url::parse(&self.uri) {
-                    if let Some(self_domain_port) = domain_port(&self_url) {
+                    if let Some(self_host_port) = host_port(&self_url) {
                         if self_url.scheme() == url.scheme()
-                            && (self_domain_port == given_domain_port
-                                || given_domain_port.ends_with(&format!(
-                                    ".{self_domain_port}"
-                                )))
+                            && (self_host_port == given_host_port
+                                || given_host_port
+                                    .ends_with(&format!(".{self_host_port}")))
                         {
                             return true;
                         }
                     }
                 }
-                self.uri == given_domain_port
-                    || given_domain_port.ends_with(&format!(".{}", self.uri))
+                self.uri == given_host_port
+                    || given_host_port.ends_with(&format!(".{}", self.uri))
             }
             rbw::api::UriMatchType::Host => {
                 let Some(given_host_port) = host_port(url) else {
@@ -838,14 +837,6 @@ fn host_port(url: &url::Url) -> Option<String> {
             |port| format!("{host}:{port}"),
         ),
     )
-}
-
-fn domain_port(url: &url::Url) -> Option<String> {
-    let domain = url.domain()?;
-    Some(url.port().map_or_else(
-        || domain.to_string(),
-        |port| format!("{domain}:{port}"),
-    ))
 }
 
 enum ListField {
@@ -2497,6 +2488,7 @@ mod test {
                 &[("https://five.com:8080/", None)],
             ),
             make_entry("six", None, None, &[("six.com:8080", None)]),
+            make_entry("seven", None, None, &[("192.168.0.128:8080", None)]),
         ];
 
         assert!(
@@ -2586,6 +2578,21 @@ mod test {
         assert!(
             no_matches(entries, "https://six.com/", None, None, false),
             "six"
+        );
+        assert!(
+            one_match(
+                entries,
+                "https://192.168.0.128:8080/",
+                None,
+                None,
+                6,
+                false
+            ),
+            "seven"
+        );
+        assert!(
+            no_matches(entries, "https://192.168.0.128/", None, None, false),
+            "seven"
         );
     }
 
@@ -2637,6 +2644,15 @@ mod test {
                 None,
                 &[("six.com:8080", Some(rbw::api::UriMatchType::Domain))],
             ),
+            make_entry(
+                "seven",
+                None,
+                None,
+                &[(
+                    "192.168.0.128:8080",
+                    Some(rbw::api::UriMatchType::Domain),
+                )],
+            ),
         ];
 
         assert!(
@@ -2727,6 +2743,21 @@ mod test {
             no_matches(entries, "https://six.com/", None, None, false),
             "six"
         );
+        assert!(
+            one_match(
+                entries,
+                "https://192.168.0.128:8080/",
+                None,
+                None,
+                6,
+                false
+            ),
+            "seven"
+        );
+        assert!(
+            no_matches(entries, "https://192.168.0.128/", None, None, false),
+            "seven"
+        );
     }
 
     #[test]
@@ -2776,6 +2807,12 @@ mod test {
                 None,
                 None,
                 &[("six.com:8080", Some(rbw::api::UriMatchType::Host))],
+            ),
+            make_entry(
+                "seven",
+                None,
+                None,
+                &[("192.168.0.128:8080", Some(rbw::api::UriMatchType::Host))],
             ),
         ];
 
@@ -2859,6 +2896,21 @@ mod test {
         assert!(
             no_matches(entries, "https://six.com/", None, None, false),
             "six"
+        );
+        assert!(
+            one_match(
+                entries,
+                "https://192.168.0.128:8080/",
+                None,
+                None,
+                6,
+                false
+            ),
+            "seven"
+        );
+        assert!(
+            no_matches(entries, "https://192.168.0.128/", None, None, false),
+            "seven"
         );
     }
 
