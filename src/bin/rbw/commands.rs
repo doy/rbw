@@ -995,7 +995,7 @@ pub fn unlock() -> anyhow::Result<()> {
 }
 
 pub fn unlocked() -> anyhow::Result<()> {
-    ensure_agent()?;
+    // ensure_agent()?;
     crate::actions::unlocked()?;
 
     Ok(())

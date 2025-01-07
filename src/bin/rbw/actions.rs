@@ -15,7 +15,33 @@ pub fn unlock() -> anyhow::Result<()> {
 }
 
 pub fn unlocked() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::CheckLock)
+    match crate::sock::Sock::connect() {
+        Ok(mut sock) => {
+            sock.send(&rbw::protocol::Request::new(
+                get_environment(),
+                rbw::protocol::Action::CheckLock,
+            ))?;
+
+            let res = sock.recv()?;
+            match res {
+                rbw::protocol::Response::Ack => Ok(()),
+                rbw::protocol::Response::Error { error } => {
+                    Err(anyhow::anyhow!("{}", error))
+                }
+                _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
+            }
+        }
+        Err(e) => {
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::NotFound
+            ) {
+                anyhow::bail!("agent not running");
+            }
+            Err(e.into())
+        }
+    }
 }
 
 pub fn sync() -> anyhow::Result<()> {
