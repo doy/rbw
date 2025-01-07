@@ -817,7 +817,14 @@ impl DecryptedUri {
             rbw::api::UriMatchType::StartsWith => {
                 url.to_string().starts_with(&self.uri)
             }
-            rbw::api::UriMatchType::Exact => url.to_string() == self.uri,
+            rbw::api::UriMatchType::Exact => {
+                if url.path() == "/" {
+                    url.to_string().trim_end_matches('/')
+                        == self.uri.trim_end_matches('/')
+                } else {
+                    url.to_string() == self.uri
+                }
+            }
             rbw::api::UriMatchType::RegularExpression => {
                 let Ok(rx) = regex::Regex::new(&self.uri) else {
                     return false;
@@ -3040,10 +3047,24 @@ mod test {
                     Some(rbw::api::UriMatchType::Exact),
                 )],
             ),
+            make_entry(
+                "four",
+                None,
+                None,
+                &[("https://four.com", Some(rbw::api::UriMatchType::Exact))],
+            ),
         ];
 
         assert!(
             one_match(entries, "https://one.com/", None, None, 0, false),
+            "one"
+        );
+        assert!(
+            one_match(entries, "https://one.com", None, None, 0, false),
+            "one"
+        );
+        assert!(
+            no_matches(entries, "https://one.com/foo", None, None, false),
             "one"
         );
         assert!(
@@ -3105,6 +3126,18 @@ mod test {
         assert!(
             no_matches(entries, "https://three.com/", None, None, false),
             "three"
+        );
+        assert!(
+            one_match(entries, "https://four.com/", None, None, 3, false),
+            "four"
+        );
+        assert!(
+            one_match(entries, "https://four.com", None, None, 3, false),
+            "four"
+        );
+        assert!(
+            no_matches(entries, "https://four.com/foo", None, None, false),
+            "four"
         );
     }
 
