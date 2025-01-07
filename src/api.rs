@@ -560,7 +560,7 @@ struct CipherLoginUri {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct CipherCard {
-    #[serde(rename = "CardholderName", alias = "cardHolderName")]
+    #[serde(rename = "CardholderName", alias = "cardholderName")]
     cardholder_name: Option<String>,
     #[serde(rename = "Number", alias = "number")]
     number: Option<String>,
