@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.1] - 2024-12-27
+
+### Fixed
+
+* Moved clipboard support to a (default-enabled) feature, since not all
+  platforms support it (disabling this feature should allow Android builds to
+  work again).
+
 ## [1.13.0] - 2024-12-26
 
 ### Fixed
