@@ -1093,10 +1093,12 @@ pub fn get(
     Ok(())
 }
 
-pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
+pub fn search(term: &str, folder: Option<&str>, raw: bool) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
+
+    let mut json_entries = vec![];
 
     let found_entries: Vec<_> = db
         .entries
@@ -1106,18 +1108,23 @@ pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
             entry
                 .map(|decrypted| {
                     if decrypted.search_match(term, folder) {
-                        let mut display = decrypted.name;
-                        if let DecryptedData::Login {
-                            username: Some(username),
-                            ..
-                        } = decrypted.data
-                        {
-                            display = format!("{username}@{display}");
+                        if raw {
+                            json_entries.push(decrypted);
+                            None
+                        } else {
+                            let mut display = decrypted.name;
+                            if let DecryptedData::Login {
+                                username: Some(username),
+                                ..
+                            } = decrypted.data
+                            {
+                                display = format!("{username}@{display}");
+                            }
+                            if let Some(folder) = decrypted.folder {
+                                display = format!("{folder}/{display}");
+                            }
+                            Some(display)
                         }
-                        if let Some(folder) = decrypted.folder {
-                            display = format!("{folder}/{display}");
-                        }
-                        Some(display)
                     } else {
                         None
                     }
@@ -1126,8 +1133,13 @@ pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
         })
         .collect::<Result<_, anyhow::Error>>()?;
 
-    for name in found_entries {
-        println!("{name}");
+    if raw {
+        let j = serde_json::to_string(&json_entries)?;
+        println!("{}",j);
+    } else {
+        for name in found_entries {
+            println!("{name}");
+        }
     }
 
     Ok(())
