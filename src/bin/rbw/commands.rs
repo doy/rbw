@@ -3475,6 +3475,7 @@ mod test {
                     totp: None,
                 },
                 fields: vec![],
+                attachments: vec![],
                 notes: None,
                 history: vec![],
                 key: None,

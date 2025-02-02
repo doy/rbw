@@ -363,6 +363,21 @@ struct SyncRes {
     #[serde(rename = "Folders", alias = "folders")]
     folders: Vec<SyncResFolder>,
 }
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct SyncResAttachment {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
+    #[serde(rename = "FileName", alias = "fileName")]
+    file_name: String,
+    #[serde(rename = "Size", alias = "size")]
+    size: String,
+    #[serde(rename = "SizeName", alias = "sizeName")]
+    size_name: String,
+    #[serde(rename = "Url", alias = "url")]
+    url: Option<String>,
+    #[serde(rename = "Key", alias = "key")]
+    key: Option<String>,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResCipher {
@@ -388,6 +403,8 @@ struct SyncResCipher {
     password_history: Option<Vec<SyncResPasswordHistory>>,
     #[serde(rename = "Fields", alias = "fields")]
     fields: Option<Vec<CipherField>>,
+    #[serde(rename = "Attachments", alias = "attachments")]
+    attachments: Option<Vec<SyncResAttachment>>,
     #[serde(rename = "DeletedDate", alias = "deletedDate")]
     deleted_date: Option<String>,
     #[serde(rename = "Key", alias = "key")]
@@ -497,6 +514,22 @@ impl SyncResCipher {
                 })
                 .collect()
         });
+        let attachments =
+            self.attachments
+                .as_ref()
+                .map_or_else(Vec::new, |attachments| {
+                    attachments
+                        .iter()
+                        .map(|attachment| crate::db::Attachment {
+                            id: attachment.id.clone(),
+                            file_name: attachment.file_name.clone(),
+                            size: attachment.size.clone(),
+                            size_name: attachment.size_name.clone(),
+                            url: attachment.url.clone(),
+                            key: attachment.key.clone(),
+                        })
+                        .collect()
+                });
         Some(crate::db::Entry {
             id: self.id.clone(),
             org_id: self.organization_id.clone(),
@@ -508,6 +541,7 @@ impl SyncResCipher {
             notes: self.notes.clone(),
             history,
             key: self.key.clone(),
+            attachments,
         })
     }
 }

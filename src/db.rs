@@ -18,6 +18,19 @@ pub struct Entry {
     pub notes: Option<String>,
     pub history: Vec<HistoryEntry>,
     pub key: Option<String>,
+    pub attachments: Vec<Attachment>,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct Attachment {
+    pub id: String,
+    pub file_name: String,
+    pub size: String,
+    pub size_name: String,
+    pub url: Option<String>,
+    pub key: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug, Clone, Eq, PartialEq)]
