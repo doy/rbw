@@ -277,7 +277,7 @@ fn create_folder_once(access_token: &str, name: &str) -> Result<String> {
     client.create_folder(access_token, name)
 }
 
-fn with_exchange_refresh_token<F, T>(
+pub fn with_exchange_refresh_token<F, T>(
     access_token: &str,
     refresh_token: &str,
     f: F,
@@ -332,7 +332,7 @@ async fn exchange_refresh_token_async(refresh_token: &str) -> Result<String> {
     client.exchange_refresh_token_async(refresh_token).await
 }
 
-fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
+pub fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
     let config = crate::config::Config::load()?;
     let client = crate::api::Client::new(
         &config.base_url(),

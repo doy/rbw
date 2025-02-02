@@ -1,6 +1,8 @@
 use std::{io::Write as _, os::unix::ffi::OsStrExt as _};
 
 use anyhow::Context as _;
+use rbw::actions::api_client;
+use rbw::actions::with_exchange_refresh_token;
 
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
@@ -1080,6 +1082,8 @@ pub fn get(
     folder: Option<&str>,
     field: Option<&str>,
     full: bool,
+    attachment: Option<&str>,
+    output: Option<&str>,
     raw: bool,
     clipboard: bool,
     ignore_case: bool,
@@ -1087,20 +1091,69 @@ pub fn get(
     unlock()?;
 
     let db = load_db()?;
-
     let desc = format!(
         "{}{}",
         user.map_or_else(String::new, |s| format!("{s}@")),
         needle
     );
 
-    let (_, decrypted) =
+    let (entry, decrypted) =
         find_entry(&db, needle, user, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+
     if raw {
         decrypted.display_json(&desc)?;
     } else if full {
         decrypted.display_long(&desc, clipboard);
+    } else if let Some(attachment_name) = attachment {
+        // Find the attachment
+        let attachment = decrypted
+            .attachments
+            .iter()
+            .find(|a| a.file_name == attachment_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!("attachment not found: {}", attachment_name)
+            })?;
+
+        // Get output path
+        let output_path = if let Some(output_dir) = output {
+            let mut path = std::path::PathBuf::from(output_dir);
+            // Create directory if it doesn't exist
+            std::fs::create_dir_all(&path)?;
+            path.push(&attachment.file_name);
+            path
+        } else {
+            std::path::PathBuf::from(&attachment.file_name)
+        };
+
+        // Download the attachment
+        let mut db = load_db()?;
+        let access_token = db.access_token.as_ref().unwrap();
+        let refresh_token = db.refresh_token.as_ref().unwrap();
+
+        let (client, _) = api_client()?;
+        let url = attachment
+            .url
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("attachment URL not found"))?;
+
+        let (new_token, data) = with_exchange_refresh_token(
+            access_token,
+            refresh_token,
+            |token| client.get_attachment_file(token, url.as_str()),
+        )?;
+
+        if let Some(new_token) = new_token {
+            db.access_token = Some(new_token);
+            save_db(&db)?;
+        }
+
+        // Save the file
+        std::fs::write(&output_path, data).with_context(|| {
+            format!("failed to write attachment to {}", output_path.display())
+        })?;
+
+        println!("Downloaded attachment to {}", output_path.display());
     } else if let Some(field) = field {
         decrypted.display_field(&desc, field, clipboard);
     } else {
@@ -1900,6 +1953,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 size: attachment.size.clone(),
                 size_name: attachment.size_name.clone(),
                 url: attachment.url.clone(),
+                key: attachment.key.clone(),
             })
         })
         .collect::<anyhow::Result<_>>()?;

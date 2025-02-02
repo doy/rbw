@@ -1538,6 +1538,78 @@ impl Client {
     fn identity_url(&self, path: &str) -> String {
         format!("{}{}", self.identity_url, path)
     }
+    pub fn get_attachment_file(
+        &self,
+        access_token: &str,
+        attachment_url: &str,
+    ) -> Result<Vec<u8>> {
+        let client = reqwest::blocking::Client::new();
+
+        let parts: Vec<&str> = attachment_url
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        log::debug!("URL parts: {:?}", parts);
+
+        if parts.len() != 2 {
+            return Err(Error::InvalidCipherString {
+                reason: "invalid attachment URL format".to_string(),
+            });
+        }
+
+        let (cipher_id, attachment_id) = (parts[0], parts[1]);
+        let url = format!("/ciphers/{cipher_id}/attachment/{attachment_id}");
+
+        log::debug!("Using attachment_id: {}", attachment_id);
+        log::debug!("Using cipher_id: {}", cipher_id);
+
+        // First request to get download URL and key
+        let res = client
+            .get(self.api_url(&url))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+
+        let attachment_info: SyncResAttachment = match res.status() {
+            reqwest::StatusCode::OK => res.json_with_path()?,
+            reqwest::StatusCode::UNAUTHORIZED => {
+                return Err(Error::RequestUnauthorized);
+            }
+            _ => {
+                return Err(Error::RequestFailed {
+                    status: res.status().as_u16(),
+                });
+            }
+        };
+
+        let download_url = attachment_info.url.ok_or_else(|| {
+            Error::InvalidCipherString {
+                reason: "missing download URL".to_string(),
+            }
+        })?;
+
+        log::debug!("Download URL: {}", download_url);
+
+        // Second request to actually download the file
+        let res = client
+            .get(&download_url)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(res
+                .bytes()
+                .map_err(|source| Error::Reqwest { source })?
+                .to_vec()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
 }
 
 async fn find_free_port(bottom: u16, top: u16) -> Result<u16> {
