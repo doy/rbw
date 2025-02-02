@@ -375,6 +375,8 @@ struct SyncResAttachment {
     size_name: String,
     #[serde(rename = "Url", alias = "url")]
     url: Option<String>,
+    #[serde(rename = "Key", alias = "key")]
+    key: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -524,6 +526,7 @@ impl SyncResCipher {
                             size: attachment.size.clone(),
                             size_name: attachment.size_name.clone(),
                             url: attachment.url.clone(),
+                            key: attachment.key.clone(),
                         })
                         .collect()
                 });
