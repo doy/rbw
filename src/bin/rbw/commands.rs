@@ -1091,6 +1091,7 @@ pub fn get(
     unlock()?;
 
     let db = load_db()?;
+
     let desc = format!(
         "{}{}",
         user.map_or_else(String::new, |s| format!("{s}@")),
@@ -1118,7 +1119,6 @@ pub fn get(
         // Get output path
         let output_path = if let Some(output_dir) = output {
             let mut path = std::path::PathBuf::from(output_dir);
-            // Create directory if it doesn't exist
             std::fs::create_dir_all(&path)?;
             path.push(&attachment.file_name);
             path
@@ -1126,30 +1126,55 @@ pub fn get(
             std::path::PathBuf::from(&attachment.file_name)
         };
 
-        // Download the attachment
+        // Get attachment data from server
         let mut db = load_db()?;
         let access_token = db.access_token.as_ref().unwrap();
         let refresh_token = db.refresh_token.as_ref().unwrap();
 
-        let (client, _) = api_client()?;
+        // Download encrypted data with token refresh handling
+        let (client, _) = rbw::actions::api_client()?;
         let url = attachment
             .url
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("attachment URL not found"))?;
 
-        let (new_token, data) = with_exchange_refresh_token(
-            access_token,
-            refresh_token,
-            |token| client.get_attachment_file(token, url.as_str()),
-        )?;
+        let (new_token, encrypted_data) =
+            rbw::actions::with_exchange_refresh_token(
+                access_token,
+                refresh_token,
+                |token| client.get_attachment_file(token, url),
+            )?;
 
         if let Some(new_token) = new_token {
             db.access_token = Some(new_token);
             save_db(&db)?;
         }
 
-        // Save the file
-        std::fs::write(&output_path, data).with_context(|| {
+        // First decrypt the attachment key
+        let key = crate::actions::decrypt(
+            attachment
+                .key
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("attachment key not found"))?,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )?;
+
+        // Create a CipherString for the encrypted attachment data
+        let encrypted_str =
+            format!("2.{}", rbw::base64::encode(&encrypted_data));
+        let cipher = rbw::cipherstring::CipherString::new(&encrypted_str)?;
+
+        // Create a locked Vec and Keys for decryption
+        let mut key_bytes = rbw::locked::Vec::new();
+        key_bytes.extend(key.as_bytes().iter().copied());
+        let keys = rbw::locked::Keys::new(key_bytes);
+
+        // Decrypt the attachment data
+        let decrypted_data = cipher.decrypt_symmetric(&keys, None)?;
+
+        // Save the decrypted data
+        std::fs::write(&output_path, &decrypted_data).with_context(|| {
             format!("failed to write attachment to {}", output_path.display())
         })?;
 
