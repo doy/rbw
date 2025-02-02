@@ -54,6 +54,9 @@ struct DecryptedCipher {
     fields: Vec<DecryptedField>,
     notes: Option<String>,
     history: Vec<DecryptedHistoryEntry>,
+    // Only include if there are attachments
+    // #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<rbw::db::Attachment>,
 }
 
 impl DecryptedCipher {
@@ -420,6 +423,20 @@ impl DecryptedCipher {
                 );
                 displayed |=
                     display_field("Brand", brand.as_deref(), clipboard);
+                // Display attachments section if any exist
+                if !self.attachments.is_empty() {
+                    if displayed {
+                        println!();
+                    }
+                    println!("Attachments:");
+                    for attachment in &self.attachments {
+                        println!("  ID: {}", attachment.id);
+                        println!("  Name: {}", attachment.file_name);
+                        println!("  Size: {}", attachment.size_name);
+                        println!();
+                    }
+                    displayed = true;
+                }
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -1867,6 +1884,25 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             })
         })
         .collect::<anyhow::Result<_>>()?;
+    // Decrypt attachment filenames
+    let attachments = entry
+        .attachments
+        .iter()
+        .map(|attachment| {
+            let file_name = crate::actions::decrypt(
+                &attachment.file_name,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )?;
+            Ok(rbw::db::Attachment {
+                id: attachment.id.clone(),
+                file_name,
+                size: attachment.size.clone(),
+                size_name: attachment.size_name.clone(),
+                url: attachment.url.clone(),
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
 
     let data = match &entry.data {
         rbw::db::EntryData::Login {
@@ -2091,6 +2127,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         fields,
         notes,
         history,
+        attachments,
     })
 }
 
@@ -3498,6 +3535,7 @@ mod test {
                     ),
                 },
                 fields: vec![],
+                attachments: vec![],
                 notes: None,
                 history: vec![],
             },
