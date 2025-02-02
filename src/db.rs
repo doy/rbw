@@ -30,7 +30,6 @@ pub struct Attachment {
     pub size: String,
     pub size_name: String,
     pub url: Option<String>,
-    pub key: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug, Clone, Eq, PartialEq)]
