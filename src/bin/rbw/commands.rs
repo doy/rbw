@@ -1,6 +1,8 @@
 use std::{io::Write as _, os::unix::ffi::OsStrExt as _};
 
 use anyhow::Context as _;
+use rbw::actions::api_client;
+use rbw::actions::with_exchange_refresh_token;
 
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
@@ -54,6 +56,9 @@ struct DecryptedCipher {
     fields: Vec<DecryptedField>,
     notes: Option<String>,
     history: Vec<DecryptedHistoryEntry>,
+    // Only include if there are attachments
+    // #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<rbw::db::Attachment>,
 }
 
 impl DecryptedCipher {
@@ -420,6 +425,20 @@ impl DecryptedCipher {
                 );
                 displayed |=
                     display_field("Brand", brand.as_deref(), clipboard);
+                // Display attachments section if any exist
+                if !self.attachments.is_empty() {
+                    if displayed {
+                        println!();
+                    }
+                    println!("Attachments:");
+                    for attachment in &self.attachments {
+                        println!("  ID: {}", attachment.id);
+                        println!("  Name: {}", attachment.file_name);
+                        println!("  Size: {}", attachment.size_name);
+                        println!();
+                    }
+                    displayed = true;
+                }
 
                 if let Some(notes) = &self.notes {
                     if displayed {
@@ -1063,6 +1082,8 @@ pub fn get(
     folder: Option<&str>,
     field: Option<&str>,
     full: bool,
+    attachment: Option<&str>,
+    output: Option<&str>,
     raw: bool,
     clipboard: bool,
     ignore_case: bool,
@@ -1077,13 +1098,87 @@ pub fn get(
         needle
     );
 
-    let (_, decrypted) =
+    let (entry, decrypted) =
         find_entry(&db, needle, user, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+
     if raw {
         decrypted.display_json(&desc)?;
     } else if full {
         decrypted.display_long(&desc, clipboard);
+    } else if let Some(attachment_name) = attachment {
+        // Find the attachment
+        let attachment = decrypted
+            .attachments
+            .iter()
+            .find(|a| a.file_name == attachment_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!("attachment not found: {}", attachment_name)
+            })?;
+
+        // Get output path
+        let output_path = if let Some(output_dir) = output {
+            let mut path = std::path::PathBuf::from(output_dir);
+            std::fs::create_dir_all(&path)?;
+            path.push(&attachment.file_name);
+            path
+        } else {
+            std::path::PathBuf::from(&attachment.file_name)
+        };
+
+        // Get attachment data from server
+        let mut db = load_db()?;
+        let access_token = db.access_token.as_ref().unwrap();
+        let refresh_token = db.refresh_token.as_ref().unwrap();
+
+        // Download encrypted data with token refresh handling
+        let (client, _) = rbw::actions::api_client()?;
+        let url = attachment
+            .url
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("attachment URL not found"))?;
+
+        let (new_token, encrypted_data) =
+            rbw::actions::with_exchange_refresh_token(
+                access_token,
+                refresh_token,
+                |token| client.get_attachment_file(token, url),
+            )?;
+
+        if let Some(new_token) = new_token {
+            db.access_token = Some(new_token);
+            save_db(&db)?;
+        }
+
+        // First decrypt the attachment key
+        let key = crate::actions::decrypt(
+            attachment
+                .key
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("attachment key not found"))?,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )?;
+
+        // Create a CipherString for the encrypted attachment data
+        let encrypted_str =
+            format!("2.{}", rbw::base64::encode(&encrypted_data));
+        let cipher = rbw::cipherstring::CipherString::new(&encrypted_str)?;
+
+        // Create a locked Vec and Keys for decryption
+        let mut key_bytes = rbw::locked::Vec::new();
+        key_bytes.extend(key.as_bytes().iter().copied());
+        let keys = rbw::locked::Keys::new(key_bytes);
+
+        // Decrypt the attachment data
+        let decrypted_data = cipher.decrypt_symmetric(&keys, None)?;
+
+        // Save the decrypted data
+        std::fs::write(&output_path, &decrypted_data).with_context(|| {
+            format!("failed to write attachment to {}", output_path.display())
+        })?;
+
+        println!("Downloaded attachment to {}", output_path.display());
     } else if let Some(field) = field {
         decrypted.display_field(&desc, field, clipboard);
     } else {
@@ -1867,6 +1962,26 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             })
         })
         .collect::<anyhow::Result<_>>()?;
+    // Decrypt attachment filenames
+    let attachments = entry
+        .attachments
+        .iter()
+        .map(|attachment| {
+            let file_name = crate::actions::decrypt(
+                &attachment.file_name,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )?;
+            Ok(rbw::db::Attachment {
+                id: attachment.id.clone(),
+                file_name,
+                size: attachment.size.clone(),
+                size_name: attachment.size_name.clone(),
+                url: attachment.url.clone(),
+                key: attachment.key.clone(),
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
 
     let data = match &entry.data {
         rbw::db::EntryData::Login {
@@ -2091,6 +2206,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         fields,
         notes,
         history,
+        attachments,
     })
 }
 
@@ -3475,6 +3591,7 @@ mod test {
                     totp: None,
                 },
                 fields: vec![],
+                attachments: vec![],
                 notes: None,
                 history: vec![],
                 key: None,
@@ -3497,6 +3614,7 @@ mod test {
                     ),
                 },
                 fields: vec![],
+                attachments: vec![],
                 notes: None,
                 history: vec![],
             },
