@@ -15,12 +15,12 @@ jobs:
   build-musl:
     runs-on: ubuntu-latest
     steps:
-      - run: sudo apt-get install clang-11
+      - run: sudo apt-get install clang-18
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - run: TARGET_CC=clang-11 TARGET_AR=llvm-ar-11 cargo build --all-targets --target x86_64-unknown-linux-musl
+      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo build --all-targets --target x86_64-unknown-linux-musl
   build-macos:
     runs-on: macos-latest
     steps:
@@ -44,12 +44,12 @@ jobs:
   test-musl:
     runs-on: ubuntu-latest
     steps:
-      - run: sudo apt-get install clang-11
+      - run: sudo apt-get install clang-18
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - run: TARGET_CC=clang-11 TARGET_AR=llvm-ar-11 cargo test --target x86_64-unknown-linux-musl
+      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo test --target x86_64-unknown-linux-musl
   test-macos:
     runs-on: macos-latest
     steps:
