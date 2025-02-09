@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --all-targets
+      - run: cargo build --all-targets --all-features
   build-musl:
     runs-on: ubuntu-latest
     steps:
@@ -20,13 +20,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo build --all-targets --target x86_64-unknown-linux-musl
+      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo build --all-targets --all-features --target x86_64-unknown-linux-musl
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --all-targets
+      - run: cargo build --all-targets --all-features
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -34,13 +34,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall cross
-      - run: cross check --all-targets --target aarch64-linux-android --no-default-features
+      - run: cross check --all-targets --all-features --target aarch64-linux-android --no-default-features
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
+      - run: cargo test --all-features
   test-musl:
     runs-on: ubuntu-latest
     steps:
@@ -49,13 +49,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo test --target x86_64-unknown-linux-musl
+      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo test --all-features --target x86_64-unknown-linux-musl
   test-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test
+      - run: cargo test --all-features
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -63,8 +63,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - run: cargo install --locked --debug cargo-deny
-      - run: cargo clippy --all-targets -- -Dwarnings
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall cargo-deny
+      - run: cargo clippy --all-targets --all-features -- -Dwarnings
       - run: cargo fmt --check
       - run: cargo deny check
   doc:
@@ -72,4 +73,5 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo doc
+      - run: RUSTDOCFLAGS="-Dwarnings" cargo doc --all-features
+      - run: cargo test --doc --all-features
