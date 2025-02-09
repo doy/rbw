@@ -92,5 +92,5 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
 
 fn contains_shell_metacharacters(cmd: &std::ffi::OsStr) -> bool {
     cmd.to_str()
-        .map_or(false, |s| s.contains(&[' ', '$', '\'', '"'][..]))
+        .is_some_and(|s| s.contains(&[' ', '$', '\'', '"'][..]))
 }
