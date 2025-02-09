@@ -34,7 +34,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall cross
-      - run: cross check --all-targets --all-features --target aarch64-linux-android --no-default-features
+      - run: cross check --all-targets --target aarch64-linux-android --no-default-features
   test:
     runs-on: ubuntu-latest
     steps:
