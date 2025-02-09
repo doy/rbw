@@ -31,7 +31,7 @@ fn real_main() -> anyhow::Result<()> {
 
     let no_daemonize = std::env::args()
         .nth(1)
-        .map_or(false, |arg| arg == "--no-daemonize");
+        .is_some_and(|arg| arg == "--no-daemonize");
 
     rbw::dirs::make_all()?;
 
