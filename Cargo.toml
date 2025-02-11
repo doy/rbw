@@ -3,6 +3,7 @@ name = "rbw"
 version = "1.13.2"
 authors = ["Jesse Luehrs <doy@tozt.net>"]
 edition = "2021"
+rust-version = "1.80.0"
 
 description = "Unofficial Bitwarden CLI"
 repository = "https://git.tozt.net/rbw"
