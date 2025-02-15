@@ -1007,7 +1007,7 @@ pub fn sync() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn list(fields: &[String]) -> anyhow::Result<()> {
+pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
     let fields: Vec<ListField> = fields
         .iter()
         .map(std::convert::TryFrom::try_from)
@@ -1022,6 +1022,13 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
         .map(decrypt_cipher)
         .collect::<anyhow::Result<_>>()?;
     ciphers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
+    if raw {
+        serde_json::to_writer_pretty(std::io::stdout(), &ciphers)
+            .context("failed to write entries to stdout")?;
+        println!();
+        return Ok(());
+    }
 
     for cipher in ciphers {
         let values: Vec<String> = fields
