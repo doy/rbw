@@ -118,16 +118,28 @@ pub async fn login(
 
             let client_id = config_client_id().await?;
             let apikey = if let Some(client_id) = client_id {
-                let client_secret = rbw::pinentry::getpin(
-                    &config_pinentry().await?,
-                    "API key client__secret",
-                    &format!("Log in to {host}"),
-                    err.as_deref(),
-                    environment,
-                    false,
-                )
-                .await
-                .context("failed to read client_secret from pinentry")?;
+                let client_secret = if let Some(client_secret) =
+                    config_client_secret().await?
+                {
+                    let mut client_secret_vec = rbw::locked::Vec::new();
+                    client_secret_vec.extend(
+                        client_secret.clone().into_bytes().into_iter(),
+                    );
+                    client_secret_vec.truncate(client_secret.len());
+
+                    rbw::locked::Password::new(client_secret_vec)
+                } else {
+                    rbw::pinentry::getpin(
+                        &config_pinentry().await?,
+                        "API key client__secret",
+                        &format!("Log in to {host}"),
+                        err.as_deref(),
+                        environment,
+                        false,
+                    )
+                    .await
+                    .context("failed to read client_secret from pinentry")?
+                };
 
                 let mut client_id_vec = rbw::locked::Vec::new();
                 client_id_vec
@@ -736,6 +748,11 @@ async fn config_pinentry() -> anyhow::Result<String> {
 async fn config_client_id() -> anyhow::Result<Option<String>> {
     let config = rbw::config::Config::load_async().await?;
     Ok(config.client_id)
+}
+
+async fn config_client_secret() -> anyhow::Result<Option<String>> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.client_secret)
 }
 
 pub async fn subscribe_to_notifications(

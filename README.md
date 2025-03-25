@@ -107,7 +107,8 @@ configuration, local vault, and agent.
 
 Currently `rbw` supports three login strategies, listed by order of priority:
 1. `apikey`, requires you to provide `client_id` and `client_secret`. Will be enabled
-  when a `client_id` value is set in the config file
+  when a `client_id` value is set in the config file. `client_secret` can be provided in the
+  config file, `rbw` will prompt for it via pinentry otherwise
 2. `SSO` (Enterprise Single Sign-On). Will be enabled when a `sso_id` value is set in
   the config file. (Note: due to the current implementation, if your account is secured with 2FA
   you'll be required to go through the browser flow twice. You'll be prompted for the 2FA code
