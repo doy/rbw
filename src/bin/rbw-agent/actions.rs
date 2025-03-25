@@ -105,16 +105,6 @@ pub async fn login(
             } else {
                 None
             };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                &format!("Log in to {host}"),
-                err.as_deref(),
-                environment,
-                true,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
 
             let client_id = config_client_id().await?;
             let apikey = if let Some(client_id) = client_id {
@@ -152,6 +142,31 @@ pub async fn login(
                 ))
             } else {
                 None
+            };
+
+            // TODO: this should be done with a proper Option instead of this dummy WA
+            // Currently we just setup a "dummy" password so it works with current identity
+            // implementation
+            // TODO: probably we could run the same check for the SSO login strategy,
+            // as password shouldn't be needed there instantly
+            let password = if apikey.is_none() {
+                rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "Master Password",
+                    &format!("Log in to {host}"),
+                    err.as_deref(),
+                    environment,
+                    true,
+                )
+                .await
+                .context("failed to read password from pinentry")?
+            } else {
+                let temp_password = "dummy".to_string();
+                let mut password_vec = rbw::locked::Vec::new();
+                password_vec
+                    .extend(temp_password.clone().into_bytes().into_iter());
+                password_vec.truncate(temp_password.len());
+                rbw::locked::Password::new(password_vec)
             };
 
             match rbw::actions::login(
