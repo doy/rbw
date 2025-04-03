@@ -444,7 +444,7 @@ fn main() {
                 &mut std::io::stdout(),
             );
             if *shell == clap_complete::Shell::Zsh {
-                println!("{}", include_str!("main.zsh"));
+                println!("{}", include_str!("main-zsh.sh"));
             }
             Ok(())
         }
