@@ -31,13 +31,13 @@ _rbw_wrapper() {
         rbw list --fields folder \
           | awk -v folder="$folder" 'NF && $1 ~ folder {print "--folder=" $1}'
          )
-    elif [[ "${words[-2]}" == "--folder" ]]; then
+    elif [[ "$prev" == "--folder" ]]; then
       # rbw get --folder $folder
       res=$(
         rbw list --fields folder \
           | awk -v folder="$folder" 'NF && $1 ~ folder {print $1}'
       )
-    elif [[ "${words[-2]}" != "^--" ]]; then
+    elif [[ "$prev" != -* ]] && [[ "$cur" != -* ]]; then
       # rbw get ... $cur
       res=$(
         rbw list --fields name,folder \
@@ -48,12 +48,15 @@ _rbw_wrapper() {
       return
     fi
 
-    opts=("${(@f)${res}}")
-    compadd -S '' -- "${opts[@]}"
+    if [[ "$res" == "$cur" ]]; then
+      compadd -S '' -- "${opts[@]}"
+    else
+      opts=("${(@f)${res}}")
+      compadd -S '' -- "${opts[@]}"
+    fi
   else
     _rbw
   fi
-
 
 }
 
