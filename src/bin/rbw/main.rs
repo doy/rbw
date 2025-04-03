@@ -446,6 +446,9 @@ fn main() {
             if *shell == clap_complete::Shell::Zsh {
                 println!("{}", include_str!("main-zsh.sh"));
             }
+            if *shell == clap_complete::Shell::Bash {
+                println!("{}", include_str!("main-bash.sh"));
+            }
             Ok(())
         }
     }
