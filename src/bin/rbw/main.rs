@@ -443,6 +443,9 @@ fn main() {
                 "rbw",
                 &mut std::io::stdout(),
             );
+            if *shell == clap_complete::Shell::Zsh {
+                println!("{}", include_str!("main.zsh"));
+            }
             Ok(())
         }
     }
