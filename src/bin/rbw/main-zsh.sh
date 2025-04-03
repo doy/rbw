@@ -1,13 +1,18 @@
 _rbw_wrapper() {
   local -a opts
-  local folder cur res
+  local cur prev folder res
 
   if [[ "${words[2]}" == "get" ]]; then
 
     # rbw get
 
     for (( i=1; i < ${#words}; i++ )); do
-      if [[ "${words[$(( i - 1 ))]}" == "--folder" ]]; then
+      cur="${words[$i]}"
+      if [[ "$cur" == --folder=* ]]; then
+        # rbw get ... --folder $folder
+        folder="${cur#--folder=}"
+        folder="${(Q)folder}"
+      elif [[ "${words[$(( i - 1 ))]}" == --folder ]]; then
         # rbw get ... --folder $folder
         folder="${(Q)words[$i]}"
         prefix=""
