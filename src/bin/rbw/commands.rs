@@ -1617,6 +1617,11 @@ fn ensure_agent_once() -> anyhow::Result<()> {
     let agent_path = agent_path
         .as_deref()
         .unwrap_or_else(|| std::ffi::OsStr::from_bytes(b"rbw-agent"));
+
+    if agent_path == "OFF" {
+        return Ok(());
+    }
+
     let status = std::process::Command::new(agent_path)
         .status()
         .context("failed to run rbw-agent")?;
