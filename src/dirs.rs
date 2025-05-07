@@ -7,8 +7,16 @@ pub fn make_all() -> Result<()> {
     std::fs::create_dir_all(&cache_dir).map_err(|source| {
         Error::CreateDirectory {
             source,
-            file: cache_dir,
+            file: cache_dir.clone(),
         }
+    })?;
+    std::fs::set_permissions(
+        &cache_dir,
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .map_err(|source| Error::CreateDirectory {
+        source,
+        file: cache_dir,
     })?;
 
     let runtime_dir = runtime_dir();
