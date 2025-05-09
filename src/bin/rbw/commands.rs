@@ -2,6 +2,10 @@ use std::{io::Write as _, os::unix::ffi::OsStrExt as _};
 
 use anyhow::Context as _;
 
+// The default number of seconds the generated TOTP
+// code lasts for before a new one must be generated
+const TOTP_DEFAULT_STEP: u64 = 30;
+
 const MISSING_CONFIG_HELP: &str =
     "Before using rbw, you must configure the email address you would like to \
     use to log in to the server by running:\n\n    \
@@ -2173,80 +2177,97 @@ fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
 
 fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
     if let Ok(u) = url::Url::parse(secret) {
-        if u.scheme() != "otpauth" {
-            return Err(anyhow::anyhow!(
-                "totp secret url must have otpauth scheme"
-            ));
-        }
-        if u.host_str() != Some("totp") {
-            return Err(anyhow::anyhow!(
-                "totp secret url must have totp host"
-            ));
-        }
-        let query: std::collections::HashMap<_, _> =
-            u.query_pairs().collect();
-        Ok(TotpParams {
-            secret: decode_totp_secret(query
-                .get("secret")
-                .ok_or_else(|| {
-                    anyhow::anyhow!("totp secret url must have secret")
-                })?)?,
-            algorithm:query.get("algorithm").map_or_else(||{String::from("SHA1")},|alg|{alg.to_string()} ),
-            digits: match query.get("digits") {
-                Some(dig) => {
-                    dig.parse::<u32>().map_err(|_|{
-                        anyhow::anyhow!("digits parameter in totp url must be a valid integer.")
-                    })?
+        match u.scheme() {
+            "otpauth" => {
+                if u.host_str() != Some("totp") {
+                    return Err(anyhow::anyhow!(
+                        "totp secret url must have totp host"
+                    ));
                 }
-                None => 6,
+
+                let query: std::collections::HashMap<_, _> =
+                    u.query_pairs().collect();
+
+                Ok(TotpParams {
+                    secret: decode_totp_secret(query
+                        .get("secret")
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("totp secret url must have secret")
+                        })?)?,
+                    algorithm:query.get("algorithm").map_or_else(||{String::from("SHA1")},|alg|{alg.to_string()} ),
+                    digits: match query.get("digits") {
+                        Some(dig) => {
+                            dig.parse::<u32>().map_err(|_|{
+                                anyhow::anyhow!("digits parameter in totp url must be a valid integer.")
+                            })?
+                        }
+                        None => 6,
+                    },
+                    period: match query.get("period") {
+                        Some(dig) => {
+                            dig.parse::<u64>().map_err(|_|{
+                                anyhow::anyhow!("period parameter in totp url must be a valid integer.")
+                            })?
+                        }
+                        None => TOTP_DEFAULT_STEP,
+                    }
+                })
             },
-            period: match query.get("period") {
-                Some(dig) => {
-                    dig.parse::<u64>().map_err(|_|{
-                        anyhow::anyhow!("period parameter in totp url must be a valid integer.")
-                    })?
-                }
-                None => totp_lite::DEFAULT_STEP,
-            }
-        })
+            "steam"   => {
+                let steam_secret = u.host_str().unwrap();
+
+                Ok(TotpParams {
+                    secret: decode_totp_secret(steam_secret)?,
+                    algorithm: String::from("STEAM"),
+                    digits: 5,
+                    period: TOTP_DEFAULT_STEP,
+                })
+            },
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "totp secret url must have 'otpauth' or 'steam' scheme"
+                ));
+            },
+        }
     } else {
         Ok(TotpParams {
             secret: decode_totp_secret(secret)?,
             algorithm: String::from("SHA1"),
             digits: 6,
-            period: totp_lite::DEFAULT_STEP,
+            period: TOTP_DEFAULT_STEP,
         })
+    }
+}
+
+// This function exists for the sake of making the generate_totp function less
+// densely packed and more readable
+fn generate_totp_algorithm_type(alg: &str) -> anyhow::Result<totp_rs::Algorithm> {
+    match alg {
+        "SHA1" => Ok(totp_rs::Algorithm::SHA1),
+        "SHA256" => Ok(totp_rs::Algorithm::SHA256),
+        "SHA512" => Ok(totp_rs::Algorithm::SHA512),
+        "STEAM" => Ok(totp_rs::Algorithm::Steam),
+        _ => Err(anyhow::anyhow!(format!(
+            "{} is not a valid algorithm", alg
+        ))),
     }
 }
 
 fn generate_totp(secret: &str) -> anyhow::Result<String> {
     let totp_params = parse_totp_secret(secret)?;
     let alg = totp_params.algorithm.as_str();
+
     match alg {
-        "SHA1" => Ok(totp_lite::totp_custom::<totp_lite::Sha1>(
+        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::TOTP::new(
+            generate_totp_algorithm_type(alg)?,
+            totp_params.digits as usize,
+            1, // the library docs say this should be a 1
             totp_params.period,
-            totp_params.digits,
-            &totp_params.secret,
-            std::time::SystemTime::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)?
-                .as_secs(),
-        )),
-        "SHA256" => Ok(totp_lite::totp_custom::<totp_lite::Sha256>(
-            totp_params.period,
-            totp_params.digits,
-            &totp_params.secret,
-            std::time::SystemTime::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)?
-                .as_secs(),
-        )),
-        "SHA512" => Ok(totp_lite::totp_custom::<totp_lite::Sha512>(
-            totp_params.period,
-            totp_params.digits,
-            &totp_params.secret,
-            std::time::SystemTime::now()
-                .duration_since(std::time::SystemTime::UNIX_EPOCH)?
-                .as_secs(),
-        )),
+            totp_params.secret
+        )?.generate_current()?),
+        "STEAM" => Ok(totp_rs::TOTP::new_steam(
+            totp_params.secret
+        ).generate_current()?),
         _ => Err(anyhow::anyhow!(format!(
             "{} is not a valid totp algorithm",
             alg
