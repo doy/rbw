@@ -3373,7 +3373,7 @@ mod test {
     #[test]
     fn test_decode_totp_secret() {
         let decoded = decode_totp_secret("NBSW Y3DP EB3W 64TM MQQQ").unwrap();
-        let want = "hello world!".as_bytes().to_vec();
+        let want = b"hello world!".to_vec();
         assert!(decoded == want, "strips spaces");
     }
 
