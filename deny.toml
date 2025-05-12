@@ -13,6 +13,8 @@ ignore = [
     # this is a timing attack against using the rsa crate for encryption, but
     # we only use rsa decryption here
     "RUSTSEC-2023-0071",
+    # https://github.com/3Hren/msgpack-rust/pull/366
+    "RUSTSEC-2024-0436",
 ]
 
 [bans]
