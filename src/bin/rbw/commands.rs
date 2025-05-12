@@ -2186,29 +2186,33 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                 let query: std::collections::HashMap<_, _> =
                     u.query_pairs().collect();
 
-                Ok(TotpParams {
-                    secret: decode_totp_secret(query
-                        .get("secret")
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("totp secret url must have secret")
-                        })?)?,
-                    algorithm:query.get("algorithm").map_or_else(||{String::from("SHA1")},|alg|{alg.to_string()} ),
-                    digits: match query.get("digits") {
-                        Some(dig) => {
-                            dig.parse::<usize>().map_err(|_|{
-                                anyhow::anyhow!("digits parameter in totp url must be a valid integer.")
-                            })?
-                        }
-                        None => 6,
-                    },
-                    period: match query.get("period") {
-                        Some(dig) => {
-                            dig.parse::<u64>().map_err(|_|{
-                                anyhow::anyhow!("period parameter in totp url must be a valid integer.")
-                            })?
-                        }
-                        None => TOTP_DEFAULT_STEP,
+                let secret = decode_totp_secret(
+                    query.get("secret").ok_or_else(|| {
+                        anyhow::anyhow!("totp secret url must have secret")
+                    })?,
+                )?;
+                let algorithm = query.get("algorithm").map_or_else(
+                    || String::from("SHA1"),
+                    std::string::ToString::to_string,
+                );
+                let digits = match query.get("digits") {
+                    Some(dig) => dig
+                        .parse::<usize>()
+                        .map_err(|_| anyhow::anyhow!("digits parameter in totp url must be a valid integer."))?,
+                    None => 6,
+                };
+                let period = match query.get("period") {
+                    Some(dig) => {
+                        dig.parse::<u64>().map_err(|_| anyhow::anyhow!("period parameter in totp url must be a valid integer."))?
                     }
+                    None => TOTP_DEFAULT_STEP,
+                };
+
+                Ok(TotpParams {
+                    secret,
+                    algorithm,
+                    digits,
+                    period,
                 })
             }
             "steam" => {
