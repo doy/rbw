@@ -2154,7 +2154,7 @@ struct TotpParams {
 }
 
 fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
-    let secret = secret.trim();
+    let secret = secret.trim().replace(' ', "");
     let alphabets = [
         base32::Alphabet::Rfc4648 { padding: false },
         base32::Alphabet::Rfc4648 { padding: true },
@@ -2162,7 +2162,7 @@ fn decode_totp_secret(secret: &str) -> anyhow::Result<Vec<u8>> {
         base32::Alphabet::Rfc4648Lower { padding: true },
     ];
     for alphabet in alphabets {
-        if let Some(secret) = base32::decode(alphabet, secret) {
+        if let Some(secret) = base32::decode(alphabet, &secret) {
             return Ok(secret);
         }
     }
@@ -3368,6 +3368,13 @@ mod test {
             no_matches(entries, "https://six.com/", None, None, false),
             "six"
         );
+    }
+
+    #[test]
+    fn test_decode_totp_secret() {
+        let decoded = decode_totp_secret("NBSW Y3DP EB3W 64TM MQQQ").unwrap();
+        let want = "hello world!".as_bytes().to_vec();
+        assert!(decoded == want, "strips spaces");
     }
 
     #[track_caller]
