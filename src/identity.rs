@@ -23,7 +23,7 @@ impl Identity {
             .ok_or(Error::Pbkdf2ZeroIterations)?;
 
         let mut keys = crate::locked::Vec::new();
-        keys.extend(std::iter::repeat(0).take(64));
+        keys.extend(std::iter::repeat_n(0, 64));
 
         let enc_key = &mut keys.data_mut()[0..32];
 
@@ -62,10 +62,10 @@ impl Identity {
                 )
                 .map_err(|_| Error::Argon2)?;
             }
-        };
+        }
 
         let mut hash = crate::locked::Vec::new();
-        hash.extend(std::iter::repeat(0).take(32));
+        hash.extend(std::iter::repeat_n(0, 32));
         pbkdf2::pbkdf2::<hmac::Hmac<sha2::Sha256>>(
             enc_key,
             password.password(),

@@ -42,7 +42,7 @@ fn real_main() -> anyhow::Result<()> {
     };
 
     if let Err(e) = debugger::disable_tracing() {
-        log::warn!("{}", e);
+        log::warn!("{e}");
     }
 
     let (w, r) = std::sync::mpsc::channel();

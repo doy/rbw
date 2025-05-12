@@ -61,7 +61,6 @@ pub async fn register(
                         .context("failed to log in to bitwarden instance");
                     }
                     err_msg = Some(message);
-                    continue;
                 }
                 Err(e) => {
                     return Err(e)
@@ -196,7 +195,6 @@ pub async fn login(
                         .context("failed to log in to bitwarden instance");
                     }
                     err_msg = Some(message);
-                    continue;
                 }
                 Err(e) => {
                     return Err(e)
@@ -281,7 +279,6 @@ async fn two_factor(
                     .context("failed to log in to bitwarden instance");
                 }
                 err_msg = Some(message);
-                continue;
             }
             // can get this if the user passes an empty string
             Err(rbw::error::Error::TwoFactorRequired { .. }) => {
@@ -293,7 +290,6 @@ async fn two_factor(
                     .context("failed to log in to bitwarden instance");
                 }
                 err_msg = Some(message);
-                continue;
             }
             Err(e) => {
                 return Err(e)
@@ -439,7 +435,6 @@ pub async fn unlock(
                         .context("failed to unlock database");
                     }
                     err_msg = Some(message);
-                    continue;
                 }
                 Err(e) => return Err(e).context("failed to unlock database"),
             }

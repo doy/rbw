@@ -1,4 +1,4 @@
-use std::{io::Write as _, os::unix::ffi::OsStrExt as _};
+use std::{fmt::Write as _, io::Write as _, os::unix::ffi::OsStrExt as _};
 
 use anyhow::Context as _;
 
@@ -98,7 +98,7 @@ impl DecryptedCipher {
                     val_display_or_store(clipboard, &names.join(" "))
                 }
             }
-            DecryptedData::SecureNote {} => self.notes.as_ref().map_or_else(
+            DecryptedData::SecureNote => self.notes.as_ref().map_or_else(
                 || {
                     eprintln!("entry for '{desc}' had no notes");
                     false
@@ -332,7 +332,7 @@ impl DecryptedCipher {
                     }
                 }
             },
-            DecryptedData::SecureNote {} => match field {
+            DecryptedData::SecureNote => match field {
                 "note" | "notes" => {
                     self.display_short(desc, clipboard);
                 }
@@ -488,7 +488,7 @@ impl DecryptedCipher {
                     println!("{notes}");
                 }
             }
-            DecryptedData::SecureNote {} => {
+            DecryptedData::SecureNote => {
                 self.display_short(desc, clipboard);
             }
         }
@@ -1396,7 +1396,7 @@ pub fn edit(
             let mut contents =
                 format!("{}\n", password.as_deref().unwrap_or(""));
             if let Some(notes) = decrypted.notes {
-                contents.push_str(&format!("\n{notes}\n"));
+                write!(contents, "\n{notes}\n").unwrap();
             }
 
             let contents = rbw::edit::edit(&contents, HELP_PW)?;
@@ -1447,7 +1447,7 @@ pub fn edit(
             };
             (data, entry.fields, notes, history)
         }
-        DecryptedData::SecureNote {} => {
+        DecryptedData::SecureNote => {
             let data = rbw::db::EntryData::SecureNote {};
 
             let editor_content = decrypted.notes.map_or_else(
@@ -1593,9 +1593,7 @@ fn ensure_agent() -> anyhow::Result<()> {
     let agent_version = version_or_quit()?;
     if agent_version != client_version {
         log::debug!(
-            "client protocol version is {} but agent protocol version is {}",
-            client_version,
-            agent_version
+            "client protocol version is {client_version} but agent protocol version is {agent_version}"
         );
         crate::actions::quit()?;
         ensure_agent_once()?;
@@ -1636,7 +1634,7 @@ fn ensure_agent_once() -> anyhow::Result<()> {
 
 fn check_config() -> anyhow::Result<()> {
     rbw::config::Config::validate().map_err(|e| {
-        log::error!("{}", MISSING_CONFIG_HELP);
+        log::error!("{MISSING_CONFIG_HELP}");
         anyhow::Error::new(e)
     })
 }
@@ -1783,7 +1781,7 @@ fn decrypt_field(
     match field {
         Ok(field) => field,
         Err(e) => {
-            log::warn!("failed to decrypt {}: {}", name, e);
+            log::warn!("failed to decrypt {name}: {e}");
             None
         }
     }
@@ -1800,7 +1798,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let folder = match folder {
         Ok(folder) => folder,
         Err(e) => {
-            log::warn!("failed to decrypt folder name: {}", e);
+            log::warn!("failed to decrypt folder name: {e}");
             None
         }
     };
@@ -1849,7 +1847,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     let notes = match notes {
         Ok(notes) => notes,
         Err(e) => {
-            log::warn!("failed to decrypt notes: {}", e);
+            log::warn!("failed to decrypt notes: {e}");
             None
         }
     };
@@ -2076,7 +2074,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 entry.org_id.as_deref(),
             ),
         },
-        rbw::db::EntryData::SecureNote {} => DecryptedData::SecureNote {},
+        rbw::db::EntryData::SecureNote => DecryptedData::SecureNote {},
     };
 
     Ok(DecryptedCipher {

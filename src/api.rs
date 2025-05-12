@@ -1212,7 +1212,7 @@ impl Client {
                     username: username.clone(),
                 });
             }
-            crate::db::EntryData::SecureNote {} => {
+            crate::db::EntryData::SecureNote => {
                 req.secure_note = Some(CipherSecureNote {});
             }
         }
@@ -1249,7 +1249,7 @@ impl Client {
         let mut req = CiphersPutReq {
             ty: match data {
                 crate::db::EntryData::Login { .. } => 1,
-                crate::db::EntryData::SecureNote { .. } => 2,
+                crate::db::EntryData::SecureNote => 2,
                 crate::db::EntryData::Card { .. } => 3,
                 crate::db::EntryData::Identity { .. } => 4,
             },
@@ -1360,7 +1360,7 @@ impl Client {
                     username: username.clone(),
                 });
             }
-            crate::db::EntryData::SecureNote {} => {
+            crate::db::EntryData::SecureNote => {
                 req.secure_note = Some(CipherSecureNote {});
             }
         }
@@ -1675,6 +1675,6 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         _ => {}
     }
 
-    log::warn!("unexpected error received during login: {:?}", error_res);
+    log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
 }
