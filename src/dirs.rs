@@ -1,40 +1,36 @@
 use crate::prelude::*;
 
-use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 
 pub fn make_all() -> Result<()> {
-    let cache_dir = cache_dir();
-    std::fs::create_dir_all(&cache_dir).map_err(|source| {
-        Error::CreateDirectory {
-            source,
-            file: cache_dir,
-        }
-    })?;
+    create_dir_all_with_permissions(&cache_dir(), 0o700)?;
+    create_dir_all_with_permissions(&runtime_dir(), 0o700)?;
+    create_dir_all_with_permissions(&data_dir(), 0o700)?;
 
-    let runtime_dir = runtime_dir();
-    std::fs::create_dir_all(&runtime_dir).map_err(|source| {
-        Error::CreateDirectory {
-            source,
-            file: runtime_dir.clone(),
-        }
-    })?;
-    std::fs::set_permissions(
-        &runtime_dir,
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .map_err(|source| Error::CreateDirectory {
-        source,
-        file: runtime_dir,
-    })?;
+    Ok(())
+}
 
-    let data_dir = data_dir();
-    std::fs::create_dir_all(&data_dir).map_err(|source| {
-        Error::CreateDirectory {
+fn create_dir_all_with_permissions(
+    path: &std::path::Path,
+    mode: u32,
+) -> Result<()> {
+    // ensure the initial directory creation happens with the correct mode,
+    // to avoid race conditions
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(mode)
+        .create(path)
+        .map_err(|source| Error::CreateDirectory {
             source,
-            file: data_dir,
-        }
-    })?;
-
+            file: path.to_path_buf(),
+        })?;
+    // but also make sure to forcibly set the mode, in case the directory
+    // already existed
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .map_err(|source| Error::CreateDirectory {
+            source,
+            file: path.to_path_buf(),
+        })?;
     Ok(())
 }
 
