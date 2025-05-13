@@ -382,6 +382,8 @@ struct SyncResCipher {
     identity: Option<CipherIdentity>,
     #[serde(rename = "SecureNote", alias = "secureNote")]
     secure_note: Option<CipherSecureNote>,
+    #[serde(rename = "SshKey", alias = "sshKey")]
+    ssh_key: Option<CipherSshKey>,
     #[serde(rename = "Notes", alias = "notes")]
     notes: Option<String>,
     #[serde(rename = "PasswordHistory", alias = "passwordHistory")]
@@ -483,6 +485,12 @@ impl SyncResCipher {
             }
         } else if let Some(_secure_note) = &self.secure_note {
             crate::db::EntryData::SecureNote
+        } else if let Some(ssh_key) = &self.ssh_key {
+            crate::db::EntryData::SshKey {
+                private_key: ssh_key.private_key.clone(),
+                public_key: ssh_key.public_key.clone(),
+                fingerprint: ssh_key.fingerprint.clone(),
+            }
         } else {
             return None;
         };
@@ -610,6 +618,16 @@ struct CipherIdentity {
     passport_number: Option<String>,
     #[serde(rename = "Username", alias = "username")]
     username: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct CipherSshKey {
+    #[serde(rename = "PrivateKey", alias = "privateKey")]
+    private_key: Option<String>,
+    #[serde(rename = "PublicKey", alias = "publicKey")]
+    public_key: Option<String>,
+    #[serde(rename = "Fingerprint", alias = "keyFingerprint")]
+    fingerprint: Option<String>,
 }
 
 #[derive(
@@ -1078,6 +1096,8 @@ impl Client {
         let res = client
             .get(self.api_url("/sync"))
             .header("Authorization", format!("Bearer {access_token}"))
+            // This is necessary for vaultwarden to include the ssh keys in the response
+            .header("Bitwarden-Client-Version", "2024.12.0")
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
@@ -1215,6 +1235,7 @@ impl Client {
             crate::db::EntryData::SecureNote => {
                 req.secure_note = Some(CipherSecureNote {});
             }
+            crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
         let client = reqwest::blocking::Client::new();
         let res = client
@@ -1252,6 +1273,7 @@ impl Client {
                 crate::db::EntryData::SecureNote => 2,
                 crate::db::EntryData::Card { .. } => 3,
                 crate::db::EntryData::Identity { .. } => 4,
+                crate::db::EntryData::SshKey { .. } => unreachable!(),
             },
             folder_id: folder_uuid.map(std::string::ToString::to_string),
             organization_id: org_id.map(std::string::ToString::to_string),
@@ -1363,6 +1385,7 @@ impl Client {
             crate::db::EntryData::SecureNote => {
                 req.secure_note = Some(CipherSecureNote {});
             }
+            crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
         let client = reqwest::blocking::Client::new();
         let res = client

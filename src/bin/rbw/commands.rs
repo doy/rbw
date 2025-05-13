@@ -2079,6 +2079,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             ),
         },
         rbw::db::EntryData::SecureNote => DecryptedData::SecureNote {},
+        rbw::db::EntryData::SshKey { .. } => unreachable!(), // TODO
     };
 
     Ok(DecryptedCipher {
