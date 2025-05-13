@@ -109,6 +109,15 @@ impl DecryptedCipher {
                 },
                 |notes| val_display_or_store(clipboard, notes),
             ),
+            DecryptedData::SshKey { public_key, .. } => {
+                public_key.as_ref().map_or_else(
+                    || {
+                        eprintln!("entry for '{desc}' had no public key");
+                        false
+                    },
+                    |public_key| val_display_or_store(clipboard, public_key),
+                )
+            }
         }
     }
 
@@ -354,6 +363,34 @@ impl DecryptedCipher {
                     }
                 }
             },
+            DecryptedData::SshKey { fingerprint, .. } => match field {
+                "fingerprint" => {
+                    if let Some(fingerprint) = fingerprint {
+                        val_display_or_store(clipboard, fingerprint);
+                    }
+                }
+                "public_key" => {
+                    self.display_short(desc, clipboard);
+                }
+                "notes" => {
+                    if let Some(notes) = &self.notes {
+                        val_display_or_store(clipboard, notes);
+                    }
+                }
+                _ => {
+                    for f in &self.fields {
+                        if let Some(name) = &f.name {
+                            if name.to_lowercase().as_str().contains(field) {
+                                val_display_or_store(
+                                    clipboard,
+                                    f.value.as_deref().unwrap_or(""),
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
+            },
         }
     }
 
@@ -494,6 +531,29 @@ impl DecryptedCipher {
             }
             DecryptedData::SecureNote => {
                 self.display_short(desc, clipboard);
+            }
+            DecryptedData::SshKey { fingerprint, .. } => {
+                let mut displayed = self.display_short(desc, clipboard);
+                displayed |= display_field(
+                    "Fingerprint",
+                    fingerprint.as_deref(),
+                    clipboard,
+                );
+
+                for field in &self.fields {
+                    displayed |= display_field(
+                        field.name.as_deref().unwrap_or("(null)"),
+                        Some(field.value.as_deref().unwrap_or("")),
+                        clipboard,
+                    );
+                }
+
+                if let Some(notes) = &self.notes {
+                    if displayed {
+                        println!();
+                    }
+                    println!("{notes}");
+                }
             }
         }
     }
@@ -735,6 +795,13 @@ enum DecryptedData {
         username: Option<String>,
     },
     SecureNote,
+    SshKey {
+        public_key: Option<String>,
+        fingerprint: Option<String>,
+        // We exclude the decryption of of the private_key here deliberately.
+        // It shouldn't be necessary to display the private_key, because the
+        // agent can sign ssh challenges directly via the ssh agent protocol.
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -2079,6 +2146,24 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             ),
         },
         rbw::db::EntryData::SecureNote => DecryptedData::SecureNote {},
+        rbw::db::EntryData::SshKey {
+            public_key,
+            fingerprint,
+            ..
+        } => DecryptedData::SshKey {
+            public_key: decrypt_field(
+                "public_key",
+                public_key.as_deref(),
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            fingerprint: decrypt_field(
+                "fingerprint",
+                fingerprint.as_deref(),
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+        },
     };
 
     Ok(DecryptedCipher {

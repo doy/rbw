@@ -143,6 +143,11 @@ pub enum EntryData {
         username: Option<String>,
     },
     SecureNote,
+    SshKey {
+        private_key: Option<String>,
+        public_key: Option<String>,
+        fingerprint: Option<String>,
+    },
 }
 
 #[derive(
