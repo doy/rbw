@@ -72,6 +72,13 @@ enum Opt {
         #[cfg(feature = "clipboard")]
         #[structopt(long, help = "Copy result to clipboard")]
         clipboard: bool,
+        #[arg(
+            long = "attachment",
+            help = "Download specific attachment by filename"
+        )]
+        attachment: Option<String>,
+        #[arg(long, help = "Output directory for attachments")]
+        output: Option<std::path::PathBuf>,
         #[structopt(short, long, help = "Ignore case")]
         ignorecase: bool,
     },
@@ -335,6 +342,8 @@ fn main() {
             folder,
             field,
             full,
+            attachment,
+            output,
             raw,
             #[cfg(feature = "clipboard")]
             clipboard,
@@ -345,6 +354,8 @@ fn main() {
             folder.as_deref(),
             field.as_deref(),
             *full,
+            attachment.as_deref(),
+            output.as_ref().map(|p| p.to_str().unwrap_or("")),
             *raw,
             #[cfg(feature = "clipboard")]
             *clipboard,
