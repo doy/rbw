@@ -62,10 +62,12 @@ pub enum TwoFactorProviderType {
 impl TwoFactorProviderType {
     pub fn message(&self) -> &str {
         match *self {
-            Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
+            Self::Authenticator => {
+                "Enter the 6 digit verification code from your authenticator app."
+            }
             Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
-            _ => "Enter the code."
+            _ => "Enter the code.",
         }
     }
 
@@ -1615,7 +1617,9 @@ fn sso_query_code(
 
     if received_state.split("_identifier=").next().unwrap() != state {
         return Err(Error::FailedToProcessSSOCallback {
-            msg: format!("SSO callback states do not match, sent: {state}, received: {received_state}"),
+            msg: format!(
+                "SSO callback states do not match, sent: {state}, received: {received_state}"
+            ),
         });
     }
 
