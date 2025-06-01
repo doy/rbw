@@ -770,7 +770,7 @@ pub struct Client {
     base_url: String,
     identity_url: String,
     ui_url: String,
-    client_cert_path: Option<std::path::PathBuf>,
+    cert_path: Option<std::path::PathBuf>,
 }
 
 impl Client {
@@ -778,14 +778,13 @@ impl Client {
         base_url: &str,
         identity_url: &str,
         ui_url: &str,
-        client_cert_path: Option<&std::path::Path>,
+        cert_path: Option<&std::path::Path>,
     ) -> Self {
         Self {
             base_url: base_url.to_string(),
             identity_url: identity_url.to_string(),
             ui_url: ui_url.to_string(),
-            client_cert_path: client_cert_path
-                .map(std::path::Path::to_path_buf),
+            cert_path: cert_path.map(std::path::Path::to_path_buf),
         }
     }
 
@@ -811,18 +810,19 @@ impl Client {
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION")
         );
-        if let Some(client_cert_path) = self.client_cert_path.as_ref() {
+        if let Some(cert_path) = self.cert_path.as_ref() {
             let mut buf = Vec::new();
-            let mut f = tokio::fs::File::open(client_cert_path)
-                .await
-                .map_err(|e| Error::LoadClientCert {
-                    source: e,
-                    file: client_cert_path.clone(),
+            let mut f =
+                tokio::fs::File::open(cert_path).await.map_err(|e| {
+                    Error::LoadClientCert {
+                        source: e,
+                        file: cert_path.clone(),
+                    }
                 })?;
             f.read_to_end(&mut buf).await.map_err(|e| {
                 Error::LoadClientCert {
                     source: e,
-                    file: client_cert_path.clone(),
+                    file: cert_path.clone(),
                 }
             })?;
             let pem = reqwest::Identity::from_pem(&buf)
