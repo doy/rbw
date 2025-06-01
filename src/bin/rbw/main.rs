@@ -70,7 +70,7 @@ enum Opt {
         #[structopt(long, help = "Display output as JSON")]
         raw: bool,
         #[cfg(feature = "clipboard")]
-        #[structopt(long, help = "Copy result to clipboard")]
+        #[structopt(short, long, help = "Copy result to clipboard")]
         clipboard: bool,
         #[structopt(short, long, help = "Ignore case")]
         ignorecase: bool,
