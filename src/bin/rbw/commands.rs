@@ -48,6 +48,14 @@ pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
     Ok(Needle::Name(arg.to_string()))
 }
 
+#[derive(Debug)]
+struct DecryptedListCipher {
+    id: String,
+    name: Option<String>,
+    user: Option<String>,
+    folder: Option<String>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
@@ -881,9 +889,10 @@ fn host_port(url: &url::Url) -> Option<String> {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ListField {
-    Name,
     Id,
+    Name,
     User,
     Folder,
 }
@@ -1051,10 +1060,10 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
-    let mut ciphers: Vec<DecryptedCipher> = db
+    let mut ciphers: Vec<DecryptedListCipher> = db
         .entries
         .iter()
-        .map(decrypt_cipher)
+        .map(|entry| decrypt_list_cipher(entry, &fields))
         .collect::<anyhow::Result<_>>()?;
     ciphers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
@@ -1062,17 +1071,15 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
         let values: Vec<String> = fields
             .iter()
             .map(|field| match field {
-                ListField::Name => cipher.name.clone(),
                 ListField::Id => cipher.id.clone(),
-                ListField::User => match &cipher.data {
-                    DecryptedData::Login { username, .. } => {
-                        username.as_ref().map_or_else(
-                            String::new,
-                            std::string::ToString::to_string,
-                        )
-                    }
-                    _ => String::new(),
-                },
+                ListField::Name => cipher.name.as_ref().map_or_else(
+                    String::new,
+                    std::string::ToString::to_string,
+                ),
+                ListField::User => cipher.user.as_ref().map_or_else(
+                    String::new,
+                    std::string::ToString::to_string,
+                ),
                 ListField::Folder => cipher.folder.as_ref().map_or_else(
                     String::new,
                     std::string::ToString::to_string,
@@ -1770,6 +1777,53 @@ fn decrypt_field(
             None
         }
     }
+}
+
+fn decrypt_list_cipher(
+    entry: &rbw::db::Entry,
+    fields: &[ListField],
+) -> anyhow::Result<DecryptedListCipher> {
+    let id = entry.id.clone();
+    let name = if fields.contains(&ListField::Name) {
+        Some(crate::actions::decrypt(
+            &entry.name,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )?)
+    } else {
+        None
+    };
+    let user = if fields.contains(&ListField::User) {
+        match &entry.data {
+            rbw::db::EntryData::Login { username, .. } => decrypt_field(
+                "username",
+                username.as_deref(),
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let folder = if fields.contains(&ListField::Folder) {
+        // folder name should always be decrypted with the local key because
+        // folders are local to a specific user's vault, not the organization
+        entry
+            .folder
+            .as_ref()
+            .map(|folder| crate::actions::decrypt(folder, None, None))
+            .transpose()?
+    } else {
+        None
+    };
+
+    Ok(DecryptedListCipher {
+        id,
+        name,
+        user,
+        folder,
+    })
 }
 
 fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
