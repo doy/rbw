@@ -3640,6 +3640,7 @@ mod test {
                 notes: None,
                 history: vec![],
                 key: None,
+                master_password_reprompt: rbw::api::CipherRepromptType::None,
             },
             DecryptedCipher {
                 id: id.to_string(),

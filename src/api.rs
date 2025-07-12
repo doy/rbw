@@ -253,6 +253,21 @@ impl serde::Serialize for KdfType {
     }
 }
 
+#[derive(
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+)]
+#[repr(u8)]
+pub enum CipherRepromptType {
+    None = 0,
+    Password = 1,
+}
+
 #[derive(serde::Serialize, Debug)]
 struct PreloginReq {
     email: String,
@@ -394,6 +409,8 @@ struct SyncResCipher {
     deleted_date: Option<String>,
     #[serde(rename = "Key", alias = "key")]
     key: Option<String>,
+    #[serde(rename = "Reprompt", alias = "reprompt")]
+    reprompt: CipherRepromptType,
 }
 
 impl SyncResCipher {
@@ -516,6 +533,7 @@ impl SyncResCipher {
             notes: self.notes.clone(),
             history,
             key: self.key.clone(),
+            master_password_reprompt: self.reprompt,
         })
     }
 }

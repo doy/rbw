@@ -18,6 +18,13 @@ pub struct Entry {
     pub notes: Option<String>,
     pub history: Vec<HistoryEntry>,
     pub key: Option<String>,
+    pub master_password_reprompt: crate::api::CipherRepromptType,
+}
+
+impl Entry {
+    pub fn master_password_reprompt(&self) -> bool {
+        self.master_password_reprompt != crate::api::CipherRepromptType::None
+    }
 }
 
 #[derive(serde::Serialize, Debug, Clone, Eq, PartialEq)]

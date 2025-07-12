@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use sha2::Digest as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -503,6 +504,7 @@ pub async fn sync(
     ) = rbw::actions::sync(&access_token, &refresh_token)
         .await
         .context("failed to sync database from server")?;
+    state.lock().await.set_master_password_reprompt(&entries);
     if let Some(access_token) = access_token {
         db.access_token = Some(access_token);
     }
@@ -526,6 +528,7 @@ pub async fn sync(
 pub async fn decrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    environment: &rbw::protocol::Environment,
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
@@ -548,6 +551,89 @@ pub async fn decrypt(
     } else {
         None
     };
+
+    let mut sha256 = sha2::Sha256::new();
+    sha256.update(cipherstring);
+    let master_password_reprompt: [u8; 32] = sha256.finalize().into();
+    if state
+        .master_password_reprompt
+        .contains(&master_password_reprompt)
+    {
+        let db = load_db().await?;
+
+        let Some(kdf) = db.kdf else {
+            return Err(anyhow::anyhow!("failed to find kdf type in db"));
+        };
+
+        let Some(iterations) = db.iterations else {
+            return Err(anyhow::anyhow!(
+                "failed to find number of iterations in db"
+            ));
+        };
+
+        let memory = db.memory;
+        let parallelism = db.parallelism;
+
+        let Some(protected_key) = db.protected_key else {
+            return Err(anyhow::anyhow!(
+                "failed to find protected key in db"
+            ));
+        };
+        let Some(protected_private_key) = db.protected_private_key else {
+            return Err(anyhow::anyhow!(
+                "failed to find protected private key in db"
+            ));
+        };
+
+        let email = config_email().await?;
+
+        let mut err_msg = None;
+        for i in 1_u8..=3 {
+            let err = if i > 1 {
+                // this unwrap is safe because we only ever continue the loop
+                // if we have set err_msg
+                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+            } else {
+                None
+            };
+            let password = rbw::pinentry::getpin(
+                &config_pinentry().await?,
+                "Master Password",
+                "Accessing this entry requires the master password",
+                err.as_deref(),
+                environment,
+                true,
+            )
+            .await
+            .context("failed to read password from pinentry")?;
+            match rbw::actions::unlock(
+                &email,
+                &password,
+                kdf,
+                iterations,
+                memory,
+                parallelism,
+                &protected_key,
+                &protected_private_key,
+                &db.protected_org_keys,
+            ) {
+                Ok(_) => {
+                    break;
+                }
+                Err(rbw::error::Error::IncorrectPassword { message }) => {
+                    if i == 3 {
+                        return Err(rbw::error::Error::IncorrectPassword {
+                            message,
+                        })
+                        .context("failed to unlock database");
+                    }
+                    err_msg = Some(message);
+                }
+                Err(e) => return Err(e).context("failed to unlock database"),
+            }
+        }
+    }
+
     let cipherstring = rbw::cipherstring::CipherString::new(cipherstring)
         .context("failed to parse encrypted secret")?;
     let plaintext = String::from_utf8(
