@@ -67,6 +67,10 @@ pub fn socket_file() -> std::path::PathBuf {
     runtime_dir().join("socket")
 }
 
+pub fn ssh_agent_socket_file() -> std::path::PathBuf {
+    runtime_dir().join("ssh-agent-socket")
+}
+
 fn config_dir() -> std::path::PathBuf {
     let project_dirs =
         directories::ProjectDirs::from("", "", &profile()).unwrap();
