@@ -147,9 +147,9 @@ impl Config {
         self.base_url.clone().map_or_else(
             || "https://api.bitwarden.com".to_string(),
             |url| {
-                let clean_url = url.trim_end_matches('/').to_string();
+                let clean_url = url.trim_end_matches('/');
                 if clean_url == "https://api.bitwarden.eu" {
-                    clean_url
+                    "https://api.bitwarden.eu".to_string()
                 } else {
                     format!("{clean_url}/api")
                 }
@@ -162,9 +162,9 @@ impl Config {
             self.base_url.clone().map_or_else(
                 || "https://identity.bitwarden.com".to_string(),
                 |url| {
-                    let clean_url = url.trim_end_matches('/').to_string();
-                    if clean_url == "https://identity.bitwarden.eu" {
-                        clean_url
+                    let clean_url = url.trim_end_matches('/');
+                    if clean_url == "https://api.bitwarden.eu" {
+                        "https://identity.bitwarden.eu".to_string()
                     } else {
                         format!("{clean_url}/identity")
                     }
@@ -174,10 +174,19 @@ impl Config {
     }
 
     pub fn ui_url(&self) -> String {
-        // TODO: default to either vault.bitwarden.com or vault.bitwarden.eu based on the base_url?
-        self.ui_url
-            .clone()
-            .unwrap_or_else(|| "https://vault.bitwarden.com".to_string())
+        self.ui_url.clone().unwrap_or_else(|| {
+            self.base_url.clone().map_or_else(
+                || "https://vault.bitwarden.com".to_string(),
+                |url| {
+                    let clean_url = url.trim_end_matches('/');
+                    if clean_url == "https://api.bitwarden.eu" {
+                        "https://vault.bitwarden.eu".to_string()
+                    } else {
+                        clean_url.to_string()
+                    }
+                },
+            )
+        })
     }
 
     pub fn notifications_url(&self) -> String {
@@ -185,9 +194,9 @@ impl Config {
             self.base_url.clone().map_or_else(
                 || "https://notifications.bitwarden.com".to_string(),
                 |url| {
-                    let clean_url = url.trim_end_matches('/').to_string();
-                    if clean_url == "https://notifications.bitwarden.eu" {
-                        clean_url
+                    let clean_url = url.trim_end_matches('/');
+                    if clean_url == "https://api.bitwarden.eu" {
+                        "https://notifications.bitwarden.eu".to_string()
                     } else {
                         format!("{clean_url}/notifications")
                     }
