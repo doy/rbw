@@ -1435,7 +1435,7 @@ pub fn generate(
 }
 
 pub fn edit(
-    name: &str,
+    name: &Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
@@ -1452,14 +1452,9 @@ pub fn edit(
         name
     );
 
-    let (entry, decrypted) = find_entry(
-        &db,
-        &Needle::Name(name.to_string()),
-        username,
-        folder,
-        ignore_case,
-    )
-    .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (entry, decrypted) =
+        find_entry(&db, name, username, folder, ignore_case)
+            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     let (data, fields, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
@@ -1565,7 +1560,7 @@ pub fn edit(
 }
 
 pub fn remove(
-    name: &str,
+    name: &Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
@@ -1582,14 +1577,8 @@ pub fn remove(
         name
     );
 
-    let (entry, _) = find_entry(
-        &db,
-        &Needle::Name(name.to_string()),
-        username,
-        folder,
-        ignore_case,
-    )
-    .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (entry, _) = find_entry(&db, name, username, folder, ignore_case)
+        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     if let (Some(access_token), ()) =
         rbw::actions::remove(access_token, refresh_token, &entry.id)?
@@ -1604,7 +1593,7 @@ pub fn remove(
 }
 
 pub fn history(
-    name: &str,
+    name: &Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
@@ -1619,14 +1608,8 @@ pub fn history(
         name
     );
 
-    let (_, decrypted) = find_entry(
-        &db,
-        &Needle::Name(name.to_string()),
-        username,
-        folder,
-        ignore_case,
-    )
-    .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (_, decrypted) = find_entry(&db, name, username, folder, ignore_case)
+        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
     for history in decrypted.history {
         println!("{}: {}", history.last_used_date, history.password);
     }

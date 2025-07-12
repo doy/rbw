@@ -7,6 +7,18 @@ mod actions;
 mod commands;
 mod sock;
 
+#[derive(Debug, clap::Args)]
+struct FindArgs {
+    #[arg(help = "Name, URI or UUID of the entry to display", value_parser = commands::parse_needle)]
+    needle: commands::Needle,
+    #[arg(help = "Username of the entry to display")]
+    user: Option<String>,
+    #[arg(long, help = "Folder name to search in")]
+    folder: Option<String>,
+    #[arg(short, long, help = "Ignore case")]
+    ignorecase: bool,
+}
+
 #[derive(Debug, clap::Parser)]
 #[command(version, about = "Unofficial Bitwarden CLI")]
 enum Opt {
@@ -57,12 +69,8 @@ enum Opt {
 
     #[command(about = "Display the password for a given entry")]
     Get {
-        #[arg(help = "Name, URI or UUID of the entry to display", value_parser = commands::parse_needle)]
-        needle: commands::Needle,
-        #[arg(help = "Username of the entry to display")]
-        user: Option<String>,
-        #[arg(long, help = "Folder name to search in")]
-        folder: Option<String>,
+        #[command(flatten)]
+        find_args: FindArgs,
         #[arg(short, long, help = "Field to get")]
         field: Option<String>,
         #[arg(long, help = "Display the notes in addition to the password")]
@@ -72,8 +80,6 @@ enum Opt {
         #[cfg(feature = "clipboard")]
         #[structopt(short, long, help = "Copy result to clipboard")]
         clipboard: bool,
-        #[structopt(short, long, help = "Ignore case")]
-        ignorecase: bool,
     },
 
     #[command(about = "Search for entries")]
@@ -89,17 +95,11 @@ enum Opt {
         visible_alias = "totp"
     )]
     Code {
-        #[arg(help = "Name, URI or UUID of the entry to display", value_parser = commands::parse_needle)]
-        needle: commands::Needle,
-        #[arg(help = "Username of the entry to display")]
-        user: Option<String>,
-        #[arg(long, help = "Folder name to search in")]
-        folder: Option<String>,
+        #[command(flatten)]
+        find_args: FindArgs,
         #[cfg(feature = "clipboard")]
         #[structopt(long, help = "Copy result to clipboard")]
         clipboard: bool,
-        #[arg(short, long, help = "Ignore case")]
-        ignorecase: bool,
     },
 
     #[command(
@@ -192,38 +192,20 @@ enum Opt {
             as a note."
     )]
     Edit {
-        #[arg(help = "Name or UUID of the password entry")]
-        name: String,
-        #[arg(help = "Username for the password entry")]
-        user: Option<String>,
-        #[arg(long, help = "Folder name to search in")]
-        folder: Option<String>,
-        #[arg(short, long, help = "Ignore case")]
-        ignorecase: bool,
+        #[command(flatten)]
+        find_args: FindArgs,
     },
 
     #[command(about = "Remove a given entry", visible_alias = "rm")]
     Remove {
-        #[arg(help = "Name or UUID of the password entry")]
-        name: String,
-        #[arg(help = "Username for the password entry")]
-        user: Option<String>,
-        #[arg(long, help = "Folder name to search in")]
-        folder: Option<String>,
-        #[arg(short, long, help = "Ignore case")]
-        ignorecase: bool,
+        #[command(flatten)]
+        find_args: FindArgs,
     },
 
     #[command(about = "View the password history for a given entry")]
     History {
-        #[arg(help = "Name or UUID of the password entry")]
-        name: String,
-        #[arg(help = "Username for the password entry")]
-        user: Option<String>,
-        #[arg(long, help = "Folder name to search in")]
-        folder: Option<String>,
-        #[arg(short, long, help = "Ignore case")]
-        ignorecase: bool,
+        #[command(flatten)]
+        find_args: FindArgs,
     },
 
     #[command(about = "Lock the password database")]
@@ -330,19 +312,16 @@ fn main() {
         Opt::Sync => commands::sync(),
         Opt::List { fields } => commands::list(fields),
         Opt::Get {
-            needle,
-            user,
-            folder,
+            find_args,
             field,
             full,
             raw,
             #[cfg(feature = "clipboard")]
             clipboard,
-            ignorecase,
         } => commands::get(
-            needle,
-            user.as_deref(),
-            folder.as_deref(),
+            &find_args.needle,
+            find_args.user.as_deref(),
+            find_args.folder.as_deref(),
             field.as_deref(),
             *full,
             *raw,
@@ -350,27 +329,24 @@ fn main() {
             *clipboard,
             #[cfg(not(feature = "clipboard"))]
             false,
-            *ignorecase,
+            find_args.ignorecase,
         ),
         Opt::Search { term, folder } => {
             commands::search(term, folder.as_deref())
         }
         Opt::Code {
-            needle,
-            user,
-            folder,
+            find_args,
             #[cfg(feature = "clipboard")]
             clipboard,
-            ignorecase,
         } => commands::code(
-            needle,
-            user.as_deref(),
-            folder.as_deref(),
+            &find_args.needle,
+            find_args.user.as_deref(),
+            find_args.folder.as_deref(),
             #[cfg(feature = "clipboard")]
             *clipboard,
             #[cfg(not(feature = "clipboard"))]
             false,
-            *ignorecase,
+            find_args.ignorecase,
         ),
         Opt::Add {
             name,
@@ -422,38 +398,23 @@ fn main() {
                 ty,
             )
         }
-        Opt::Edit {
-            name,
-            user,
-            folder,
-            ignorecase,
-        } => commands::edit(
-            name,
-            user.as_deref(),
-            folder.as_deref(),
-            *ignorecase,
+        Opt::Edit { find_args } => commands::edit(
+            &find_args.needle,
+            find_args.user.as_deref(),
+            find_args.folder.as_deref(),
+            find_args.ignorecase,
         ),
-        Opt::Remove {
-            name,
-            user,
-            folder,
-            ignorecase,
-        } => commands::remove(
-            name,
-            user.as_deref(),
-            folder.as_deref(),
-            *ignorecase,
+        Opt::Remove { find_args } => commands::remove(
+            &find_args.needle,
+            find_args.user.as_deref(),
+            find_args.folder.as_deref(),
+            find_args.ignorecase,
         ),
-        Opt::History {
-            name,
-            user,
-            folder,
-            ignorecase,
-        } => commands::history(
-            name,
-            user.as_deref(),
-            folder.as_deref(),
-            *ignorecase,
+        Opt::History { find_args } => commands::history(
+            &find_args.needle,
+            find_args.user.as_deref(),
+            find_args.folder.as_deref(),
+            find_args.ignorecase,
         ),
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),
