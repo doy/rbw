@@ -713,26 +713,25 @@ impl DecryptedCipher {
             }
         }
 
-        let fields = [
-            Some(self.name.as_str()),
-            self.notes.as_deref(),
-            if let DecryptedData::Login {
-                username: Some(username),
-                ..
-            } = &self.data
-            {
-                Some(username)
-            } else {
-                None
-            },
-        ];
-        for field in fields
-            .iter()
-            .filter_map(|field| field.map(std::string::ToString::to_string))
-            .chain(self.fields.iter().filter_map(|field| {
-                field.value.as_ref().map(std::string::ToString::to_string)
-            }))
-        {
+        let mut fields = vec![self.name.as_str()];
+        if let Some(notes) = &self.notes {
+            fields.push(notes);
+        }
+        if let DecryptedData::Login { username, uris, .. } = &self.data {
+            if let Some(username) = username {
+                fields.push(username);
+            }
+            if let Some(uris) = uris {
+                fields.extend(uris.iter().map(|uri| uri.uri.as_str()));
+            }
+        }
+        fields.extend(
+            self.fields
+                .iter()
+                .filter_map(|field| field.value.as_deref()),
+        );
+
+        for field in fields {
             if field.to_lowercase().contains(&term.to_lowercase()) {
                 return true;
             }
