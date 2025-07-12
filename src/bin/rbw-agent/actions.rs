@@ -356,8 +356,7 @@ async fn login_success(
     Ok(())
 }
 
-pub async fn unlock(
-    sock: &mut crate::sock::Sock,
+async fn unlock_state(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
@@ -440,6 +439,17 @@ pub async fn unlock(
             }
         }
     }
+
+    Ok(())
+}
+
+pub async fn unlock(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+
+    unlock_state(state, environment).await?;
 
     respond_ack(sock).await?;
 
