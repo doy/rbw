@@ -30,34 +30,29 @@ async fn tokio_main(
         sync_timeout.set(sync_timeout_duration);
     }
     let notifications_handler = crate::notifications::Handler::new();
-    let state = std::sync::Arc::new(tokio::sync::Mutex::new(crate::state::State {
-        priv_key: None,
-        org_keys: None,
-        timeout,
-        timeout_duration,
-        sync_timeout,
-        sync_timeout_duration,
-        notifications_handler,
-        #[cfg(feature = "clipboard")]
-        clipboard: arboard::Clipboard::new()
-            .inspect_err(|e| {
-                log::warn!("couldn't create clipboard context: {e}");
-            })
-            .ok(),
-    }));
+    let state =
+        std::sync::Arc::new(tokio::sync::Mutex::new(crate::state::State {
+            priv_key: None,
+            org_keys: None,
+            timeout,
+            timeout_duration,
+            sync_timeout,
+            sync_timeout_duration,
+            notifications_handler,
+            #[cfg(feature = "clipboard")]
+            clipboard: arboard::Clipboard::new()
+                .inspect_err(|e| {
+                    log::warn!("couldn't create clipboard context: {e}");
+                })
+                .ok(),
+        }));
 
-    let agent = crate::agent::Agent::new(
-        timer_r,
-        sync_timer_r,
-        state.clone(),
-    );
+    let agent =
+        crate::agent::Agent::new(timer_r, sync_timer_r, state.clone());
 
     let ssh_agent = crate::ssh_agent::SshAgent::new(state.clone());
 
-    tokio::try_join!(
-        agent.run(listener),
-        ssh_agent.run(),
-    )?;
+    tokio::try_join!(agent.run(listener), ssh_agent.run(),)?;
 
     Ok(())
 }
