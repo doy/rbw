@@ -523,13 +523,12 @@ pub async fn sync(
     Ok(())
 }
 
-pub async fn decrypt(
-    sock: &mut crate::sock::Sock,
+async fn decrypt_cipher(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     let state = state.lock().await;
     let Some(keys) = state.key(org_id) else {
         return Err(anyhow::anyhow!(
@@ -557,6 +556,22 @@ pub async fn decrypt(
     )
     .context("failed to parse decrypted secret")?;
 
+    Ok(plaintext)
+}
+
+pub async fn decrypt(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let plaintext = decrypt_cipher(
+        state,
+        cipherstring,
+        entry_key,
+        org_id,
+    ).await?;
     respond_decrypt(sock, plaintext).await?;
 
     Ok(())
