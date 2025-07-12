@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use std::os::unix::ffi::OsStringExt as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -747,4 +748,45 @@ pub async fn subscribe_to_notifications(
         .await
         .err()
         .map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
+}
+
+pub async fn get_ssh_public_keys(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+) -> anyhow::Result<Vec<String>> {
+    // TODO: the following block is simply copied over from rbw/actions.rs
+    // consider refactoring
+    let tty = std::env::var_os("RBW_TTY").or_else(|| {
+        rustix::termios::ttyname(std::io::stdin(), vec![])
+            .ok()
+            .map(|p| std::ffi::OsString::from_vec(p.as_bytes().to_vec()))
+    });
+    let env_vars = std::env::vars_os()
+        .filter(|(var_name, _)| {
+            (*rbw::protocol::ENVIRONMENT_VARIABLES_OS).contains(var_name)
+        })
+        .collect();
+    let environment = rbw::protocol::Environment::new(tty, env_vars);
+
+    unlock_state(
+        state.clone(),
+        &environment,
+    ).await?;
+
+    let db = load_db().await?;
+    let mut pubkeys = Vec::new();
+
+    for entry in db.entries {
+        if let rbw::db::EntryData::SshKey { public_key: Some(encrypted), .. } = &entry.data {
+            let plaintext = decrypt_cipher(
+                state.clone(),
+                encrypted,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            ).await?;
+
+            pubkeys.push(plaintext);
+        }
+    }
+
+    Ok(pubkeys)
 }
