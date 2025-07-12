@@ -583,8 +583,20 @@ pub async fn decrypt(
         entry_key,
         org_id,
     ).await?;
-    respond_decrypt(sock, plaintext).await?;
 
+    // don't expose decrypted private ssh keys over the socket
+    // in a scenario where an attacker has access to the encrypted vault and
+    // the socket, but not to the master password/decryption keys, the ssh keys
+    // are still protected
+    if plaintext.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----") {
+        if let Ok(key) = ssh_agent_lib::ssh_key::PrivateKey::from_openssh(&plaintext) {
+            if !key.is_encrypted() {
+                return Err(anyhow::anyhow!("agent doesn't expose decrypted SSH keys"));
+            }
+        }
+    }
+
+    respond_decrypt(sock, plaintext).await?;
     Ok(())
 }
 
