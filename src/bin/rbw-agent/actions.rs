@@ -813,10 +813,7 @@ pub async fn find_ssh_private_key(
 
     for entry in db.entries {
         if let rbw::db::EntryData::SshKey { private_key, public_key, .. } = &entry.data {
-            let public_key_enc = match public_key {
-                Some(key) => key,
-                None => continue,
-            };
+            let Some(public_key_enc) = public_key else { continue };
             let public_key_plaintext = decrypt_cipher(
                 state.clone(),
                 public_key_enc,

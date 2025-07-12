@@ -64,9 +64,9 @@ impl ssh_agent_lib::agent::Session for SshAgent {
                 key.try_sign(&request.data).map_err(AgentError::other),
 
             ssh_key::private::KeypairData::Rsa(key) => {
-                let p = rsa::BigUint::from_bytes_be(&key.private.p.as_bytes());
-                let q = rsa::BigUint::from_bytes_be(&key.private.q.as_bytes());
-                let e = rsa::BigUint::from_bytes_be(&key.public.e.as_bytes());
+                let p = rsa::BigUint::from_bytes_be(key.private.p.as_bytes());
+                let q = rsa::BigUint::from_bytes_be(key.private.q.as_bytes());
+                let e = rsa::BigUint::from_bytes_be(key.public.e.as_bytes());
                 let rsa_key = rsa::RsaPrivateKey::from_p_q(p, q, e)
                     .map_err(AgentError::other)?;
 
@@ -103,7 +103,7 @@ impl ssh_agent_lib::agent::Session for SshAgent {
 
             // TODO: Check which other key types are supported by bitwarden
             other =>
-                Err(AgentError::Other(format!("Unsupported key type: {:?}", other).into())),
+                Err(AgentError::Other(format!("Unsupported key type: {other:?}").into())),
         }
     }
 }
