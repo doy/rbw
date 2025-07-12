@@ -35,11 +35,8 @@ fn real_main() -> anyhow::Result<()> {
 
     rbw::dirs::make_all()?;
 
-    let startup_ack = if no_daemonize {
-        None
-    } else {
-        Some(daemon::daemonize().context("failed to daemonize")?)
-    };
+    let startup_ack =
+        daemon::daemonize(no_daemonize).context("failed to daemonize")?;
 
     if let Err(e) = debugger::disable_tracing() {
         log::warn!("{e}");
