@@ -1,162 +1,23 @@
 use anyhow::Context as _;
 use futures_util::StreamExt as _;
-use sha2::Digest as _;
-
-pub struct State {
-    pub priv_key: Option<rbw::locked::Keys>,
-    pub org_keys:
-        Option<std::collections::HashMap<String, rbw::locked::Keys>>,
-    pub timeout: crate::timeout::Timeout,
-    pub timeout_duration: std::time::Duration,
-    pub sync_timeout: crate::timeout::Timeout,
-    pub sync_timeout_duration: std::time::Duration,
-    pub notifications_handler: crate::notifications::Handler,
-    pub master_password_reprompt: std::collections::HashSet<[u8; 32]>,
-    #[cfg(feature = "clipboard")]
-    pub clipboard: Option<arboard::Clipboard>,
-}
-
-impl State {
-    pub fn key(&self, org_id: Option<&str>) -> Option<&rbw::locked::Keys> {
-        org_id.map_or(self.priv_key.as_ref(), |id| {
-            self.org_keys.as_ref().and_then(|h| h.get(id))
-        })
-    }
-
-    pub fn needs_unlock(&self) -> bool {
-        self.priv_key.is_none() || self.org_keys.is_none()
-    }
-
-    pub fn set_timeout(&self) {
-        self.timeout.set(self.timeout_duration);
-    }
-
-    pub fn clear(&mut self) {
-        self.priv_key = None;
-        self.org_keys = None;
-        self.timeout.clear();
-    }
-
-    pub fn set_sync_timeout(&self) {
-        self.sync_timeout.set(self.sync_timeout_duration);
-    }
-
-    // the way we structure the client/agent split in rbw makes the master
-    // password reprompt feature a bit complicated to implement - it would be
-    // a lot easier to just have the client do the prompting, but that would
-    // leave it open to someone reading the cipherstring from the local
-    // database and passing it to the agent directly, bypassing the client.
-    // the agent is the thing that holds the unlocked secrets, so it also
-    // needs to be the thing guarding access to master password reprompt
-    // entries. we only pass individual cipherstrings to the agent though, so
-    // the agent needs to be able to recognize the cipherstrings that need
-    // reprompting, without the additional context of the entry they came
-    // from. in addition, because the reprompt state is stored in the sync db
-    // in plaintext, we can't just read it from the db directly, because
-    // someone could just edit the file on disk before making the request.
-    //
-    // therefore, the solution we choose here is to keep an in-memory set of
-    // cipherstrings that we know correspond to entries with master password
-    // reprompt enabled. this set is only updated when the agent itself does
-    // a sync, so it can't be bypassed by editing the on-disk file directly.
-    // if the agent gets a request for any of those cipherstrings that it saw
-    // marked as master password reprompt during the most recent sync, it
-    // forces a reprompt.
-    pub fn set_master_password_reprompt(
-        &mut self,
-        entries: &[rbw::db::Entry],
-    ) {
-        self.master_password_reprompt.clear();
-
-        let mut hasher = sha2::Sha256::new();
-
-        let mut sha256 = |s| {
-            hasher.update(s);
-            hasher.finalize_reset().into()
-        };
-
-        let mut insert = |s| {
-            if let Some(s) = s {
-                self.master_password_reprompt.insert(sha256(s));
-            }
-        };
-
-        for entry in entries {
-            if !entry.master_password_reprompt() {
-                continue;
-            }
-
-            match &entry.data {
-                rbw::db::EntryData::Login { password, totp, .. } => {
-                    insert(password.as_deref());
-                    insert(totp.as_deref());
-                }
-                rbw::db::EntryData::Card { number, code, .. } => {
-                    insert(number.as_deref());
-                    insert(code.as_deref());
-                }
-                rbw::db::EntryData::Identity {
-                    ssn,
-                    passport_number,
-                    ..
-                } => {
-                    insert(ssn.as_deref());
-                    insert(passport_number.as_deref());
-                }
-                rbw::db::EntryData::SecureNote => {}
-                rbw::db::EntryData::SshKey { private_key, .. } => {
-                    insert(private_key.as_deref());
-                }
-            }
-
-            for field in &entry.fields {
-                if field.ty == Some(rbw::api::FieldType::Hidden) {
-                    insert(field.value.as_deref());
-                }
-            }
-        }
-    }
-}
 
 pub struct Agent {
     timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
     sync_timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
-    state: std::sync::Arc<tokio::sync::Mutex<State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 }
 
 impl Agent {
-    pub fn new() -> anyhow::Result<Self> {
-        let config = rbw::config::Config::load()?;
-        let timeout_duration =
-            std::time::Duration::from_secs(config.lock_timeout);
-        let sync_timeout_duration =
-            std::time::Duration::from_secs(config.sync_interval);
-        let (timeout, timer_r) = crate::timeout::Timeout::new();
-        let (sync_timeout, sync_timer_r) = crate::timeout::Timeout::new();
-        if sync_timeout_duration > std::time::Duration::ZERO {
-            sync_timeout.set(sync_timeout_duration);
-        }
-        let notifications_handler = crate::notifications::Handler::new();
-        Ok(Self {
+    pub fn new(
+        timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
+        sync_timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
+        state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    ) -> Self {
+        Self {
             timer_r,
             sync_timer_r,
-            state: std::sync::Arc::new(tokio::sync::Mutex::new(State {
-                priv_key: None,
-                org_keys: None,
-                timeout,
-                timeout_duration,
-                sync_timeout,
-                sync_timeout_duration,
-                notifications_handler,
-                master_password_reprompt: std::collections::HashSet::new(),
-                #[cfg(feature = "clipboard")]
-                clipboard: arboard::Clipboard::new()
-                    .inspect_err(|e| {
-                        log::warn!("couldn't create clipboard context: {e}");
-                    })
-                    .ok(),
-            })),
-        })
+            state,
+        }
     }
 
     pub async fn run(
@@ -246,7 +107,7 @@ impl Agent {
 
 async fn handle_request(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
     let req = sock.recv().await?;
     let req = match req {

@@ -6,6 +6,7 @@ mod daemon;
 mod debugger;
 mod notifications;
 mod sock;
+mod state;
 mod timeout;
 
 async fn tokio_main(
@@ -17,7 +18,37 @@ async fn tokio_main(
         startup_ack.ack()?;
     }
 
-    let agent = crate::agent::Agent::new()?;
+    let config = rbw::config::Config::load()?;
+    let timeout_duration =
+        std::time::Duration::from_secs(config.lock_timeout);
+    let sync_timeout_duration =
+        std::time::Duration::from_secs(config.sync_interval);
+    let (timeout, timer_r) = crate::timeout::Timeout::new();
+    let (sync_timeout, sync_timer_r) = crate::timeout::Timeout::new();
+    if sync_timeout_duration > std::time::Duration::ZERO {
+        sync_timeout.set(sync_timeout_duration);
+    }
+    let notifications_handler = crate::notifications::Handler::new();
+    let state =
+        std::sync::Arc::new(tokio::sync::Mutex::new(crate::state::State {
+            priv_key: None,
+            org_keys: None,
+            timeout,
+            timeout_duration,
+            sync_timeout,
+            sync_timeout_duration,
+            notifications_handler,
+            master_password_reprompt: std::collections::HashSet::new(),
+            #[cfg(feature = "clipboard")]
+            clipboard: arboard::Clipboard::new()
+                .inspect_err(|e| {
+                    log::warn!("couldn't create clipboard context: {e}");
+                })
+                .ok(),
+        }));
+
+    let agent = crate::agent::Agent::new(timer_r, sync_timer_r, state);
+
     agent.run(listener).await?;
 
     Ok(())
