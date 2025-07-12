@@ -1912,6 +1912,7 @@ dependencies = [
  "serde_repr",
  "sha1",
  "sha2",
+ "signature",
  "ssh-agent-lib",
  "tempfile",
  "terminal_size",

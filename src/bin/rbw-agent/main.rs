@@ -6,6 +6,7 @@ mod daemon;
 mod debugger;
 mod notifications;
 mod sock;
+mod ssh_agent;
 mod state;
 mod timeout;
 
@@ -47,9 +48,12 @@ async fn tokio_main(
                 .ok(),
         }));
 
-    let agent = crate::agent::Agent::new(timer_r, sync_timer_r, state);
+    let agent =
+        crate::agent::Agent::new(timer_r, sync_timer_r, state.clone());
 
-    agent.run(listener).await?;
+    let ssh_agent = crate::ssh_agent::SshAgent::new(state.clone());
+
+    tokio::try_join!(agent.run(listener), ssh_agent.run())?;
 
     Ok(())
 }
