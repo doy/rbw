@@ -3,7 +3,7 @@ name = "rbw"
 version = "1.13.2"
 authors = ["Jesse Luehrs <doy@tozt.net>"]
 edition = "2021"
-rust-version = "1.80.0"
+rust-version = "1.82.0"
 
 description = "Unofficial Bitwarden CLI"
 repository = "https://git.tozt.net/rbw"
@@ -94,6 +94,7 @@ must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 significant_drop_tightening = "allow"
+struct_field_names = "allow"
 
 [package.metadata.deb]
 depends = "pinentry"
