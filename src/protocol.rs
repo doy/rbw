@@ -82,7 +82,7 @@ impl serde::Serialize for SerializableOsString {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_bytes(self.0.as_bytes())
+        serializer.serialize_str(&crate::base64::encode(self.0.as_bytes()))
     }
 }
 
@@ -93,33 +93,29 @@ impl<'de> serde::Deserialize<'de> for SerializableOsString {
     {
         struct Visitor;
 
-        impl<'de> serde::de::Visitor<'de> for Visitor {
+        impl serde::de::Visitor<'_> for Visitor {
             type Value = SerializableOsString;
 
             fn expecting(
                 &self,
                 formatter: &mut std::fmt::Formatter,
             ) -> std::fmt::Result {
-                formatter.write_str("os string")
+                formatter.write_str("base64 encoded os string")
             }
 
-            fn visit_seq<S>(
-                self,
-                mut access: S,
-            ) -> Result<Self::Value, S::Error>
+            fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
             where
-                S: serde::de::SeqAccess<'de>,
+                E: serde::de::Error,
             {
-                let mut bytes =
-                    Vec::with_capacity(access.size_hint().unwrap_or(0));
-                while let Some(b) = access.next_element()? {
-                    bytes.push(b);
-                }
-                Ok(SerializableOsString(std::ffi::OsString::from_vec(bytes)))
+                Ok(SerializableOsString(std::ffi::OsString::from_vec(
+                    crate::base64::decode(s).map_err(|_| {
+                        E::invalid_value(serde::de::Unexpected::Str(s), &self)
+                    })?,
+                )))
             }
         }
 
-        deserializer.deserialize_bytes(Visitor)
+        deserializer.deserialize_str(Visitor)
     }
 }
 
