@@ -578,129 +578,94 @@ impl DecryptedCipher {
         Ok(())
     }
 
-    fn exact_match(
+    fn matches(
         &self,
         needle: &Needle,
         username: Option<&str>,
         folder: Option<&str>,
-        try_match_folder: bool,
         ignore_case: bool,
+        strict_username: bool,
+        strict_folder: bool,
+        exact: bool,
     ) -> bool {
-        match needle {
-            Needle::Name(name) => {
-                if !((ignore_case
-                    && name.to_lowercase() == self.name.to_lowercase())
-                    || *name == self.name)
-                {
+        let match_str = match (ignore_case, exact) {
+            (true, true) => |field: &str, search_term: &str| {
+                field.to_lowercase() == search_term.to_lowercase()
+            },
+            (true, false) => |field: &str, search_term: &str| {
+                field.to_lowercase().contains(&search_term.to_lowercase())
+            },
+            (false, true) => {
+                |field: &str, search_term: &str| field == search_term
+            }
+            (false, false) => {
+                |field: &str, search_term: &str| field.contains(search_term)
+            }
+        };
+
+        match (self.folder.as_deref(), folder) {
+            (Some(folder), Some(given_folder)) => {
+                if !match_str(folder, given_folder) {
                     return false;
                 }
             }
-            Needle::Uri(given_uri) => {
-                match &self.data {
-                    DecryptedData::Login {
-                        uris: Some(uris), ..
-                    } => {
-                        if !uris.iter().any(|uri| uri.matches_url(given_uri))
-                        {
-                            return false;
-                        }
-                    }
-                    _ => {
-                        // not sure what else to do here, but open to suggestions
-                        return false;
-                    }
+            (Some(_), None) => {
+                if strict_folder {
+                    return false;
                 }
             }
+            (None, Some(_)) => {
+                return false;
+            }
+            (None, None) => {}
+        }
+
+        let entry_username =
+            if let DecryptedData::Login { username, .. } = &self.data {
+                username
+            } else {
+                &None
+            };
+        match (entry_username, username) {
+            (Some(username), Some(given_username)) => {
+                if !match_str(username, given_username) {
+                    return false;
+                }
+            }
+            (Some(_), None) => {
+                if strict_username {
+                    return false;
+                }
+            }
+            (None, Some(_)) => {
+                return false;
+            }
+            (None, None) => {}
+        }
+
+        match needle {
             Needle::Uuid(uuid) => {
                 if uuid::Uuid::parse_str(&self.id) != Ok(*uuid) {
                     return false;
                 }
             }
-        }
-
-        if let Some(given_username) = username {
-            match &self.data {
+            Needle::Name(name) => {
+                if !match_str(&self.name, name) {
+                    return false;
+                }
+            }
+            Needle::Uri(given_uri) => match &self.data {
                 DecryptedData::Login {
-                    username: Some(found_username),
-                    ..
+                    uris: Some(uris), ..
                 } => {
-                    if given_username != found_username {
+                    if !uris.iter().any(|uri| uri.matches_url(given_uri)) {
                         return false;
                     }
                 }
                 _ => {
-                    // not sure what else to do here, but open to suggestions
                     return false;
                 }
-            }
-        }
-
-        if try_match_folder {
-            if let Some(given_folder) = folder {
-                if let Some(folder) = &self.folder {
-                    if given_folder != folder {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            } else if self.folder.is_some() {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    fn partial_match(
-        &self,
-        name: &str,
-        username: Option<&str>,
-        folder: Option<&str>,
-        try_match_folder: bool,
-        ignore_case: bool,
-    ) -> bool {
-        if !((ignore_case
-            && self.name.to_lowercase().contains(&name.to_lowercase()))
-            || self.name.contains(name))
-        {
-            return false;
-        }
-
-        if let Some(given_username) = username {
-            match &self.data {
-                DecryptedData::Login {
-                    username: Some(found_username),
-                    ..
-                } => {
-                    if !((ignore_case
-                        && found_username
-                            .to_lowercase()
-                            .contains(&given_username.to_lowercase()))
-                        || found_username.contains(given_username))
-                    {
-                        return false;
-                    }
-                }
-                _ => {
-                    // not sure what else to do here, but open to suggestions
-                    return false;
-                }
-            }
-        }
-
-        if try_match_folder {
-            if let Some(given_folder) = folder {
-                if let Some(folder) = &self.folder {
-                    if !folder.contains(given_folder) {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            } else if self.folder.is_some() {
-                return false;
-            }
+            },
         }
 
         true
@@ -1732,80 +1697,47 @@ fn find_entry_raw(
     folder: Option<&str>,
     ignore_case: bool,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    let mut matches: Vec<(rbw::db::Entry, DecryptedCipher)> = entries
-        .iter()
-        .filter(|&(_, decrypted_cipher)| {
-            decrypted_cipher.exact_match(
-                needle,
-                username,
-                folder,
-                true,
-                ignore_case,
-            )
-        })
-        .cloned()
-        .collect();
+    let mut matches: Vec<(rbw::db::Entry, DecryptedCipher)> = vec![];
 
-    if matches.len() == 1 {
-        return Ok(matches[0].clone());
-    }
-
-    if folder.is_none() {
-        matches = entries
+    let find_matches = |strict_username, strict_folder, exact| {
+        entries
             .iter()
             .filter(|&(_, decrypted_cipher)| {
-                decrypted_cipher.exact_match(
+                decrypted_cipher.matches(
                     needle,
                     username,
                     folder,
-                    false,
                     ignore_case,
+                    strict_username,
+                    strict_folder,
+                    exact,
                 )
             })
             .cloned()
-            .collect();
+            .collect()
+    };
 
-        if matches.len() == 1 {
-            return Ok(matches[0].clone());
-        }
-    }
-
-    if let Needle::Name(name) = needle {
-        matches = entries
-            .iter()
-            .filter(|&(_, decrypted_cipher)| {
-                decrypted_cipher.partial_match(
-                    name,
-                    username,
-                    folder,
-                    true,
-                    ignore_case,
-                )
-            })
-            .cloned()
-            .collect();
-
+    for exact in [true, false] {
+        matches = find_matches(true, true, exact);
         if matches.len() == 1 {
             return Ok(matches[0].clone());
         }
 
-        if folder.is_none() {
-            matches = entries
-                .iter()
-                .filter(|&(_, decrypted_cipher)| {
-                    decrypted_cipher.partial_match(
-                        name,
-                        username,
-                        folder,
-                        false,
-                        ignore_case,
-                    )
-                })
-                .cloned()
-                .collect();
-            if matches.len() == 1 {
-                return Ok(matches[0].clone());
-            }
+        let strict_folder_matches = find_matches(false, true, exact);
+        let strict_username_matches = find_matches(true, false, exact);
+        if strict_folder_matches.len() == 1
+            && strict_username_matches.len() != 1
+        {
+            return Ok(strict_folder_matches[0].clone());
+        } else if strict_folder_matches.len() != 1
+            && strict_username_matches.len() == 1
+        {
+            return Ok(strict_username_matches[0].clone());
+        }
+
+        matches = find_matches(false, false, exact);
+        if matches.len() == 1 {
+            return Ok(matches[0].clone());
         }
     }
 
@@ -2367,6 +2299,10 @@ mod test {
             make_entry("github", Some("foo"), Some("websites"), &[]),
             make_entry("github", Some("foo"), Some("ssh"), &[]),
             make_entry("github", Some("root"), Some("ssh"), &[]),
+            make_entry("codeberg", Some("foo"), None, &[]),
+            make_entry("codeberg", None, None, &[]),
+            make_entry("1password", Some("foo"), None, &[]),
+            make_entry("1password", None, Some("foo"), &[]),
         ];
 
         assert!(
@@ -2518,6 +2454,24 @@ mod test {
         assert!(
             many_matches(entries, "GITHUB", Some("foo"), Some("s"), true),
             "s/foo@GITHUB"
+        );
+
+        assert!(
+            one_match(entries, "codeberg", Some("foo"), None, 9, false),
+            "foo@codeberg"
+        );
+        assert!(
+            one_match(entries, "codeberg", None, None, 10, false),
+            "codeberg"
+        );
+        assert!(
+            no_matches(entries, "codeberg", Some("bar"), None, false),
+            "bar@codeberg"
+        );
+
+        assert!(
+            many_matches(entries, "1password", None, None, false),
+            "1password"
         );
     }
 
