@@ -831,3 +831,34 @@ pub async fn subscribe_to_notifications(
         .err()
         .map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
 }
+
+pub async fn get_ssh_public_keys(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<Vec<String>> {
+    unlock_state(state.clone(), environment).await?;
+
+    let db = load_db().await?;
+    let mut pubkeys = Vec::new();
+
+    for entry in db.entries {
+        if let rbw::db::EntryData::SshKey {
+            public_key: Some(encrypted),
+            ..
+        } = &entry.data
+        {
+            let plaintext = decrypt_cipher(
+                state.clone(),
+                environment,
+                encrypted,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+            .await?;
+
+            pubkeys.push(plaintext);
+        }
+    }
+
+    Ok(pubkeys)
+}
