@@ -56,6 +56,8 @@ enum Opt {
         visible_alias = "ls"
     )]
     List {
+        #[structopt(long, help = "Display output as JSON")]
+        raw: bool,
         #[arg(
             long,
             help = "Fields to display. \
@@ -310,7 +312,7 @@ fn main() {
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),
-        Opt::List { fields } => commands::list(fields),
+        Opt::List { fields, raw } => commands::list(fields, *raw),
         Opt::Get {
             find_args,
             field,
