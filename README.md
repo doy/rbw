@@ -135,6 +135,18 @@ run `rbw register` to register each device using `rbw` with the Bitwarden
 server. This will prompt you for your personal API key which you can find using
 the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
 
+### SSH Agent
+
+`rbw-agent` includes a built-in SSH agent for signing SSH authentication
+challenges directly. To use it, point your SSH client to the SSH agent socket:
+
+```sh
+export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/rbw/ssh-agent-socket"
+```
+
+If you're using a profile, the socket will be located at
+`"XDG_RUNTIME_DIR/rbw-<profile>/ssh-agent-socket"`.
+
 ## Related projects
 
 * [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden

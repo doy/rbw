@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use std::os::unix::ffi::OsStringExt as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
@@ -77,7 +78,7 @@ pub async fn register(
 
 pub async fn login(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
     let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
@@ -302,7 +303,7 @@ async fn two_factor(
 }
 
 async fn login_success(
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     access_token: String,
     refresh_token: String,
     kdf: rbw::api::KdfType,
@@ -356,9 +357,8 @@ async fn login_success(
     Ok(())
 }
 
-pub async fn unlock(
-    sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+async fn unlock_state(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
     if state.lock().await.needs_unlock() {
@@ -441,13 +441,23 @@ pub async fn unlock(
         }
     }
 
+    Ok(())
+}
+
+pub async fn unlock(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+    unlock_state(state, environment).await?;
+
     respond_ack(sock).await?;
 
     Ok(())
 }
 
 async fn unlock_success(
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     keys: rbw::locked::Keys,
     org_keys: std::collections::HashMap<String, rbw::locked::Keys>,
 ) -> anyhow::Result<()> {
@@ -459,7 +469,7 @@ async fn unlock_success(
 
 pub async fn lock(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
     state.lock().await.clear();
 
@@ -470,7 +480,7 @@ pub async fn lock(
 
 pub async fn check_lock(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
     if state.lock().await.needs_unlock() {
         return Err(anyhow::anyhow!("agent is locked"));
@@ -483,7 +493,7 @@ pub async fn check_lock(
 
 pub async fn sync(
     sock: Option<&mut crate::sock::Sock>,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
     let mut db = load_db().await?;
 
@@ -523,13 +533,12 @@ pub async fn sync(
     Ok(())
 }
 
-pub async fn decrypt(
-    sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+async fn decrypt_cipher(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     let state = state.lock().await;
     let Some(keys) = state.key(org_id) else {
         return Err(anyhow::anyhow!(
@@ -557,14 +566,42 @@ pub async fn decrypt(
     )
     .context("failed to parse decrypted secret")?;
 
-    respond_decrypt(sock, plaintext).await?;
+    Ok(plaintext)
+}
 
+pub async fn decrypt(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let plaintext =
+        decrypt_cipher(state, cipherstring, entry_key, org_id).await?;
+
+    // don't expose decrypted private ssh keys over the socket
+    // in a scenario where an attacker has access to the encrypted vault and
+    // the socket, but not to the master password/decryption keys, the ssh keys
+    // are still protected
+    if plaintext.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----") {
+        if let Ok(key) =
+            ssh_agent_lib::ssh_key::PrivateKey::from_openssh(&plaintext)
+        {
+            if !key.is_encrypted() {
+                return Err(anyhow::anyhow!(
+                    "agent doesn't expose decrypted SSH keys"
+                ));
+            }
+        }
+    }
+
+    respond_decrypt(sock, plaintext).await?;
     Ok(())
 }
 
 pub async fn encrypt(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     plaintext: &str,
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
@@ -588,7 +625,7 @@ pub async fn encrypt(
 #[cfg(feature = "clipboard")]
 pub async fn clipboard_store(
     sock: &mut crate::sock::Sock,
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     text: &str,
 ) -> anyhow::Result<()> {
     let mut state = state.lock().await;
@@ -606,7 +643,7 @@ pub async fn clipboard_store(
 #[cfg(not(feature = "clipboard"))]
 pub async fn clipboard_store(
     sock: &mut crate::sock::Sock,
-    _state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    _state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     _text: &str,
 ) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Error {
@@ -693,7 +730,7 @@ async fn config_pinentry() -> anyhow::Result<String> {
 }
 
 pub async fn subscribe_to_notifications(
-    state: std::sync::Arc<tokio::sync::Mutex<crate::agent::State>>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
     if state.lock().await.notifications_handler.is_connected() {
         return Ok(());
@@ -722,4 +759,104 @@ pub async fn subscribe_to_notifications(
         .await
         .err()
         .map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
+}
+
+pub async fn get_ssh_public_keys(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+) -> anyhow::Result<Vec<String>> {
+    // TODO: the following block is simply copied over from rbw/actions.rs
+    // consider refactoring
+    let tty = std::env::var_os("RBW_TTY").or_else(|| {
+        rustix::termios::ttyname(std::io::stdin(), vec![])
+            .ok()
+            .map(|p| std::ffi::OsString::from_vec(p.as_bytes().to_vec()))
+    });
+    let env_vars = std::env::vars_os()
+        .filter(|(var_name, _)| {
+            (*rbw::protocol::ENVIRONMENT_VARIABLES_OS).contains(var_name)
+        })
+        .collect();
+    let environment = rbw::protocol::Environment::new(tty, env_vars);
+
+    unlock_state(state.clone(), &environment).await?;
+
+    let db = load_db().await?;
+    let mut pubkeys = Vec::new();
+
+    for entry in db.entries {
+        if let rbw::db::EntryData::SshKey {
+            public_key: Some(encrypted),
+            ..
+        } = &entry.data
+        {
+            let plaintext = decrypt_cipher(
+                state.clone(),
+                encrypted,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+            .await?;
+
+            pubkeys.push(plaintext);
+        }
+    }
+
+    Ok(pubkeys)
+}
+
+pub async fn find_ssh_private_key(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    request_public_key: ssh_agent_lib::ssh_key::PublicKey,
+) -> anyhow::Result<ssh_agent_lib::ssh_key::PrivateKey> {
+    let request_bytes = request_public_key.to_bytes();
+
+    let db = load_db().await?;
+
+    for entry in db.entries {
+        if let rbw::db::EntryData::SshKey {
+            private_key,
+            public_key,
+            ..
+        } = &entry.data
+        {
+            let Some(public_key_enc) = public_key else {
+                continue;
+            };
+            let public_key_plaintext = decrypt_cipher(
+                state.clone(),
+                public_key_enc,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+            .await?;
+            let public_key_bytes =
+                ssh_agent_lib::ssh_key::PublicKey::from_openssh(
+                    &public_key_plaintext,
+                )
+                .map_err(anyhow::Error::new)?
+                .to_bytes();
+
+            if public_key_bytes == request_bytes {
+                let private_key_enc =
+                    private_key.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("Matching entry has no private key")
+                    })?;
+
+                let private_key_plaintext = decrypt_cipher(
+                    state.clone(),
+                    private_key_enc,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )
+                .await?;
+
+                return ssh_agent_lib::ssh_key::PrivateKey::from_openssh(
+                    private_key_plaintext,
+                )
+                .map_err(anyhow::Error::new);
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!("No matching private key found"))
 }
