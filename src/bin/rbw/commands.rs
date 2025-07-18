@@ -20,7 +20,7 @@ const MISSING_CONFIG_HELP: &str =
 pub enum Needle {
     Name(String),
     Uri(url::Url),
-    Uuid(uuid::Uuid),
+    Uuid(uuid::Uuid, String),
 }
 
 impl std::fmt::Display for Needle {
@@ -28,7 +28,7 @@ impl std::fmt::Display for Needle {
         let value = match &self {
             Self::Name(name) => name.clone(),
             Self::Uri(uri) => uri.to_string(),
-            Self::Uuid(uuid) => uuid.to_string(),
+            Self::Uuid(_, s) => s.clone(),
         };
         write!(f, "{value}")
     }
@@ -37,7 +37,7 @@ impl std::fmt::Display for Needle {
 #[allow(clippy::unnecessary_wraps)]
 pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
     if let Ok(uuid) = uuid::Uuid::parse_str(arg) {
-        return Ok(Needle::Uuid(uuid));
+        return Ok(Needle::Uuid(uuid, arg.to_string()));
     }
     if let Ok(url) = url::Url::parse(arg) {
         if url.is_special() {
@@ -652,8 +652,10 @@ impl DecryptedCipher {
         }
 
         match needle {
-            Needle::Uuid(uuid) => {
-                if uuid::Uuid::parse_str(&self.id) != Ok(*uuid) {
+            Needle::Uuid(uuid, s) => {
+                if uuid::Uuid::parse_str(&self.id) != Ok(*uuid)
+                    && !match_str(&self.name, s)
+                {
                     return false;
                 }
             }
@@ -1100,7 +1102,7 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
 
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn get(
-    needle: &Needle,
+    needle: Needle,
     user: Option<&str>,
     folder: Option<&str>,
     field: Option<&str>,
@@ -1176,7 +1178,7 @@ pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
 }
 
 pub fn code(
-    needle: &Needle,
+    needle: Needle,
     user: Option<&str>,
     folder: Option<&str>,
     clipboard: bool,
@@ -1407,7 +1409,7 @@ pub fn generate(
 }
 
 pub fn edit(
-    name: &Needle,
+    name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
@@ -1532,7 +1534,7 @@ pub fn edit(
 }
 
 pub fn remove(
-    name: &Needle,
+    name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
@@ -1565,7 +1567,7 @@ pub fn remove(
 }
 
 pub fn history(
-    name: &Needle,
+    name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
@@ -1672,29 +1674,28 @@ fn version_or_quit() -> anyhow::Result<u32> {
 
 fn find_entry(
     db: &rbw::db::Db,
-    needle: &Needle,
+    mut needle: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    if let Needle::Uuid(uuid) = needle {
+    if let Needle::Uuid(uuid, s) = needle {
         for cipher in &db.entries {
-            if uuid::Uuid::parse_str(&cipher.id) == Ok(*uuid) {
+            if uuid::Uuid::parse_str(&cipher.id) == Ok(uuid) {
                 return Ok((cipher.clone(), decrypt_cipher(cipher)?));
             }
         }
-        Err(anyhow::anyhow!("no entry found"))
-    } else {
-        let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
-            .entries
-            .iter()
-            .map(|entry| {
-                decrypt_cipher(entry)
-                    .map(|decrypted| (entry.clone(), decrypted))
-            })
-            .collect::<anyhow::Result<_>>()?;
-        find_entry_raw(&ciphers, needle, username, folder, ignore_case)
+        needle = Needle::Name(s);
     }
+
+    let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
+        .entries
+        .iter()
+        .map(|entry| {
+            decrypt_cipher(entry).map(|decrypted| (entry.clone(), decrypted))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    find_entry_raw(&ciphers, &needle, username, folder, ignore_case)
 }
 
 fn find_entry_raw(
@@ -2535,6 +2536,19 @@ mod test {
             make_entry("github", Some("foo"), None, &[]),
             make_entry("gitlab", Some("foo"), None, &[]),
             make_entry("gitlab", Some("bar"), None, &[]),
+            make_entry(
+                "12345678-1234-1234-1234-1234567890ab",
+                None,
+                None,
+                &[],
+            ),
+            make_entry(
+                "12345678-1234-1234-1234-1234567890AC",
+                None,
+                None,
+                &[],
+            ),
+            make_entry("123456781234123412341234567890AD", None, None, &[]),
         ];
 
         assert!(
@@ -2572,6 +2586,49 @@ mod test {
             ),
             "foo@github"
         );
+
+        assert!(one_match(entries, &entries[3].0.id, None, None, 3, false));
+        assert!(one_match(
+            entries,
+            "12345678-1234-1234-1234-1234567890ab",
+            None,
+            None,
+            3,
+            false
+        ));
+        assert!(no_matches(
+            entries,
+            "12345678-1234-1234-1234-1234567890AB",
+            None,
+            None,
+            false
+        ));
+        assert!(one_match(
+            entries,
+            "12345678-1234-1234-1234-1234567890AB",
+            None,
+            None,
+            3,
+            true
+        ));
+        assert!(one_match(entries, &entries[4].0.id, None, None, 4, false));
+        assert!(one_match(
+            entries,
+            "12345678-1234-1234-1234-1234567890AC",
+            None,
+            None,
+            4,
+            false
+        ));
+        assert!(one_match(entries, &entries[5].0.id, None, None, 5, false));
+        assert!(one_match(
+            entries,
+            "123456781234123412341234567890AD",
+            None,
+            None,
+            5,
+            false
+        ));
     }
 
     #[test]

@@ -299,18 +299,19 @@ fn main() {
     })
     .init();
 
-    let res = match &opt {
+    let subcommand_name = opt.subcommand_name();
+    let res = match opt {
         Opt::Config { config } => match config {
             Config::Show => commands::config_show(),
-            Config::Set { key, value } => commands::config_set(key, value),
-            Config::Unset { key } => commands::config_unset(key),
+            Config::Set { key, value } => commands::config_set(&key, &value),
+            Config::Unset { key } => commands::config_unset(&key),
         },
         Opt::Register => commands::register(),
         Opt::Login => commands::login(),
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),
-        Opt::List { fields } => commands::list(fields),
+        Opt::List { fields } => commands::list(&fields),
         Opt::Get {
             find_args,
             field,
@@ -319,31 +320,31 @@ fn main() {
             #[cfg(feature = "clipboard")]
             clipboard,
         } => commands::get(
-            &find_args.needle,
+            find_args.needle.clone(),
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             field.as_deref(),
-            *full,
-            *raw,
+            full,
+            raw,
             #[cfg(feature = "clipboard")]
-            *clipboard,
+            clipboard,
             #[cfg(not(feature = "clipboard"))]
             false,
             find_args.ignorecase,
         ),
         Opt::Search { term, folder } => {
-            commands::search(term, folder.as_deref())
+            commands::search(&term, folder.as_deref())
         }
         Opt::Code {
             find_args,
             #[cfg(feature = "clipboard")]
             clipboard,
         } => commands::code(
-            &find_args.needle,
+            find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             #[cfg(feature = "clipboard")]
-            *clipboard,
+            clipboard,
             #[cfg(not(feature = "clipboard"))]
             false,
             find_args.ignorecase,
@@ -354,7 +355,7 @@ fn main() {
             uri,
             folder,
         } => commands::add(
-            name,
+            &name,
             user.as_deref(),
             &uri.iter()
                 // XXX not sure what the ui for specifying the match type
@@ -374,13 +375,13 @@ fn main() {
             nonconfusables,
             diceware,
         } => {
-            let ty = if *no_symbols {
+            let ty = if no_symbols {
                 rbw::pwgen::Type::NoSymbols
-            } else if *only_numbers {
+            } else if only_numbers {
                 rbw::pwgen::Type::Numbers
-            } else if *nonconfusables {
+            } else if nonconfusables {
                 rbw::pwgen::Type::NonConfusables
-            } else if *diceware {
+            } else if diceware {
                 rbw::pwgen::Type::Diceware
             } else {
                 rbw::pwgen::Type::AllChars
@@ -394,24 +395,24 @@ fn main() {
                     .map(|uri| (uri.clone(), None))
                     .collect::<Vec<_>>(),
                 folder.as_deref(),
-                *len,
+                len,
                 ty,
             )
         }
         Opt::Edit { find_args } => commands::edit(
-            &find_args.needle,
+            find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             find_args.ignorecase,
         ),
         Opt::Remove { find_args } => commands::remove(
-            &find_args.needle,
+            find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             find_args.ignorecase,
         ),
         Opt::History { find_args } => commands::history(
-            &find_args.needle,
+            find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             find_args.ignorecase,
@@ -421,7 +422,7 @@ fn main() {
         Opt::StopAgent => commands::stop_agent(),
         Opt::GenCompletions { shell } => {
             clap_complete::generate(
-                *shell,
+                shell,
                 &mut Opt::command(),
                 "rbw",
                 &mut std::io::stdout(),
@@ -429,7 +430,7 @@ fn main() {
             Ok(())
         }
     }
-    .context(format!("rbw {}", opt.subcommand_name()));
+    .with_context(|| format!("rbw {subcommand_name}"));
 
     if let Err(e) = res {
         eprintln!("{e:#}");
