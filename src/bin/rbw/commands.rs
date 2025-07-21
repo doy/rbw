@@ -1159,7 +1159,11 @@ pub fn get(
     Ok(())
 }
 
-pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
+pub fn search(
+    term: &str,
+    folder: Option<&str>,
+    raw: bool,
+) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
@@ -1176,15 +1180,21 @@ pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
         })
         .collect::<Result<_, anyhow::Error>>()?;
 
-    for entry in found_entries {
-        let mut display = entry.name;
-        if let Some(user) = entry.user {
-            display = format!("{user}@{display}");
+    if raw {
+        serde_json::to_writer_pretty(std::io::stdout(), &found_entries)
+            .context("failed to write entries to stdout")?;
+        println!();
+    } else {
+        for entry in found_entries {
+            let mut display = entry.name;
+            if let Some(user) = entry.user {
+                display = format!("{user}@{display}");
+            }
+            if let Some(folder) = entry.folder {
+                display = format!("{folder}/{display}");
+            }
+            println!("{display}");
         }
-        if let Some(folder) = entry.folder {
-            display = format!("{folder}/{display}");
-        }
-        println!("{display}");
     }
 
     Ok(())

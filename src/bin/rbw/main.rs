@@ -90,6 +90,8 @@ enum Opt {
         term: String,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[structopt(long, help = "Display output as JSON")]
+        raw: bool,
     },
 
     #[command(
@@ -334,8 +336,8 @@ fn main() {
             false,
             find_args.ignorecase,
         ),
-        Opt::Search { term, folder } => {
-            commands::search(&term, folder.as_deref())
+        Opt::Search { term, folder, raw } => {
+            commands::search(&term, folder.as_deref(), raw)
         }
         Opt::Code {
             find_args,
