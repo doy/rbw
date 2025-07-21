@@ -65,6 +65,8 @@ enum Opt {
             use_value_delimiter = true
         )]
         fields: Vec<String>,
+        #[structopt(long, help = "Display output as JSON")]
+        raw: bool,
     },
 
     #[command(about = "Display the password for a given entry")]
@@ -311,7 +313,7 @@ fn main() {
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),
-        Opt::List { fields } => commands::list(&fields),
+        Opt::List { fields, raw } => commands::list(&fields, raw),
         Opt::Get {
             find_args,
             field,

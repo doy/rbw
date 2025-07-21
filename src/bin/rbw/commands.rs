@@ -48,7 +48,7 @@ pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
     Ok(Needle::Name(arg.to_string()))
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 struct DecryptedListCipher {
     id: String,
     name: Option<String>,
@@ -899,6 +899,12 @@ enum ListField {
     Folder,
 }
 
+impl ListField {
+    fn all() -> Vec<Self> {
+        vec![Self::Id, Self::Name, Self::User, Self::Folder]
+    }
+}
+
 impl std::convert::TryFrom<&String> for ListField {
     type Error = anyhow::Error;
 
@@ -1053,11 +1059,15 @@ pub fn sync() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn list(fields: &[String]) -> anyhow::Result<()> {
-    let fields: Vec<ListField> = fields
-        .iter()
-        .map(std::convert::TryFrom::try_from)
-        .collect::<anyhow::Result<_>>()?;
+pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
+    let fields: Vec<ListField> = if raw {
+        ListField::all()
+    } else {
+        fields
+            .iter()
+            .map(std::convert::TryFrom::try_from)
+            .collect::<anyhow::Result<_>>()?
+    };
 
     unlock()?;
 
@@ -1068,6 +1078,13 @@ pub fn list(fields: &[String]) -> anyhow::Result<()> {
         .map(|entry| decrypt_list_cipher(entry, &fields))
         .collect::<anyhow::Result<_>>()?;
     ciphers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
+    if raw {
+        serde_json::to_writer_pretty(std::io::stdout(), &ciphers)
+            .context("failed to write entries to stdout".to_string())?;
+        println!();
+        return Ok(());
+    }
 
     for cipher in ciphers {
         let values: Vec<String> = fields
