@@ -56,6 +56,45 @@ struct DecryptedListCipher {
     folder: Option<String>,
 }
 
+#[derive(Debug, serde::Serialize)]
+struct DecryptedSearchCipher {
+    id: String,
+    folder: Option<String>,
+    name: String,
+    user: Option<String>,
+    uris: Vec<String>,
+    fields: Vec<String>,
+    notes: Option<String>,
+}
+
+impl DecryptedSearchCipher {
+    fn search_match(&self, term: &str, folder: Option<&str>) -> bool {
+        if let Some(folder) = folder {
+            if self.folder.as_deref() != Some(folder) {
+                return false;
+            }
+        }
+
+        let mut fields = vec![self.name.clone()];
+        if let Some(notes) = &self.notes {
+            fields.push(notes.clone());
+        }
+        if let Some(user) = &self.user {
+            fields.push(user.clone());
+        }
+        fields.extend(self.uris.iter().cloned());
+        fields.extend(self.fields.iter().cloned());
+
+        for field in fields {
+            if field.to_lowercase().contains(&term.to_lowercase()) {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
@@ -680,40 +719,6 @@ impl DecryptedCipher {
 
         true
     }
-
-    fn search_match(&self, term: &str, folder: Option<&str>) -> bool {
-        if let Some(folder) = folder {
-            if self.folder.as_deref() != Some(folder) {
-                return false;
-            }
-        }
-
-        let mut fields = vec![self.name.as_str()];
-        if let Some(notes) = &self.notes {
-            fields.push(notes);
-        }
-        if let DecryptedData::Login { username, uris, .. } = &self.data {
-            if let Some(username) = username {
-                fields.push(username);
-            }
-            if let Some(uris) = uris {
-                fields.extend(uris.iter().map(|uri| uri.uri.as_str()));
-            }
-        }
-        fields.extend(
-            self.fields
-                .iter()
-                .filter_map(|field| field.value.as_deref()),
-        );
-
-        for field in fields {
-            if field.to_lowercase().contains(&term.to_lowercase()) {
-                return true;
-            }
-        }
-
-        false
-    }
 }
 
 fn val_display_or_store(clipboard: bool, password: &str) -> bool {
@@ -1162,33 +1167,24 @@ pub fn search(term: &str, folder: Option<&str>) -> anyhow::Result<()> {
     let found_entries: Vec<_> = db
         .entries
         .iter()
-        .map(decrypt_cipher)
-        .filter_map(|entry| {
+        .map(decrypt_search_cipher)
+        .filter(|entry| {
             entry
-                .map(|decrypted| {
-                    if decrypted.search_match(term, folder) {
-                        let mut display = decrypted.name;
-                        if let DecryptedData::Login {
-                            username: Some(username),
-                            ..
-                        } = decrypted.data
-                        {
-                            display = format!("{username}@{display}");
-                        }
-                        if let Some(folder) = decrypted.folder {
-                            display = format!("{folder}/{display}");
-                        }
-                        Some(display)
-                    } else {
-                        None
-                    }
-                })
-                .transpose()
+                .as_ref()
+                .map(|entry| entry.search_match(term, folder))
+                .unwrap_or(true)
         })
         .collect::<Result<_, anyhow::Error>>()?;
 
-    for name in found_entries {
-        println!("{name}");
+    for entry in found_entries {
+        let mut display = entry.name;
+        if let Some(user) = entry.user {
+            display = format!("{user}@{display}");
+        }
+        if let Some(folder) = entry.folder {
+            display = format!("{folder}/{display}");
+        }
+        println!("{display}");
     }
 
     Ok(())
@@ -1841,6 +1837,87 @@ fn decrypt_list_cipher(
         name,
         user,
         folder,
+    })
+}
+
+fn decrypt_search_cipher(
+    entry: &rbw::db::Entry,
+) -> anyhow::Result<DecryptedSearchCipher> {
+    let id = entry.id.clone();
+    let name = crate::actions::decrypt(
+        &entry.name,
+        entry.key.as_deref(),
+        entry.org_id.as_deref(),
+    )?;
+    let user = match &entry.data {
+        rbw::db::EntryData::Login { username, .. } => decrypt_field(
+            "username",
+            username.as_deref(),
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        ),
+        _ => None,
+    };
+    // folder name should always be decrypted with the local key because
+    // folders are local to a specific user's vault, not the organization
+    let folder = entry
+        .folder
+        .as_ref()
+        .map(|folder| crate::actions::decrypt(folder, None, None))
+        .transpose()?;
+    let notes = entry
+        .notes
+        .as_ref()
+        .map(|notes| {
+            crate::actions::decrypt(
+                notes,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        })
+        .transpose();
+    let uris = if let rbw::db::EntryData::Login { uris, .. } = &entry.data {
+        uris.iter()
+            .filter_map(|s| {
+                decrypt_field(
+                    "uri",
+                    Some(&s.uri),
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    let fields = entry
+        .fields
+        .iter()
+        .filter_map(|field| field.value.as_ref())
+        .map(|value| {
+            crate::actions::decrypt(
+                value,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let notes = match notes {
+        Ok(notes) => notes,
+        Err(e) => {
+            log::warn!("failed to decrypt notes: {e}");
+            None
+        }
+    };
+
+    Ok(DecryptedSearchCipher {
+        id,
+        folder,
+        name,
+        user,
+        uris,
+        fields,
+        notes,
     })
 }
 
