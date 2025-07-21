@@ -95,6 +95,17 @@ impl DecryptedSearchCipher {
     }
 }
 
+impl From<DecryptedSearchCipher> for DecryptedListCipher {
+    fn from(value: DecryptedSearchCipher) -> Self {
+        Self {
+            id: value.id,
+            name: Some(value.name),
+            user: value.user,
+            folder: value.folder,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedCipher {
@@ -1077,47 +1088,14 @@ pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
-    let mut ciphers: Vec<DecryptedListCipher> = db
+    let mut entries: Vec<DecryptedListCipher> = db
         .entries
         .iter()
         .map(|entry| decrypt_list_cipher(entry, &fields))
         .collect::<anyhow::Result<_>>()?;
-    ciphers.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
-    if raw {
-        serde_json::to_writer_pretty(std::io::stdout(), &ciphers)
-            .context("failed to write entries to stdout".to_string())?;
-        println!();
-        return Ok(());
-    }
-
-    for cipher in ciphers {
-        let values: Vec<String> = fields
-            .iter()
-            .map(|field| match field {
-                ListField::Id => cipher.id.clone(),
-                ListField::Name => cipher.name.as_ref().map_or_else(
-                    String::new,
-                    std::string::ToString::to_string,
-                ),
-                ListField::User => cipher.user.as_ref().map_or_else(
-                    String::new,
-                    std::string::ToString::to_string,
-                ),
-                ListField::Folder => cipher.folder.as_ref().map_or_else(
-                    String::new,
-                    std::string::ToString::to_string,
-                ),
-            })
-            .collect();
-
-        // write to stdout but don't panic when pipe get's closed
-        // this happens when piping stdout in a shell
-        match writeln!(&mut std::io::stdout(), "{}", values.join("\t")) {
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-            res => res,
-        }?;
-    }
+    print_entry_list(&entries, &fields, raw)?;
 
     Ok(())
 }
@@ -1159,16 +1137,70 @@ pub fn get(
     Ok(())
 }
 
+fn print_entry_list(
+    entries: &[DecryptedListCipher],
+    fields: &[ListField],
+    raw: bool,
+) -> anyhow::Result<()> {
+    if raw {
+        serde_json::to_writer_pretty(std::io::stdout(), &entries)
+            .context("failed to write entries to stdout".to_string())?;
+        println!();
+    } else {
+        for entry in entries {
+            let values: Vec<String> = fields
+                .iter()
+                .map(|field| match field {
+                    ListField::Id => entry.id.clone(),
+                    ListField::Name => entry.name.as_ref().map_or_else(
+                        String::new,
+                        std::string::ToString::to_string,
+                    ),
+                    ListField::User => entry.user.as_ref().map_or_else(
+                        String::new,
+                        std::string::ToString::to_string,
+                    ),
+                    ListField::Folder => entry.folder.as_ref().map_or_else(
+                        String::new,
+                        std::string::ToString::to_string,
+                    ),
+                })
+                .collect();
+
+            // write to stdout but don't panic when pipe get's closed
+            // this happens when piping stdout in a shell
+            match writeln!(&mut std::io::stdout(), "{}", values.join("\t")) {
+                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                    Ok(())
+                }
+                res => res,
+            }?;
+        }
+    }
+
+    Ok(())
+}
+
 pub fn search(
     term: &str,
+    fields: &[String],
     folder: Option<&str>,
     raw: bool,
 ) -> anyhow::Result<()> {
+    let fields: Vec<ListField> = if raw {
+        ListField::all()
+    } else {
+        fields
+            .iter()
+            .map(std::convert::TryFrom::try_from)
+            .collect::<anyhow::Result<_>>()?
+    };
+
     unlock()?;
 
     let db = load_db()?;
 
-    let found_entries: Vec<_> = db
+    let mut entries: Vec<DecryptedListCipher> = db
         .entries
         .iter()
         .map(decrypt_search_cipher)
@@ -1178,24 +1210,11 @@ pub fn search(
                 .map(|entry| entry.search_match(term, folder))
                 .unwrap_or(true)
         })
+        .map(|entry| entry.map(|entry| entry.into()))
         .collect::<Result<_, anyhow::Error>>()?;
+    entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
-    if raw {
-        serde_json::to_writer_pretty(std::io::stdout(), &found_entries)
-            .context("failed to write entries to stdout")?;
-        println!();
-    } else {
-        for entry in found_entries {
-            let mut display = entry.name;
-            if let Some(user) = entry.user {
-                display = format!("{user}@{display}");
-            }
-            if let Some(folder) = entry.folder {
-                display = format!("{folder}/{display}");
-            }
-            println!("{display}");
-        }
-    }
+    print_entry_list(&entries, &fields, raw)?;
 
     Ok(())
 }

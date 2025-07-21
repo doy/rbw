@@ -88,6 +88,15 @@ enum Opt {
     Search {
         #[arg(help = "Search term to locate entries")]
         term: String,
+        #[arg(
+            long,
+            help = "Fields to display. \
+                Available options are id, name, user, folder. \
+                Multiple fields will be separated by tabs.",
+            default_value = "name",
+            use_value_delimiter = true
+        )]
+        fields: Vec<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
         #[structopt(long, help = "Display output as JSON")]
@@ -336,9 +345,12 @@ fn main() {
             false,
             find_args.ignorecase,
         ),
-        Opt::Search { term, folder, raw } => {
-            commands::search(&term, folder.as_deref(), raw)
-        }
+        Opt::Search {
+            term,
+            fields,
+            folder,
+            raw,
+        } => commands::search(&term, &fields, folder.as_deref(), raw),
         Opt::Code {
             find_args,
             #[cfg(feature = "clipboard")]
