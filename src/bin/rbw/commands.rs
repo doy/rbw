@@ -1210,7 +1210,7 @@ pub fn search(
                 .map(|entry| entry.search_match(term, folder))
                 .unwrap_or(true)
         })
-        .map(|entry| entry.map(|entry| entry.into()))
+        .map(|entry| entry.map(std::convert::Into::into))
         .collect::<Result<_, anyhow::Error>>()?;
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
