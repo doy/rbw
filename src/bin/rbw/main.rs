@@ -444,10 +444,10 @@ fn main() {
                 &mut std::io::stdout(),
             );
             if shell == clap_complete::Shell::Zsh {
-                println!("{}", include_str!("main-zsh.sh"));
+                println!("{}", include_str!("completion/rbw.zsh"));
             }
             if shell == clap_complete::Shell::Bash {
-                println!("{}", include_str!("main-bash.sh"));
+                println!("{}", include_str!("completion/rbw.bash"));
             }
             Ok(())
         }
