@@ -1902,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "rbw"
-version = "1.13.2"
+version = "1.14.0"
 dependencies = [
  "aes",
  "anyhow",

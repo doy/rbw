@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.14.0] - 2025-08-24
+
+## Added
+
+* Steam Guard TOTP secrets are now supported. (#250, nikp123)
+* SSH Key vault entries are now supported. (#252, Peter Kaplan)
+* Master Password Reprompt is now supported.
+* `rbw list` and `rbw search` now have a `--raw` option similar to `rbw get`.
+* Shell completion now allows autocompleting of entry names, usernames, and
+  folders. (#245, Patrick Lenihan)
+* Added functionality to allow `rbw` to also act as an SSH agent by setting
+  `SSH_AUTH_SOCK` appropriately. (#262, Peter Kaplan)
+
+## Changed
+
+* The `--clipboard` option now has a short alias of `-c`. (#258, Kedap)
+* Sped up `rbw list` and `rbw search` by only decrypting fields that will
+  actually be displayed.
+* `rbw search` now displays results in the same format as `rbw list`, for
+  consistency and easier parsing.
+
+## Fixed
+
+* We now automatically remove spaces from TOTP secrets, to handle different
+  formatting or copy/pasting issues. (#247, foudil)
+* If we create a new directory (for cache, sockets, etc), we now always
+  ensure that its permissions are set correctly.
+* `git-credential-rbw` now supports git's `credential.useHttpPath`. (#244,
+   FoxAmes)
+* `identity_url`, `ui_url`, and `notifications_url` are now set properly when
+  configuring the `base_url` to be `https://api.bitwarden.eu`.
+* `rbw search` now also searches configured URIs in entries.
+* All subcommands which select a single entry are now consistent in how they
+  allow the entry to be specified.
+* Fixed some inconsistencies in how entries are selected when they have the
+  same name but some entries have no username specified.
+* Always write a pidfile for the agent even if it is not being daemonized, to
+  allow running the agent manually during debugging.
+* `rbw get` and `rbw search` now correctly return entries whose names are
+  UUIDs.
+* Email 2FA on the official Bitwarden server should now work again.
+
 ## [1.13.2] - 2025-01-06
 
 ## Fixed
