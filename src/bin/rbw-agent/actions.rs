@@ -837,6 +837,7 @@ pub async fn get_ssh_public_keys(
     environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<Vec<String>> {
     unlock_state(state.clone(), environment).await?;
+    state.lock().await.set_timeout();
 
     let db = load_db().await?;
     let mut pubkeys = Vec::new();
@@ -868,6 +869,9 @@ pub async fn find_ssh_private_key(
     environment: &rbw::protocol::Environment,
     request_public_key: ssh_agent_lib::ssh_key::PublicKey,
 ) -> anyhow::Result<ssh_agent_lib::ssh_key::PrivateKey> {
+    unlock_state(state.clone(), environment).await?;
+    state.lock().await.set_timeout();
+
     let request_bytes = request_public_key.to_bytes();
 
     let db = load_db().await?;
