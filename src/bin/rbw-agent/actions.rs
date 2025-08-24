@@ -834,10 +834,13 @@ pub async fn subscribe_to_notifications(
 
 pub async fn get_ssh_public_keys(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
-    environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<Vec<String>> {
-    unlock_state(state.clone(), environment).await?;
-    state.lock().await.set_timeout();
+    let environment = {
+        let state = state.lock().await;
+        state.set_timeout();
+        state.last_environment().clone()
+    };
+    unlock_state(state.clone(), &environment).await?;
 
     let db = load_db().await?;
     let mut pubkeys = Vec::new();
@@ -850,7 +853,7 @@ pub async fn get_ssh_public_keys(
         {
             let plaintext = decrypt_cipher(
                 state.clone(),
-                environment,
+                &environment,
                 encrypted,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -866,11 +869,14 @@ pub async fn get_ssh_public_keys(
 
 pub async fn find_ssh_private_key(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
-    environment: &rbw::protocol::Environment,
     request_public_key: ssh_agent_lib::ssh_key::PublicKey,
 ) -> anyhow::Result<ssh_agent_lib::ssh_key::PrivateKey> {
-    unlock_state(state.clone(), environment).await?;
-    state.lock().await.set_timeout();
+    let environment = {
+        let state = state.lock().await;
+        state.set_timeout();
+        state.last_environment().clone()
+    };
+    unlock_state(state.clone(), &environment).await?;
 
     let request_bytes = request_public_key.to_bytes();
 
@@ -888,7 +894,7 @@ pub async fn find_ssh_private_key(
             };
             let public_key_plaintext = decrypt_cipher(
                 state.clone(),
-                environment,
+                &environment,
                 public_key_enc,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -909,7 +915,7 @@ pub async fn find_ssh_private_key(
 
                 let private_key_plaintext = decrypt_cipher(
                     state.clone(),
-                    environment,
+                    &environment,
                     private_key_enc,
                     entry.key.as_deref(),
                     entry.org_id.as_deref(),

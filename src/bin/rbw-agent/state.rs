@@ -10,6 +10,19 @@ pub struct State {
     pub sync_timeout_duration: std::time::Duration,
     pub notifications_handler: crate::notifications::Handler,
     pub master_password_reprompt: std::collections::HashSet<[u8; 32]>,
+
+    // this is stored here specifically for the use of the ssh agent, because
+    // requests made to the ssh agent don't include an environment, and so we
+    // can't properly initialize the pinentry process. we work around this by
+    // just reusing the last environment we saw being sent to the main agent
+    // (there should be at least one in most cases because you need to start
+    // the rbw agent in order to make it start serving on the ssh agent
+    // socket, and that initial request should come with an environment).
+    //
+    // we should not use this for any requests on the main agent, those
+    // should all send their own environment over.
+    pub last_environment: rbw::protocol::Environment,
+
     #[cfg(feature = "clipboard")]
     pub clipboard: Option<arboard::Clipboard>,
 }
@@ -113,5 +126,16 @@ impl State {
                 }
             }
         }
+    }
+
+    pub fn last_environment(&self) -> &rbw::protocol::Environment {
+        &self.last_environment
+    }
+
+    pub fn set_last_environment(
+        &mut self,
+        environment: rbw::protocol::Environment,
+    ) {
+        self.last_environment = environment;
     }
 }

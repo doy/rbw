@@ -117,19 +117,18 @@ async fn handle_request(
             return Ok(());
         }
     };
-    let set_timeout = match &req.action {
+    let (action, environment) = req.into_parts();
+    let set_timeout = match &action {
         rbw::protocol::Action::Register => {
-            crate::actions::register(sock, &req.environment()).await?;
+            crate::actions::register(sock, &environment).await?;
             true
         }
         rbw::protocol::Action::Login => {
-            crate::actions::login(sock, state.clone(), &req.environment())
-                .await?;
+            crate::actions::login(sock, state.clone(), &environment).await?;
             true
         }
         rbw::protocol::Action::Unlock => {
-            crate::actions::unlock(sock, state.clone(), &req.environment())
-                .await?;
+            crate::actions::unlock(sock, state.clone(), &environment).await?;
             true
         }
         rbw::protocol::Action::CheckLock => {
@@ -155,7 +154,7 @@ async fn handle_request(
             crate::actions::decrypt(
                 sock,
                 state.clone(),
-                &req.environment(),
+                &environment,
                 &cipherstring,
                 entry_key.as_deref(),
                 org_id.as_deref(),
@@ -185,8 +184,10 @@ async fn handle_request(
         }
     };
 
+    let mut state = state.lock().await;
+    state.set_last_environment(environment);
     if set_timeout {
-        state.lock().await.set_timeout();
+        state.set_timeout();
     }
 
     Ok(())

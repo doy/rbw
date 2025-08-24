@@ -40,6 +40,7 @@ async fn tokio_main(
             sync_timeout_duration,
             notifications_handler,
             master_password_reprompt: std::collections::HashSet::new(),
+            last_environment: rbw::protocol::Environment::default(),
             #[cfg(feature = "clipboard")]
             clipboard: arboard::Clipboard::new()
                 .inspect_err(|e| {

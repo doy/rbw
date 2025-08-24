@@ -35,23 +35,19 @@ impl ssh_agent_lib::agent::Session for SshAgent {
         Vec<ssh_agent_lib::proto::Identity>,
         ssh_agent_lib::error::AgentError,
     > {
-        crate::actions::get_ssh_public_keys(
-            self.state.clone(),
-            // TODO: can we actually get a useful env from somewhere?
-            &rbw::protocol::Environment::new(None, vec![]),
-        )
-        .await
-        .map_err(|e| ssh_agent_lib::error::AgentError::Other(e.into()))?
-        .into_iter()
-        .map(|p| {
-            p.parse::<ssh_agent_lib::ssh_key::PublicKey>()
-                .map(|pk| ssh_agent_lib::proto::Identity {
-                    pubkey: pk.key_data().clone(),
-                    comment: String::new(),
-                })
-                .map_err(ssh_agent_lib::error::AgentError::other)
-        })
-        .collect()
+        crate::actions::get_ssh_public_keys(self.state.clone())
+            .await
+            .map_err(|e| ssh_agent_lib::error::AgentError::Other(e.into()))?
+            .into_iter()
+            .map(|p| {
+                p.parse::<ssh_agent_lib::ssh_key::PublicKey>()
+                    .map(|pk| ssh_agent_lib::proto::Identity {
+                        pubkey: pk.key_data().clone(),
+                        comment: String::new(),
+                    })
+                    .map_err(ssh_agent_lib::error::AgentError::other)
+            })
+            .collect()
     }
 
     async fn sign(
@@ -64,14 +60,12 @@ impl ssh_agent_lib::agent::Session for SshAgent {
         let pubkey =
             ssh_agent_lib::ssh_key::PublicKey::new(request.pubkey, "");
 
-        let private_key = crate::actions::find_ssh_private_key(
-            self.state.clone(),
-            // TODO: can we actually get a useful env from somewhere?
-            &rbw::protocol::Environment::new(None, vec![]),
-            pubkey,
-        )
-        .await
-        .map_err(|e| ssh_agent_lib::error::AgentError::Other(e.into()))?;
+        let private_key =
+            crate::actions::find_ssh_private_key(self.state.clone(), pubkey)
+                .await
+                .map_err(|e| {
+                    ssh_agent_lib::error::AgentError::Other(e.into())
+                })?;
 
         match private_key.key_data() {
             ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(key) => key

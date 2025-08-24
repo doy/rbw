@@ -16,7 +16,7 @@ pub fn version() -> u32 {
 pub struct Request {
     tty: Option<String>,
     environment: Option<Environment>,
-    pub action: Action,
+    action: Action,
 }
 
 impl Request {
@@ -28,11 +28,14 @@ impl Request {
         }
     }
 
-    pub fn environment(self) -> Environment {
-        self.environment.unwrap_or_else(|| Environment {
-            tty: self.tty.map(|tty| SerializableOsString(tty.into())),
-            env_vars: vec![],
-        })
+    pub fn into_parts(self) -> (Action, Environment) {
+        (
+            self.action,
+            self.environment.unwrap_or_else(|| Environment {
+                tty: self.tty.map(|tty| SerializableOsString(tty.into())),
+                env_vars: vec![],
+            }),
+        )
     }
 }
 
@@ -74,7 +77,7 @@ pub static ENVIRONMENT_VARIABLES_OS: std::sync::LazyLock<
         .collect()
 });
 
-#[derive(Hash, PartialEq, Eq, Debug)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone)]
 struct SerializableOsString(std::ffi::OsString);
 
 impl serde::Serialize for SerializableOsString {
@@ -119,7 +122,7 @@ impl<'de> serde::Deserialize<'de> for SerializableOsString {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
 pub struct Environment {
     tty: Option<SerializableOsString>,
     env_vars: Vec<(SerializableOsString, SerializableOsString)>,
