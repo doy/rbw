@@ -61,6 +61,20 @@ pub async fn login(
     ))
 }
 
+pub async fn send_two_factor_email(
+    email: &str,
+    sso_email_2fa_session_token: &str,
+) -> Result<()> {
+    let (client, config) = api_client_async().await?;
+    client
+        .send_email_login(
+            email,
+            &crate::config::device_id(&config).await?,
+            sso_email_2fa_session_token,
+        )
+        .await
+}
+
 pub fn unlock<S: std::hash::BuildHasher>(
     email: &str,
     password: &crate::locked::Password,

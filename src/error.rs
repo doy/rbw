@@ -232,6 +232,7 @@ pub enum Error {
     #[error("two factor required")]
     TwoFactorRequired {
         providers: Vec<crate::api::TwoFactorProviderType>,
+        sso_email_2fa_session_token: Option<String>,
     },
 
     #[error("unimplemented cipherstring type: {ty}")]

@@ -349,6 +349,11 @@ struct ConnectErrorRes {
     error_model: Option<ConnectErrorResErrorModel>,
     #[serde(rename = "TwoFactorProviders", alias = "twoFactorProviders")]
     two_factor_providers: Option<Vec<TwoFactorProviderType>>,
+    #[serde(
+        rename = "SsoEmail2faSessionToken",
+        alias = "ssoEmail2faSessionToken"
+    )]
+    sso_email_2fa_session_token: Option<String>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -367,6 +372,18 @@ struct ConnectRefreshTokenReq {
 #[derive(serde::Deserialize, Debug)]
 struct ConnectRefreshTokenRes {
     access_token: String,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct SendEmailLoginReq {
+    email: String,
+    #[serde(rename = "DeviceIdentifier", alias = "deviceIdentifier")]
+    device_identifier: String,
+    #[serde(
+        rename = "SsoEmail2faSessionToken",
+        alias = "ssoEmail2faSessionToken"
+    )]
+    sso_email_2fa_session_token: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -1043,6 +1060,40 @@ impl Client {
         }
     }
 
+    pub async fn send_email_login(
+        &self,
+        email: &str,
+        device_id: &str,
+        sso_email_2fa_session_token: &str,
+    ) -> Result<()> {
+        let send_email_login_req = SendEmailLoginReq {
+            email: email.to_string(),
+            device_identifier: device_id.to_string(),
+            sso_email_2fa_session_token: sso_email_2fa_session_token
+                .to_string(),
+        };
+
+        let client = self.reqwest_client().await?;
+        let res = client
+            .post(self.api_url("/two-factor/send-email-login"))
+            .json(&send_email_login_req)
+            .header(
+                "auth-email",
+                crate::base64::encode_url_safe_no_pad(email),
+            )
+            .send()
+            .await
+            .map_err(|source| Error::Reqwest { source })?;
+
+        if res.status() == reqwest::StatusCode::OK {
+            Ok(())
+        } else {
+            let code = res.status().as_u16();
+            log::warn!("{code}: {:?}", res.text().await);
+            Err(Error::RequestFailed { status: code })
+        }
+    }
+
     async fn obtain_sso_code(
         &self,
         sso_id: &str,
@@ -1680,6 +1731,9 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                 {
                     return Error::TwoFactorRequired {
                         providers: providers.clone(),
+                        sso_email_2fa_session_token: error_res
+                            .sso_email_2fa_session_token
+                            .clone(),
                     };
                 }
             }

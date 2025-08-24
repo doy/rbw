@@ -143,7 +143,10 @@ pub async fn login(
                     .await?;
                     break 'attempts;
                 }
-                Err(rbw::error::Error::TwoFactorRequired { providers }) => {
+                Err(rbw::error::Error::TwoFactorRequired {
+                    providers,
+                    sso_email_2fa_session_token,
+                }) => {
                     let supported_types = vec![
                         rbw::api::TwoFactorProviderType::Authenticator,
                         rbw::api::TwoFactorProviderType::Yubikey,
@@ -152,6 +155,19 @@ pub async fn login(
 
                     for provider in supported_types {
                         if providers.contains(&provider) {
+                            if provider
+                                == rbw::api::TwoFactorProviderType::Email
+                            {
+                                if let Some(sso_email_2fa_session_token) =
+                                    sso_email_2fa_session_token
+                                {
+                                    rbw::actions::send_two_factor_email(
+                                        &email,
+                                        &sso_email_2fa_session_token,
+                                    )
+                                    .await?;
+                                }
+                            }
                             let (
                                 access_token,
                                 refresh_token,
