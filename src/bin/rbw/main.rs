@@ -1,6 +1,7 @@
 use std::io::Write as _;
 
 use anyhow::Context as _;
+use clap::ValueEnum;
 use clap::{CommandFactory as _, Parser as _};
 
 mod actions;
@@ -234,7 +235,7 @@ enum Opt {
         name = "gen-completions",
         about = "Generate completion script for the given shell"
     )]
-    GenCompletions { shell: clap_complete::Shell },
+    GenCompletions { shell: CompletionShell },
 }
 
 impl Opt {
@@ -263,6 +264,17 @@ impl Opt {
             Self::GenCompletions { .. } => "gen-completions".to_string(),
         }
     }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum CompletionShell {
+    Bash,
+    Zsh,
+    Fish,
+    Powershell,
+    Elvish,
+    Nushell,
+    Fig,
 }
 
 #[derive(Debug, clap::Parser)]
@@ -437,23 +449,66 @@ fn main() {
         Opt::Purge => commands::purge(),
         Opt::StopAgent => commands::stop_agent(),
         Opt::GenCompletions { shell } => {
-            clap_complete::generate(
-                shell,
-                &mut Opt::command(),
-                "rbw",
-                &mut std::io::stdout(),
-            );
             match shell {
-                clap_complete::Shell::Bash => {
+                CompletionShell::Bash => {
+                    clap_complete::generate(
+                        clap_complete::Shell::Bash,
+                        &mut Opt::command(),
+                        "rbw",
+                        &mut std::io::stdout(),
+                    );
                     println!("{}", include_str!("completion/rbw.bash"));
                 }
-                clap_complete::Shell::Fish => {
+                CompletionShell::Fish => {
+                    clap_complete::generate(
+                        clap_complete::Shell::Fish,
+                        &mut Opt::command(),
+                        "rbw",
+                        &mut std::io::stdout(),
+                    );
                     println!("{}", include_str!("completion/rbw.fish"));
                 }
-                clap_complete::Shell::Zsh => {
+                CompletionShell::Zsh => {
+                    clap_complete::generate(
+                        clap_complete::Shell::Zsh,
+                        &mut Opt::command(),
+                        "rbw",
+                        &mut std::io::stdout(),
+                    );
                     println!("{}", include_str!("completion/rbw.zsh"));
                 }
-                _ => {}
+                CompletionShell::Powershell => {
+                    clap_complete::generate(
+                        clap_complete::Shell::PowerShell,
+                        &mut Opt::command(),
+                        "rbw",
+                        &mut std::io::stdout(),
+                    );
+                }
+                CompletionShell::Elvish => {
+                    clap_complete::generate(
+                        clap_complete::Shell::Elvish,
+                        &mut Opt::command(),
+                        "rbw",
+                        &mut std::io::stdout(),
+                    );
+                }
+                CompletionShell::Nushell => {
+                    clap_complete::generate(
+                        clap_complete_nushell::Nushell,
+                        &mut Opt::command(),
+                        "rbw",
+                        &mut std::io::stdout(),
+                    );
+                }
+                CompletionShell::Fig => {
+                    clap_complete::generate(
+                        clap_complete_fig::Fig,
+                        &mut Opt::command(),
+                        "rbw",
+                        &mut std::io::stdout(),
+                    );
+                }
             }
             Ok(())
         }
