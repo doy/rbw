@@ -2437,13 +2437,13 @@ fn generate_totp(secret: &str) -> anyhow::Result<String> {
     let alg = totp_params.algorithm.as_str();
 
     match alg {
-        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::TOTP::new(
+        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::TOTP::new_unchecked(
             generate_totp_algorithm_type(alg)?,
             totp_params.digits,
             1, // the library docs say this should be a 1
             totp_params.period,
             totp_params.secret,
-        )?
+        )
         .generate_current()?),
         "STEAM" => Ok(totp_rs::TOTP::new_steam(totp_params.secret)
             .generate_current()?),
