@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.14.1] - 2025-09-01
+
+## Added
+
+* Basic shell completion for powershell, elvish, nushell, and fig (#271,
+  jasonxue)
+
+## Fixed
+
+* TOTP entries with weak keys are supported again (#272, Maksim Karelov)
+* Master password reprompt is no longer triggered for unrelated entries.
+  (#268)
+* Master password reprompt is always triggered even if no sync has happened.
+* `rbw get` with a URL query can now return entries with multiple different
+  URLs configured.
+
 ## [1.14.0] - 2025-08-24
 
 ## Added
