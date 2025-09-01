@@ -150,7 +150,7 @@ impl DecryptedSearchCipher {
             }
             Needle::Uri(given_uri) => {
                 if self.uris.iter().any(|(uri, match_type)| {
-                    matches_url(uri, *match_type, given_uri)
+                    !matches_url(uri, *match_type, given_uri)
                 }) {
                     return false;
                 }
