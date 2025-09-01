@@ -1,7 +1,6 @@
 use std::io::Write as _;
 
 use anyhow::Context as _;
-use clap::ValueEnum;
 use clap::{CommandFactory as _, Parser as _};
 
 mod actions;
@@ -266,7 +265,7 @@ impl Opt {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, clap::ValueEnum)]
 enum CompletionShell {
     Bash,
     Zsh,
