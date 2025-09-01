@@ -80,15 +80,13 @@ impl State {
         self.master_password_reprompt.clear();
 
         let mut hasher = sha2::Sha256::new();
-
-        let mut sha256 = |s| {
-            hasher.update(s);
-            hasher.finalize_reset().into()
-        };
-
-        let mut insert = |s| {
+        let mut insert = |s: Option<&str>| {
             if let Some(s) = s {
-                self.master_password_reprompt.insert(sha256(s));
+                if !s.is_empty() {
+                    hasher.update(s);
+                    self.master_password_reprompt
+                        .insert(hasher.finalize_reset().into());
+                }
             }
         };
 
