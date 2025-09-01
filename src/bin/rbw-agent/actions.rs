@@ -557,7 +557,11 @@ async fn decrypt_cipher(
     entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
-    let state = state.lock().await;
+    let mut state = state.lock().await;
+    if !state.master_password_reprompt_initialized() {
+        let db = load_db().await?;
+        state.set_master_password_reprompt(&db.entries);
+    }
     let Some(keys) = state.key(org_id) else {
         return Err(anyhow::anyhow!(
             "failed to find decryption keys in in-memory state"

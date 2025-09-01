@@ -10,6 +10,7 @@ pub struct State {
     pub sync_timeout_duration: std::time::Duration,
     pub notifications_handler: crate::notifications::Handler,
     pub master_password_reprompt: std::collections::HashSet<[u8; 32]>,
+    pub master_password_reprompt_initialized: bool,
 
     // this is stored here specifically for the use of the ssh agent, because
     // requests made to the ssh agent don't include an environment, and so we
@@ -124,6 +125,12 @@ impl State {
                 }
             }
         }
+
+        self.master_password_reprompt_initialized = true;
+    }
+
+    pub fn master_password_reprompt_initialized(&self) -> bool {
+        self.master_password_reprompt_initialized
     }
 
     pub fn last_environment(&self) -> &rbw::protocol::Environment {
