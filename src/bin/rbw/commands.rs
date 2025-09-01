@@ -149,7 +149,7 @@ impl DecryptedSearchCipher {
                 }
             }
             Needle::Uri(given_uri) => {
-                if self.uris.iter().any(|(uri, match_type)| {
+                if self.uris.iter().all(|(uri, match_type)| {
                     !matches_url(uri, *match_type, given_uri)
                 }) {
                     return false;
@@ -3639,6 +3639,49 @@ mod test {
         assert!(
             no_matches(entries, "https://six.com/", None, None, false),
             "six"
+        );
+    }
+
+    #[test]
+    fn test_find_with_multiple_urls() {
+        let entries = &[
+            make_entry(
+                "one",
+                None,
+                None,
+                &[
+                    (
+                        "https://one.com/",
+                        Some(rbw::api::UriMatchType::Domain),
+                    ),
+                    (
+                        "https://two.com/",
+                        Some(rbw::api::UriMatchType::Domain),
+                    ),
+                ],
+            ),
+            make_entry(
+                "two",
+                None,
+                None,
+                &[(
+                    "https://two.com/login",
+                    Some(rbw::api::UriMatchType::Domain),
+                )],
+            ),
+        ];
+
+        assert!(
+            no_matches(entries, "https://zero.com/", None, None, false),
+            "zero"
+        );
+        assert!(
+            one_match(entries, "https://one.com/", None, None, 0, false),
+            "one"
+        );
+        assert!(
+            many_matches(entries, "https://two.com/", None, None, false),
+            "two"
         );
     }
 
