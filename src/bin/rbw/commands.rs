@@ -56,18 +56,110 @@ struct DecryptedListCipher {
     folder: Option<String>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedSearchCipher {
     id: String,
     folder: Option<String>,
     name: String,
     user: Option<String>,
-    uris: Vec<String>,
+    uris: Vec<(String, Option<rbw::api::UriMatchType>)>,
     fields: Vec<String>,
     notes: Option<String>,
 }
 
 impl DecryptedSearchCipher {
+    fn display_name(&self) -> String {
+        self.user.as_ref().map_or_else(
+            || self.name.clone(),
+            |user| format!("{user}@{}", self.name),
+        )
+    }
+
+    fn matches(
+        &self,
+        needle: &Needle,
+        username: Option<&str>,
+        folder: Option<&str>,
+        ignore_case: bool,
+        strict_username: bool,
+        strict_folder: bool,
+        exact: bool,
+    ) -> bool {
+        let match_str = match (ignore_case, exact) {
+            (true, true) => |field: &str, search_term: &str| {
+                field.to_lowercase() == search_term.to_lowercase()
+            },
+            (true, false) => |field: &str, search_term: &str| {
+                field.to_lowercase().contains(&search_term.to_lowercase())
+            },
+            (false, true) => {
+                |field: &str, search_term: &str| field == search_term
+            }
+            (false, false) => {
+                |field: &str, search_term: &str| field.contains(search_term)
+            }
+        };
+
+        match (self.folder.as_deref(), folder) {
+            (Some(folder), Some(given_folder)) => {
+                if !match_str(folder, given_folder) {
+                    return false;
+                }
+            }
+            (Some(_), None) => {
+                if strict_folder {
+                    return false;
+                }
+            }
+            (None, Some(_)) => {
+                return false;
+            }
+            (None, None) => {}
+        }
+
+        match (&self.user, username) {
+            (Some(username), Some(given_username)) => {
+                if !match_str(username, given_username) {
+                    return false;
+                }
+            }
+            (Some(_), None) => {
+                if strict_username {
+                    return false;
+                }
+            }
+            (None, Some(_)) => {
+                return false;
+            }
+            (None, None) => {}
+        }
+
+        match needle {
+            Needle::Uuid(uuid, s) => {
+                if uuid::Uuid::parse_str(&self.id) != Ok(*uuid)
+                    && !match_str(&self.name, s)
+                {
+                    return false;
+                }
+            }
+            Needle::Name(name) => {
+                if !match_str(&self.name, name) {
+                    return false;
+                }
+            }
+            Needle::Uri(given_uri) => {
+                if self.uris.iter().any(|(uri, match_type)| {
+                    matches_url(uri, *match_type, given_uri)
+                }) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
     fn search_match(&self, term: &str, folder: Option<&str>) -> bool {
         if let Some(folder) = folder {
             if self.folder.as_deref() != Some(folder) {
@@ -82,7 +174,7 @@ impl DecryptedSearchCipher {
         if let Some(user) = &self.user {
             fields.push(user.clone());
         }
-        fields.extend(self.uris.iter().cloned());
+        fields.extend(self.uris.iter().map(|(uri, _)| uri).cloned());
         fields.extend(self.fields.iter().cloned());
 
         for field in fields {
@@ -616,119 +708,12 @@ impl DecryptedCipher {
         }
     }
 
-    fn display_name(&self) -> String {
-        match &self.data {
-            DecryptedData::Login { username, .. } => {
-                username.as_ref().map_or_else(
-                    || self.name.clone(),
-                    |username| format!("{}@{}", username, self.name),
-                )
-            }
-            _ => self.name.clone(),
-        }
-    }
-
     fn display_json(&self, desc: &str) -> anyhow::Result<()> {
         serde_json::to_writer_pretty(std::io::stdout(), &self)
             .context(format!("failed to write entry '{desc}' to stdout"))?;
         println!();
 
         Ok(())
-    }
-
-    fn matches(
-        &self,
-        needle: &Needle,
-        username: Option<&str>,
-        folder: Option<&str>,
-        ignore_case: bool,
-        strict_username: bool,
-        strict_folder: bool,
-        exact: bool,
-    ) -> bool {
-        let match_str = match (ignore_case, exact) {
-            (true, true) => |field: &str, search_term: &str| {
-                field.to_lowercase() == search_term.to_lowercase()
-            },
-            (true, false) => |field: &str, search_term: &str| {
-                field.to_lowercase().contains(&search_term.to_lowercase())
-            },
-            (false, true) => {
-                |field: &str, search_term: &str| field == search_term
-            }
-            (false, false) => {
-                |field: &str, search_term: &str| field.contains(search_term)
-            }
-        };
-
-        match (self.folder.as_deref(), folder) {
-            (Some(folder), Some(given_folder)) => {
-                if !match_str(folder, given_folder) {
-                    return false;
-                }
-            }
-            (Some(_), None) => {
-                if strict_folder {
-                    return false;
-                }
-            }
-            (None, Some(_)) => {
-                return false;
-            }
-            (None, None) => {}
-        }
-
-        let entry_username =
-            if let DecryptedData::Login { username, .. } = &self.data {
-                username
-            } else {
-                &None
-            };
-        match (entry_username, username) {
-            (Some(username), Some(given_username)) => {
-                if !match_str(username, given_username) {
-                    return false;
-                }
-            }
-            (Some(_), None) => {
-                if strict_username {
-                    return false;
-                }
-            }
-            (None, Some(_)) => {
-                return false;
-            }
-            (None, None) => {}
-        }
-
-        match needle {
-            Needle::Uuid(uuid, s) => {
-                if uuid::Uuid::parse_str(&self.id) != Ok(*uuid)
-                    && !match_str(&self.name, s)
-                {
-                    return false;
-                }
-            }
-            Needle::Name(name) => {
-                if !match_str(&self.name, name) {
-                    return false;
-                }
-            }
-            Needle::Uri(given_uri) => match &self.data {
-                DecryptedData::Login {
-                    uris: Some(uris), ..
-                } => {
-                    if !uris.iter().any(|uri| uri.matches_url(given_uri)) {
-                        return false;
-                    }
-                }
-                _ => {
-                    return false;
-                }
-            },
-        }
-
-        true
     }
 }
 
@@ -839,61 +824,63 @@ struct DecryptedUri {
     match_type: Option<rbw::api::UriMatchType>,
 }
 
-impl DecryptedUri {
-    fn matches_url(&self, url: &url::Url) -> bool {
-        match self.match_type.unwrap_or(rbw::api::UriMatchType::Domain) {
-            rbw::api::UriMatchType::Domain => {
-                let Some(given_host_port) = host_port(url) else {
-                    return false;
-                };
-                if let Ok(self_url) = url::Url::parse(&self.uri) {
-                    if let Some(self_host_port) = host_port(&self_url) {
-                        if self_url.scheme() == url.scheme()
-                            && (self_host_port == given_host_port
-                                || given_host_port
-                                    .ends_with(&format!(".{self_host_port}")))
-                        {
-                            return true;
-                        }
+fn matches_url(
+    url: &str,
+    match_type: Option<rbw::api::UriMatchType>,
+    given_url: &url::Url,
+) -> bool {
+    match match_type.unwrap_or(rbw::api::UriMatchType::Domain) {
+        rbw::api::UriMatchType::Domain => {
+            let Some(given_host_port) = host_port(given_url) else {
+                return false;
+            };
+            if let Ok(self_url) = url::Url::parse(url) {
+                if let Some(self_host_port) = host_port(&self_url) {
+                    if self_url.scheme() == given_url.scheme()
+                        && (self_host_port == given_host_port
+                            || given_host_port
+                                .ends_with(&format!(".{self_host_port}")))
+                    {
+                        return true;
                     }
                 }
-                self.uri == given_host_port
-                    || given_host_port.ends_with(&format!(".{}", self.uri))
             }
-            rbw::api::UriMatchType::Host => {
-                let Some(given_host_port) = host_port(url) else {
-                    return false;
-                };
-                if let Ok(self_url) = url::Url::parse(&self.uri) {
-                    if let Some(self_host_port) = host_port(&self_url) {
-                        if self_url.scheme() == url.scheme()
-                            && self_host_port == given_host_port
-                        {
-                            return true;
-                        }
-                    }
-                }
-                self.uri == given_host_port
-            }
-            rbw::api::UriMatchType::StartsWith => {
-                url.to_string().starts_with(&self.uri)
-            }
-            rbw::api::UriMatchType::Exact => {
-                if url.path() == "/" {
-                    url.to_string().trim_end_matches('/')
-                        == self.uri.trim_end_matches('/')
-                } else {
-                    url.to_string() == self.uri
-                }
-            }
-            rbw::api::UriMatchType::RegularExpression => {
-                let Ok(rx) = regex::Regex::new(&self.uri) else {
-                    return false;
-                };
-                rx.is_match(url.as_ref())
-            }
-            rbw::api::UriMatchType::Never => false,
+            url == given_host_port
+                || given_host_port.ends_with(&format!(".{url}"))
         }
+        rbw::api::UriMatchType::Host => {
+            let Some(given_host_port) = host_port(given_url) else {
+                return false;
+            };
+            if let Ok(self_url) = url::Url::parse(url) {
+                if let Some(self_host_port) = host_port(&self_url) {
+                    if self_url.scheme() == given_url.scheme()
+                        && self_host_port == given_host_port
+                    {
+                        return true;
+                    }
+                }
+            }
+            url == given_host_port
+        }
+        rbw::api::UriMatchType::StartsWith => {
+            given_url.to_string().starts_with(url)
+        }
+        rbw::api::UriMatchType::Exact => {
+            if given_url.path() == "/" {
+                given_url.to_string().trim_end_matches('/')
+                    == url.trim_end_matches('/')
+            } else {
+                given_url.to_string() == url
+            }
+        }
+        rbw::api::UriMatchType::RegularExpression => {
+            let Ok(rx) = regex::Regex::new(url) else {
+                return false;
+            };
+            rx.is_match(given_url.as_ref())
+        }
+        rbw::api::UriMatchType::Never => false,
     }
 }
 
@@ -1730,24 +1717,28 @@ fn find_entry(
         needle = Needle::Name(s);
     }
 
-    let ciphers: Vec<(rbw::db::Entry, DecryptedCipher)> = db
+    let ciphers: Vec<(rbw::db::Entry, DecryptedSearchCipher)> = db
         .entries
         .iter()
         .map(|entry| {
-            decrypt_cipher(entry).map(|decrypted| (entry.clone(), decrypted))
+            decrypt_search_cipher(entry)
+                .map(|decrypted| (entry.clone(), decrypted))
         })
         .collect::<anyhow::Result<_>>()?;
-    find_entry_raw(&ciphers, &needle, username, folder, ignore_case)
+    let (entry, _) =
+        find_entry_raw(&ciphers, &needle, username, folder, ignore_case)?;
+    let decrypted_entry = decrypt_cipher(&entry)?;
+    Ok((entry, decrypted_entry))
 }
 
 fn find_entry_raw(
-    entries: &[(rbw::db::Entry, DecryptedCipher)],
+    entries: &[(rbw::db::Entry, DecryptedSearchCipher)],
     needle: &Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
-) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
-    let mut matches: Vec<(rbw::db::Entry, DecryptedCipher)> = vec![];
+) -> anyhow::Result<(rbw::db::Entry, DecryptedSearchCipher)> {
+    let mut matches: Vec<(rbw::db::Entry, DecryptedSearchCipher)> = vec![];
 
     let find_matches = |strict_username, strict_folder, exact| {
         entries
@@ -1914,6 +1905,7 @@ fn decrypt_search_cipher(
                     entry.key.as_deref(),
                     entry.org_id.as_deref(),
                 )
+                .map(|uri| (uri, s.match_type))
             })
             .collect()
     } else {
@@ -3659,7 +3651,7 @@ mod test {
 
     #[track_caller]
     fn one_match(
-        entries: &[(rbw::db::Entry, DecryptedCipher)],
+        entries: &[(rbw::db::Entry, DecryptedSearchCipher)],
         needle: &str,
         username: Option<&str>,
         folder: Option<&str>,
@@ -3681,7 +3673,7 @@ mod test {
 
     #[track_caller]
     fn no_matches(
-        entries: &[(rbw::db::Entry, DecryptedCipher)],
+        entries: &[(rbw::db::Entry, DecryptedSearchCipher)],
         needle: &str,
         username: Option<&str>,
         folder: Option<&str>,
@@ -3703,7 +3695,7 @@ mod test {
 
     #[track_caller]
     fn many_matches(
-        entries: &[(rbw::db::Entry, DecryptedCipher)],
+        entries: &[(rbw::db::Entry, DecryptedSearchCipher)],
         needle: &str,
         username: Option<&str>,
         folder: Option<&str>,
@@ -3725,8 +3717,8 @@ mod test {
 
     #[track_caller]
     fn entries_eq(
-        a: &(rbw::db::Entry, DecryptedCipher),
-        b: &(rbw::db::Entry, DecryptedCipher),
+        a: &(rbw::db::Entry, DecryptedSearchCipher),
+        b: &(rbw::db::Entry, DecryptedSearchCipher),
     ) -> bool {
         a.0 == b.0 && a.1 == b.1
     }
@@ -3736,7 +3728,7 @@ mod test {
         username: Option<&str>,
         folder: Option<&str>,
         uris: &[(&str, Option<rbw::api::UriMatchType>)],
-    ) -> (rbw::db::Entry, DecryptedCipher) {
+    ) -> (rbw::db::Entry, DecryptedSearchCipher) {
         let id = uuid::Uuid::new_v4();
         (
             rbw::db::Entry {
@@ -3765,26 +3757,19 @@ mod test {
                 key: None,
                 master_password_reprompt: rbw::api::CipherRepromptType::None,
             },
-            DecryptedCipher {
+            DecryptedSearchCipher {
                 id: id.to_string(),
                 folder: folder.map(std::string::ToString::to_string),
                 name: name.to_string(),
-                data: DecryptedData::Login {
-                    username: username.map(std::string::ToString::to_string),
-                    password: None,
-                    totp: None,
-                    uris: Some(
-                        uris.iter()
-                            .map(|(uri, match_type)| DecryptedUri {
-                                uri: (*uri).to_string(),
-                                match_type: *match_type,
-                            })
-                            .collect(),
-                    ),
-                },
+                user: username.map(std::string::ToString::to_string),
+                uris: uris
+                    .iter()
+                    .map(|(uri, match_type)| {
+                        ((*uri).to_string(), *match_type)
+                    })
+                    .collect(),
                 fields: vec![],
                 notes: None,
-                history: vec![],
             },
         )
     }
