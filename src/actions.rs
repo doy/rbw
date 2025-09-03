@@ -7,7 +7,11 @@ pub async fn register(
     let (client, config) = api_client_async().await?;
 
     client
-        .register(email, &crate::config::device_id(&config).await?, &apikey)
+        .register(
+            email,
+            &crate::config::device_id_async(&config).await?,
+            &apikey,
+        )
         .await?;
 
     Ok(())
@@ -15,6 +19,7 @@ pub async fn register(
 
 pub async fn login(
     email: &str,
+    apikey: Option<crate::locked::ApiKey>,
     password: crate::locked::Password,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
@@ -42,9 +47,10 @@ pub async fn login(
     let (access_token, refresh_token, protected_key) = client
         .login(
             email,
+            apikey.as_ref(),
             config.sso_id.as_deref(),
-            &crate::config::device_id(&config).await?,
-            &identity.master_password_hash,
+            &crate::config::device_id_async(&config).await?,
+            Some(&identity.master_password_hash),
             two_factor_token,
             two_factor_provider,
         )
