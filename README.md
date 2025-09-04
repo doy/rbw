@@ -56,8 +56,7 @@ it out via `nix-shell -p rbw`.
 
 ### Alpine
 
-`rbw` is available in the [testing repository](https://pkgs.alpinelinux.org/packages?name=rbw).
-If you are not using the `edge` version of alpine you have to [enable the repository manually](https://wiki.alpinelinux.org/wiki/Repositories#Testing).
+`rbw` is available in the [community repository](https://pkgs.alpinelinux.org/packages?name=rbw). You can install it with `apk add rbw`.
 
 ### Other
 
