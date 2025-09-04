@@ -1912,7 +1912,13 @@ fn decrypt_search_cipher(
     let fields = entry
         .fields
         .iter()
-        .filter_map(|field| field.value.as_ref())
+        .filter_map(|field| {
+            if field.ty == Some(rbw::api::FieldType::Hidden) {
+                None
+            } else {
+                field.value.as_ref()
+            }
+        })
         .map(|value| {
             crate::actions::decrypt(
                 value,
