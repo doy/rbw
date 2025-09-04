@@ -773,9 +773,7 @@ enum DecryptedData {
     SshKey {
         public_key: Option<String>,
         fingerprint: Option<String>,
-        // We exclude the decryption of of the private_key here deliberately.
-        // It shouldn't be necessary to display the private_key, because the
-        // agent can sign ssh challenges directly via the ssh agent protocol.
+        private_key: Option<String>,
     },
 }
 
@@ -2233,7 +2231,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         rbw::db::EntryData::SshKey {
             public_key,
             fingerprint,
-            ..
+            private_key,
         } => DecryptedData::SshKey {
             public_key: decrypt_field(
                 "public_key",
@@ -2244,6 +2242,12 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             fingerprint: decrypt_field(
                 "fingerprint",
                 fingerprint.as_deref(),
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            ),
+            private_key: decrypt_field(
+                "private_key",
+                private_key.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
