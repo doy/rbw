@@ -1870,7 +1870,7 @@ fn decrypt_list_cipher(
                         entry.org_id.as_deref(),
                     )
                 })
-            },
+            }
             _ => None,
         }
     } else {
