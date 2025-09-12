@@ -1190,7 +1190,7 @@ pub fn search(
     let mut entries: Vec<DecryptedListCipher> = db
         .entries
         .iter()
-        .map(decrypt_search_cipher)
+        .map(|entry| decrypt_search_cipher(entry, true))
         .filter(|entry| {
             entry
                 .as_ref()
@@ -1721,7 +1721,7 @@ fn find_entry(
         .entries
         .iter()
         .map(|entry| {
-            decrypt_search_cipher(entry)
+            decrypt_search_cipher(entry, false)
                 .map(|decrypted| (entry.clone(), decrypted))
         })
         .collect::<anyhow::Result<_>>()?;
@@ -1862,6 +1862,7 @@ fn decrypt_list_cipher(
 
 fn decrypt_search_cipher(
     entry: &rbw::db::Entry,
+    load_fields: bool,
 ) -> anyhow::Result<DecryptedSearchCipher> {
     let id = entry.id.clone();
     let name = crate::actions::decrypt(
@@ -1911,7 +1912,8 @@ fn decrypt_search_cipher(
     } else {
         vec![]
     };
-    let fields = entry
+    let fields = if load_fields {
+        entry
         .fields
         .iter()
         .filter_map(|field| field.value.as_ref())
@@ -1922,7 +1924,10 @@ fn decrypt_search_cipher(
                 entry.org_id.as_deref(),
             )
         })
-        .collect::<anyhow::Result<_>>()?;
+        .collect::<anyhow::Result<_>>()?
+    } else {
+        vec![]
+    };
     let notes = match notes {
         Ok(notes) => notes,
         Err(e) => {
