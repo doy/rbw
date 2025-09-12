@@ -90,6 +90,13 @@ enum Opt {
         term: String,
         #[arg(
             long,
+            default_value = "false",
+            help = "Search within master-password protected fields. \
+                Note that this might cause multiple master-password reprompts."
+        )]
+        include_protected_fields: bool,
+        #[arg(
+            long,
             help = "Fields to display. \
                 Available options are id, name, user, folder. \
                 Multiple fields will be separated by tabs.",
@@ -358,10 +365,17 @@ fn main() {
         ),
         Opt::Search {
             term,
+            include_protected_fields,
             fields,
             folder,
             raw,
-        } => commands::search(&term, &fields, folder.as_deref(), raw),
+        } => commands::search(
+            &term,
+            include_protected_fields,
+            &fields,
+            folder.as_deref(),
+            raw,
+        ),
         Opt::Code {
             find_args,
             #[cfg(feature = "clipboard")]

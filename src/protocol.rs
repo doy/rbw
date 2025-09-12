@@ -173,6 +173,7 @@ pub enum Action {
         cipherstring: String,
         entry_key: Option<String>,
         org_id: Option<String>,
+        skip_protected: bool,
     },
     Encrypt {
         plaintext: String,
@@ -193,4 +194,5 @@ pub enum Response {
     Decrypt { plaintext: String },
     Encrypt { cipherstring: String },
     Version { version: u32 },
+    CipertextIsProtected,
 }

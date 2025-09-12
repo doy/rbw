@@ -557,6 +557,28 @@ async fn decrypt_cipher(
     entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
+    decrypt_cipher_handle_reprompt(
+        state,
+        environment,
+        cipherstring,
+        entry_key,
+        org_id,
+        false,
+    )
+    .await?
+    .ok_or_else(|| {
+        anyhow::format_err!("expected password re-prompt but was skipped")
+    })
+}
+
+async fn decrypt_cipher_handle_reprompt(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+    skip_reprompt: bool,
+) -> anyhow::Result<Option<String>> {
     let mut state = state.lock().await;
     if !state.master_password_reprompt_initialized() {
         let db = load_db().await?;
@@ -587,6 +609,9 @@ async fn decrypt_cipher(
         .master_password_reprompt
         .contains(&master_password_reprompt)
     {
+        if skip_reprompt {
+            return Ok(None);
+        }
         let db = load_db().await?;
 
         let Some(kdf) = db.kdf else {
@@ -671,7 +696,7 @@ async fn decrypt_cipher(
     )
     .context("failed to parse decrypted secret")?;
 
-    Ok(plaintext)
+    Ok(Some(plaintext))
 }
 
 pub async fn decrypt(
@@ -681,11 +706,21 @@ pub async fn decrypt(
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
+    skip_reprompt: bool,
 ) -> anyhow::Result<()> {
-    let plaintext =
-        decrypt_cipher(state, environment, cipherstring, entry_key, org_id)
-            .await?;
-    respond_decrypt(sock, plaintext).await?;
+    let plaintext = decrypt_cipher_handle_reprompt(
+        state,
+        environment,
+        cipherstring,
+        entry_key,
+        org_id,
+        skip_reprompt,
+    )
+    .await?;
+    match plaintext {
+        Some(plaintext) => respond_decrypt(sock, plaintext).await?,
+        None => respond_cipher_is_protected(sock).await?,
+    }
 
     Ok(())
 }
@@ -765,6 +800,15 @@ async fn respond_decrypt(
     plaintext: String,
 ) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Decrypt { plaintext })
+        .await?;
+
+    Ok(())
+}
+
+async fn respond_cipher_is_protected(
+    sock: &mut crate::sock::Sock,
+) -> anyhow::Result<()> {
+    sock.send(&rbw::protocol::Response::CipertextIsProtected)
         .await?;
 
     Ok(())

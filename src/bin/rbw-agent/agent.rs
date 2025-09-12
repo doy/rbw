@@ -147,6 +147,7 @@ async fn handle_request(
             cipherstring,
             entry_key,
             org_id,
+            skip_protected,
         } => {
             let cipherstring = cipherstring.clone();
             let entry_key = entry_key.clone();
@@ -158,6 +159,7 @@ async fn handle_request(
                 &cipherstring,
                 entry_key.as_deref(),
                 org_id.as_deref(),
+                *skip_protected,
             )
             .await?;
             true

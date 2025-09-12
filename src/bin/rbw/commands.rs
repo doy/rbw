@@ -1170,6 +1170,7 @@ fn print_entry_list(
 
 pub fn search(
     term: &str,
+    include_protected_fields: bool,
     fields: &[String],
     folder: Option<&str>,
     raw: bool,
@@ -1190,7 +1191,16 @@ pub fn search(
     let mut entries: Vec<DecryptedListCipher> = db
         .entries
         .iter()
-        .map(|entry| decrypt_search_cipher(entry, true))
+        .map(|entry| {
+            decrypt_search_cipher(
+                entry,
+                if include_protected_fields {
+                    LoadFields::All
+                } else {
+                    LoadFields::UnprotectedOnly
+                },
+            )
+        })
         .filter(|entry| {
             entry
                 .as_ref()
@@ -1721,7 +1731,7 @@ fn find_entry(
         .entries
         .iter()
         .map(|entry| {
-            decrypt_search_cipher(entry, false)
+            decrypt_search_cipher(entry, LoadFields::None)
                 .map(|decrypted| (entry.clone(), decrypted))
         })
         .collect::<anyhow::Result<_>>()?;
@@ -1860,9 +1870,17 @@ fn decrypt_list_cipher(
     })
 }
 
+/// How should fields be loaded? Some are protected (i.e. requires a master-password reprompt).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoadFields {
+    None,
+    UnprotectedOnly,
+    All,
+}
+
 fn decrypt_search_cipher(
     entry: &rbw::db::Entry,
-    load_fields: bool,
+    load_fields: LoadFields,
 ) -> anyhow::Result<DecryptedSearchCipher> {
     let id = entry.id.clone();
     let name = crate::actions::decrypt(
@@ -1912,21 +1930,30 @@ fn decrypt_search_cipher(
     } else {
         vec![]
     };
-    let fields = if load_fields {
-        entry
-        .fields
-        .iter()
-        .filter_map(|field| field.value.as_ref())
-        .map(|value| {
-            crate::actions::decrypt(
-                value,
-                entry.key.as_deref(),
-                entry.org_id.as_deref(),
-            )
-        })
-        .collect::<anyhow::Result<_>>()?
-    } else {
+    let fields = if load_fields == LoadFields::None {
         vec![]
+    } else {
+        entry
+            .fields
+            .iter()
+            .filter_map(|field| field.value.as_ref())
+            .filter_map(|value| {
+                if load_fields == LoadFields::All {
+                    Some(crate::actions::decrypt(
+                        value,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    ))
+                } else {
+                    crate::actions::decrypt_skip_protected(
+                        value,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    )
+                    .transpose()
+                }
+            })
+            .collect::<anyhow::Result<_>>()?
     };
     let notes = match notes {
         Ok(notes) => notes,
