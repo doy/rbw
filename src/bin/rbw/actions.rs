@@ -92,12 +92,40 @@ pub fn decrypt(
             cipherstring: cipherstring.to_string(),
             entry_key: entry_key.map(std::string::ToString::to_string),
             org_id: org_id.map(std::string::ToString::to_string),
+            skip_protected: false,
         },
     ))?;
 
     let res = sock.recv()?;
     match res {
         rbw::protocol::Response::Decrypt { plaintext } => Ok(plaintext),
+        rbw::protocol::Response::Error { error } => {
+            Err(anyhow::anyhow!("failed to decrypt: {}", error))
+        }
+        _ => Err(anyhow::anyhow!("unexpected message: {:?}", res)),
+    }
+}
+
+pub fn decrypt_skip_protected(
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    let mut sock = connect()?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::Decrypt {
+            cipherstring: cipherstring.to_string(),
+            entry_key: entry_key.map(std::string::ToString::to_string),
+            org_id: org_id.map(std::string::ToString::to_string),
+            skip_protected: true,
+        },
+    ))?;
+
+    let res = sock.recv()?;
+    match res {
+        rbw::protocol::Response::Decrypt { plaintext } => Ok(Some(plaintext)),
+        rbw::protocol::Response::CipertextIsProtected => Ok(None),
         rbw::protocol::Response::Error { error } => {
             Err(anyhow::anyhow!("failed to decrypt: {}", error))
         }
