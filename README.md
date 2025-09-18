@@ -156,3 +156,4 @@ If you're using a profile, the socket will be located at
 * [bw-ssh](https://framagit.org/Glandos/bw-ssh/): Manage SSH key passphrases in Bitwarden
 * [rbw-menu](https://github.com/rbuchberger/rbw-menu): Tiny menu picker for rbw
 * [ulauncher-rbw](https://0xacab.org/varac-projects/ulauncher-rbw): [Ulauncher](https://ulauncher.io/) rbw extension
+* [fuzzel-rbw](https://github.com/sammhansen/fuzzel-rbw): A fuzzel frontend for Bitwarden
