@@ -597,14 +597,14 @@ impl DecryptedCipher {
                 code,
                 ..
             } => {
-                let mut displayed = self.display_short(desc, clipboard);
-
-                if let (Some(exp_month), Some(exp_year)) =
+                let mut displayed = if let (Some(exp_month), Some(exp_year)) =
                     (exp_month, exp_year)
                 {
                     println!("Expiration: {exp_month}/{exp_year}");
-                    displayed = true;
-                }
+                    true
+                } else {
+                    self.display_short(desc, clipboard)
+                };
                 displayed |= display_field("CVV", code.as_deref(), clipboard);
                 displayed |= display_field(
                     "Name",
