@@ -1161,7 +1161,7 @@ fn print_entry_list(
                         } else {
                             entry.uris.join(",")
                         }
-                    },
+                    }
                 })
                 .collect();
 
@@ -1864,18 +1864,17 @@ fn decrypt_list_cipher(
     };
     let uris = if fields.contains(&ListField::Uri) {
         match &entry.data {
-            rbw::db::EntryData::Login { uris, .. } => {
-                uris.iter()
-                    .filter_map(|uri| {
-                        decrypt_field(
-                            "uri",
-                            Some(&uri.uri),
-                            entry.key.as_deref(),
-                            entry.org_id.as_deref(),
-                        )
-                    })
-                    .collect()
-            }
+            rbw::db::EntryData::Login { uris, .. } => uris
+                .iter()
+                .filter_map(|uri| {
+                    decrypt_field(
+                        "uri",
+                        Some(&uri.uri),
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    )
+                })
+                .collect(),
             _ => Vec::new(),
         }
     } else {
