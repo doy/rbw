@@ -54,7 +54,7 @@ struct DecryptedListCipher {
     name: Option<String>,
     user: Option<String>,
     folder: Option<String>,
-    uri: Option<String>,
+    uris: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -195,7 +195,7 @@ impl From<DecryptedSearchCipher> for DecryptedListCipher {
             name: Some(value.name),
             user: value.user,
             folder: value.folder,
-            uri: value.uris.first().map(|(uri, _)| uri.clone()),
+            uris: value.uris.into_iter().map(|(uri, _)| uri).collect(),
         }
     }
 }
@@ -1155,10 +1155,13 @@ fn print_entry_list(
                         String::new,
                         std::string::ToString::to_string,
                     ),
-                    ListField::Uri => entry.uri.as_ref().map_or_else(
-                        String::new,
-                        std::string::ToString::to_string,
-                    ),
+                    ListField::Uri => {
+                        if entry.uris.is_empty() {
+                            String::new()
+                        } else {
+                            entry.uris.join(",")
+                        }
+                    },
                 })
                 .collect();
 
@@ -1859,22 +1862,24 @@ fn decrypt_list_cipher(
     } else {
         None
     };
-    let uri = if fields.contains(&ListField::Uri) {
+    let uris = if fields.contains(&ListField::Uri) {
         match &entry.data {
             rbw::db::EntryData::Login { uris, .. } => {
-                uris.first().and_then(|uri| {
-                    decrypt_field(
-                        "uri",
-                        Some(&uri.uri),
-                        entry.key.as_deref(),
-                        entry.org_id.as_deref(),
-                    )
-                })
+                uris.iter()
+                    .filter_map(|uri| {
+                        decrypt_field(
+                            "uri",
+                            Some(&uri.uri),
+                            entry.key.as_deref(),
+                            entry.org_id.as_deref(),
+                        )
+                    })
+                    .collect()
             }
-            _ => None,
+            _ => Vec::new(),
         }
     } else {
-        None
+        Vec::new()
     };
 
     Ok(DecryptedListCipher {
@@ -1882,7 +1887,7 @@ fn decrypt_list_cipher(
         name,
         user,
         folder,
-        uri,
+        uris,
     })
 }
 
