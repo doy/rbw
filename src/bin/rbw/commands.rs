@@ -54,12 +54,16 @@ struct DecryptedListCipher {
     name: Option<String>,
     user: Option<String>,
     folder: Option<String>,
+    #[serde(rename = "type")]
+    entry_type: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 struct DecryptedSearchCipher {
     id: String,
+    #[serde(rename = "type")]
+    entry_type: String,
     folder: Option<String>,
     name: String,
     user: Option<String>,
@@ -191,6 +195,7 @@ impl From<DecryptedSearchCipher> for DecryptedListCipher {
     fn from(value: DecryptedSearchCipher) -> Self {
         Self {
             id: value.id,
+            entry_type: Some(value.entry_type),
             name: Some(value.name),
             user: value.user,
             folder: value.folder,
@@ -900,11 +905,18 @@ enum ListField {
     Name,
     User,
     Folder,
+    EntryType,
 }
 
 impl ListField {
     fn all() -> Vec<Self> {
-        vec![Self::Id, Self::Name, Self::User, Self::Folder]
+        vec![
+            Self::Id,
+            Self::Name,
+            Self::User,
+            Self::Folder,
+            Self::EntryType,
+        ]
     }
 }
 
@@ -917,6 +929,7 @@ impl std::convert::TryFrom<&String> for ListField {
             "id" => Self::Id,
             "user" => Self::User,
             "folder" => Self::Folder,
+            "type" => Self::EntryType,
             _ => return Err(anyhow::anyhow!("unknown field {}", s)),
         })
     }
@@ -1151,6 +1164,12 @@ fn print_entry_list(
                         String::new,
                         std::string::ToString::to_string,
                     ),
+                    ListField::EntryType => {
+                        entry.entry_type.as_ref().map_or_else(
+                            String::new,
+                            std::string::ToString::to_string,
+                        )
+                    }
                 })
                 .collect();
 
@@ -1851,12 +1870,23 @@ fn decrypt_list_cipher(
     } else {
         None
     };
+    let entry_type = fields
+        .contains(&ListField::EntryType)
+        .then_some(match &entry.data {
+            rbw::db::EntryData::Login { .. } => "Login",
+            rbw::db::EntryData::Identity { .. } => "Identity",
+            rbw::db::EntryData::SshKey { .. } => "SSH Key",
+            rbw::db::EntryData::SecureNote => "Note",
+            rbw::db::EntryData::Card { .. } => "Card",
+        })
+        .map(str::to_string);
 
     Ok(DecryptedListCipher {
         id,
         name,
         user,
         folder,
+        entry_type,
     })
 }
 
@@ -1930,9 +1960,18 @@ fn decrypt_search_cipher(
             None
         }
     };
+    let entry_type = (match &entry.data {
+        rbw::db::EntryData::Login { .. } => "Login",
+        rbw::db::EntryData::Identity { .. } => "Identity",
+        rbw::db::EntryData::SshKey { .. } => "SSH Key",
+        rbw::db::EntryData::SecureNote => "Note",
+        rbw::db::EntryData::Card { .. } => "Card",
+    })
+    .to_string();
 
     Ok(DecryptedSearchCipher {
         id,
+        entry_type,
         folder,
         name,
         user,
@@ -3802,6 +3841,7 @@ mod test {
             },
             DecryptedSearchCipher {
                 id: id.to_string(),
+                entry_type: "Login".to_string(),
                 folder: folder.map(std::string::ToString::to_string),
                 name: name.to_string(),
                 user: username.map(std::string::ToString::to_string),
