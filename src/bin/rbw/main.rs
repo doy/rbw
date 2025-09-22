@@ -59,7 +59,7 @@ enum Opt {
         #[arg(
             long,
             help = "Fields to display. \
-                Available options are id, name, user, folder. \
+                Available options are id, name, user, folder, type. \
                 Multiple fields will be separated by tabs.",
             default_value = "name",
             use_value_delimiter = true
