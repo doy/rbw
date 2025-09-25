@@ -166,9 +166,13 @@ pub enum Action {
     Login,
     Register,
     Unlock,
+    UnlockWithPin,
     CheckLock,
     Lock,
     Sync,
+    SetPin,
+    ClearPin,
+    PinStatus,
     Decrypt {
         cipherstring: String,
         entry_key: Option<String>,
@@ -189,8 +193,26 @@ pub enum Action {
 #[serde(tag = "type")]
 pub enum Response {
     Ack,
-    Error { error: String },
-    Decrypt { plaintext: String },
-    Encrypt { cipherstring: String },
-    Version { version: u32 },
+    Error {
+        error: String,
+    },
+    Decrypt {
+        plaintext: String,
+    },
+    Encrypt {
+        cipherstring: String,
+    },
+    Version {
+        version: u32,
+    },
+    PinStatus {
+        configured: bool,
+        created_at: Option<i64>,
+        counter: Option<u64>,
+        kdf: Option<crate::local_unlock::KdfParams>,
+        fail_count: u32,
+        expires_at: Option<i64>,
+        keyring: Option<crate::local_unlock::KeyringInfo>,
+        last_seen_counter: u64,
+    },
 }

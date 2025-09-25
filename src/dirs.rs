@@ -63,6 +63,10 @@ pub fn device_id_file() -> std::path::PathBuf {
     data_dir().join("device_id")
 }
 
+pub fn wrapped_master_file() -> std::path::PathBuf {
+    data_dir().join("wrapped_master.v1.json")
+}
+
 pub fn socket_file() -> std::path::PathBuf {
     runtime_dir().join("socket")
 }

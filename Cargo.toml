@@ -82,6 +82,8 @@ url = "2.5.7"
 urlencoding = "2.1.3"
 uuid = { version = "1.12.1", features = ["v4"] }
 zeroize = "1.8.1"
+chacha20poly1305 = { version = "0.10.1", features = ["std"] }
+keyring = "2.3.3"
 
 arboard = { version = "3.5", default-features = false, features = [
     "wayland-data-control",
@@ -118,12 +120,12 @@ depends = "pinentry"
 license-file = ["LICENSE"]
 assets = [
     [
-        "target/release/rbw",
+        "target/release/rbw-dev",
         "usr/bin/",
         "755",
     ],
     [
-        "target/release/rbw-agent",
+        "target/release/rbw-agent-dev",
         "usr/bin/",
         "755",
     ],

@@ -120,6 +120,19 @@ out by running `rbw purge`, and you can explicitly lock the database by running
 `rbw help` can be used to get more information about the available
 functionality.
 
+### Local PIN unlock (MVP)
+
+`rbw` can cache the master encryption key locally behind a short PIN. While
+the agent is unlocked, run `rbw pin set` to enrol a PIN; the key material is
+sealed with Argon2id and written to `wrapped_master.v1.json`, while the per-profile
+pepper lives in your system keyring. Later you can unlock the agent with
+`rbw pin unlock` instead of the full master password, inspect the current
+configuration with `rbw pin status`, or remove the cached data via
+`rbw pin clear`. The feature requires a working desktop keyring backend: the
+cache expires after 30 days by default and is cleared automatically after three
+failed PIN attempts. Tunables live under the `pin_unlock` section in `config.json`
+(`enabled`, `ttl_secs`, and `allow_weak_keyring`).
+
 Run `rbw get <name>` to get your passwords. If you also want to get the username
 or the note associated, you can use the flag `--full`. You can also use the flag
 `--field={field}` to get whatever default or custom field you want. The `--raw`

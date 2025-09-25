@@ -1,4 +1,4 @@
-use std::{fmt::Write as _, io::Write as _, os::unix::ffi::OsStrExt as _};
+use std::{fmt::Write as _, io::Write as _};
 
 use anyhow::Context as _;
 
@@ -1041,9 +1041,105 @@ pub fn login() -> anyhow::Result<()> {
 
 pub fn unlock() -> anyhow::Result<()> {
     ensure_agent()?;
+
+    let should_try_pin = match crate::actions::pin_status() {
+        Ok(status) => {
+            if status.configured {
+                true
+            } else {
+                log::debug!("Skipping PIN unlock: no PIN configured");
+                false
+            }
+        }
+        Err(err) => {
+            log::debug!("Failed to query PIN status: {err}");
+            true
+        }
+    };
+
+    if should_try_pin {
+        match crate::actions::pin_unlock() {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                let msg = err.to_string();
+                if msg.contains("no PIN configured") {
+                    log::debug!("PIN unlock unavailable: {msg}");
+                } else if msg
+                    .contains("PIN removed after too many failed attempts")
+                {
+                    log::warn!("{msg}");
+                } else if msg.contains("cached vault is regenerated") {
+                    log::warn!("{msg}");
+                } else {
+                    return Err(err);
+                }
+            }
+        }
+    }
+
     crate::actions::login()?;
     crate::actions::unlock()?;
 
+    Ok(())
+}
+
+pub fn pin_set() -> anyhow::Result<()> {
+    ensure_agent()?;
+    crate::actions::pin_set()?;
+    println!("Local PIN stored.");
+    Ok(())
+}
+
+pub fn pin_unlock() -> anyhow::Result<()> {
+    ensure_agent()?;
+    crate::actions::pin_unlock()?;
+    Ok(())
+}
+
+pub fn pin_clear() -> anyhow::Result<()> {
+    ensure_agent()?;
+    crate::actions::pin_clear()?;
+    println!("Local PIN data cleared.");
+    Ok(())
+}
+
+pub fn pin_status() -> anyhow::Result<()> {
+    ensure_agent()?;
+    let status = crate::actions::pin_status()?;
+    println!(
+        "Configured: {}",
+        if status.configured { "yes" } else { "no" }
+    );
+    println!("Failed attempts: {}", status.fail_count);
+    println!("Last seen counter: {}", status.last_seen_counter);
+    if let Some(created_at) = status.created_at {
+        println!("Created at (unix epoch seconds): {created_at}");
+    }
+    if let Some(counter) = status.counter {
+        println!("Counter: {counter}");
+    }
+    if let Some(expires_at) = status.expires_at {
+        println!("Expires at (unix epoch seconds): {expires_at}");
+    }
+    if let Some(kdf) = status.kdf {
+        println!(
+            "Argon2id params: m={} KiB, t={}, p={}, outlen={}",
+            kdf.m, kdf.t, kdf.p, kdf.outlen
+        );
+    }
+    if let Some(keyring) = status.keyring {
+        let strength = format!("{:?}", keyring.strength)
+            .replace('_', "-")
+            .to_lowercase();
+        println!(
+            "Keyring backend: {} ({strength})",
+            if keyring.backend.is_empty() {
+                "unknown"
+            } else {
+                &keyring.backend
+            },
+        );
+    }
     Ok(())
 }
 
@@ -1667,11 +1763,9 @@ fn ensure_agent() -> anyhow::Result<()> {
 }
 
 fn ensure_agent_once() -> anyhow::Result<()> {
-    let agent_path = std::env::var_os("RBW_AGENT");
-    let agent_path = agent_path
-        .as_deref()
-        .unwrap_or_else(|| std::ffi::OsStr::from_bytes(b"rbw-agent"));
-    let status = std::process::Command::new(agent_path)
+    let agent_path = resolve_agent_path();
+    log::debug!("Spawning agent binary at {:?}", agent_path);
+    let status = std::process::Command::new(&agent_path)
         .status()
         .context("failed to run rbw-agent")?;
     if !status.success() {
@@ -1686,6 +1780,35 @@ fn ensure_agent_once() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_agent_path() -> std::ffi::OsString {
+    if let Some(path) = std::env::var_os("RBW_AGENT") {
+        return path;
+    }
+
+    if let Ok(mut path) = std::env::current_exe() {
+        let extension = path.extension().map(|ext| ext.to_owned());
+        if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+            let agent_stem = if let Some(rest) = stem.strip_prefix("rbw") {
+                format!("rbw-agent{rest}")
+            } else {
+                "rbw-agent".to_string()
+            };
+
+            path.set_file_name(agent_stem);
+
+            if let Some(ext) = extension {
+                path.set_extension(ext);
+            }
+
+            if path.exists() {
+                return path.into_os_string();
+            }
+        }
+    }
+
+    std::ffi::OsString::from("rbw-agent")
 }
 
 fn check_config() -> anyhow::Result<()> {

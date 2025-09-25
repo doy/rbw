@@ -9,6 +9,7 @@ pub mod edit;
 pub mod error;
 pub mod identity;
 pub mod json;
+pub mod local_unlock;
 pub mod locked;
 pub mod pinentry;
 mod prelude;

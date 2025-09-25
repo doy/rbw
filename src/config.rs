@@ -22,6 +22,8 @@ pub struct Config {
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
+    #[serde(default = "PinUnlockConfig::default")]
+    pub pin_unlock: PinUnlockConfig,
 }
 
 impl Default for Config {
@@ -38,12 +40,42 @@ impl Default for Config {
             pinentry: default_pinentry(),
             client_cert_path: None,
             device_id: None,
+            pin_unlock: PinUnlockConfig::default(),
         }
     }
 }
 
 pub fn default_lock_timeout() -> u64 {
     3600
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct PinUnlockConfig {
+    #[serde(default = "default_pin_unlock_enabled")]
+    pub enabled: bool,
+    /// None disables TTL enforcement.
+    #[serde(default = "default_pin_unlock_ttl_secs")]
+    pub ttl_secs: Option<u64>,
+    #[serde(default)]
+    pub allow_weak_keyring: bool,
+}
+
+impl Default for PinUnlockConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_pin_unlock_enabled(),
+            ttl_secs: default_pin_unlock_ttl_secs(),
+            allow_weak_keyring: false,
+        }
+    }
+}
+
+fn default_pin_unlock_enabled() -> bool {
+    true
+}
+
+fn default_pin_unlock_ttl_secs() -> Option<u64> {
+    Some(30 * 24 * 60 * 60)
 }
 
 pub fn default_sync_interval() -> u64 {
@@ -244,6 +276,43 @@ pub async fn device_id(config: &Config) -> Result<String> {
                 file: file.clone(),
             }
         })?;
+        Ok(id)
+    }
+}
+
+pub fn device_id_sync(config: &Config) -> Result<String> {
+    let file = crate::dirs::device_id_file();
+    if let Ok(mut fh) = std::fs::File::open(&file) {
+        let mut s = String::new();
+        fh.read_to_string(&mut s).map_err(|e| Error::LoadDeviceId {
+            source: e.into(),
+            file: file.clone(),
+        })?;
+        Ok(s.trim().to_string())
+    } else {
+        let id = config.device_id.as_ref().map_or_else(
+            || uuid::Uuid::new_v4().hyphenated().to_string(),
+            String::to_string,
+        );
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                Error::LoadDeviceId {
+                    source: e.into(),
+                    file: parent.to_path_buf(),
+                }
+            })?;
+        }
+        let mut fh = std::fs::File::create(&file).map_err(|e| {
+            Error::LoadDeviceId {
+                source: e.into(),
+                file: file.clone(),
+            }
+        })?;
+        fh.write_all(id.as_bytes())
+            .map_err(|e| Error::LoadDeviceId {
+                source: e.into(),
+                file: file.clone(),
+            })?;
         Ok(id)
     }
 }

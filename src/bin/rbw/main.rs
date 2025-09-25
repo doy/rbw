@@ -1,7 +1,7 @@
 use std::io::Write as _;
 
 use anyhow::Context as _;
-use clap::{CommandFactory as _, Parser as _};
+use clap::{CommandFactory as _, Parser as _, Subcommand};
 
 mod actions;
 mod commands;
@@ -44,6 +44,12 @@ enum Opt {
 
     #[command(about = "Unlock the local Bitwarden database")]
     Unlock,
+
+    #[command(about = "Manage the local PIN unlock state")]
+    Pin {
+        #[command(subcommand)]
+        command: PinCommand,
+    },
 
     #[command(about = "Check if the local Bitwarden database is unlocked")]
     Unlocked,
@@ -237,6 +243,29 @@ enum Opt {
     GenCompletions { shell: CompletionShell },
 }
 
+#[derive(Debug, Subcommand)]
+enum PinCommand {
+    #[command(about = "Set or update the local PIN")]
+    Set,
+    #[command(about = "Unlock the agent using the local PIN")]
+    Unlock,
+    #[command(about = "Remove the stored local PIN data")]
+    Clear,
+    #[command(about = "Display metadata about the local PIN setup")]
+    Status,
+}
+
+impl PinCommand {
+    fn subcommand_name(&self) -> &'static str {
+        match self {
+            Self::Set => "set",
+            Self::Unlock => "unlock",
+            Self::Clear => "clear",
+            Self::Status => "status",
+        }
+    }
+}
+
 impl Opt {
     fn subcommand_name(&self) -> String {
         match self {
@@ -246,6 +275,9 @@ impl Opt {
             Self::Register => "register".to_string(),
             Self::Login => "login".to_string(),
             Self::Unlock => "unlock".to_string(),
+            Self::Pin { command } => {
+                format!("pin {}", command.subcommand_name())
+            }
             Self::Unlocked => "unlocked".to_string(),
             Self::Sync => "sync".to_string(),
             Self::List { .. } => "list".to_string(),
@@ -333,6 +365,12 @@ fn main() {
         Opt::Register => commands::register(),
         Opt::Login => commands::login(),
         Opt::Unlock => commands::unlock(),
+        Opt::Pin { command } => match command {
+            PinCommand::Set => commands::pin_set(),
+            PinCommand::Unlock => commands::pin_unlock(),
+            PinCommand::Clear => commands::pin_clear(),
+            PinCommand::Status => commands::pin_status(),
+        },
         Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),
         Opt::List { fields, raw } => commands::list(&fields, raw),

@@ -472,6 +472,197 @@ pub async fn unlock(
     Ok(())
 }
 
+pub async fn unlock_with_pin(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+    if !state.lock().await.needs_unlock() {
+        respond_ack(sock).await?;
+        return Ok(());
+    }
+    let db = match load_db().await {
+        Ok(db) => Ok(db),
+        Err(err) => {
+            let err = match err.downcast::<rbw::error::Error>() {
+                Ok(rbw_err) => {
+                    if matches!(
+                        &rbw_err,
+                        rbw::error::Error::LoadDbAsync { source, .. }
+                            if source.kind() == std::io::ErrorKind::NotFound
+                    ) {
+                        rbw::error::Error::PinLocalDataMissing.into()
+                    } else {
+                        rbw_err.into()
+                    }
+                }
+                Err(err) => err,
+            };
+            Err(err)
+        }
+    }?;
+    let protected_private_key =
+        db.protected_private_key.clone().ok_or_else(|| {
+            anyhow::anyhow!("failed to find protected private key in db")
+        })?;
+    let protected_org_keys = db.protected_org_keys.clone();
+
+    let profile = rbw::dirs::profile();
+    let pinentry = config_pinentry().await?;
+    let mut err_msg = None;
+
+    for attempt in 1_u8..=3 {
+        let pin = rbw::pinentry::getpin(
+            &pinentry,
+            "Local PIN",
+            "Unlock with local PIN",
+            err_msg.as_deref(),
+            environment,
+            true,
+        )
+        .await
+        .context("failed to read pin from pinentry")?;
+
+        match rbw::local_unlock::unlock_with_pin(&pin, &profile) {
+            Ok(keys) => {
+                let private_key = rbw::actions::decrypt_private_key(
+                    &keys,
+                    &protected_private_key,
+                )
+                .map_err(anyhow::Error::new)?;
+                let org_keys = rbw::actions::decrypt_org_keys(
+                    &private_key,
+                    &protected_org_keys,
+                )
+                .map_err(anyhow::Error::new)?;
+                unlock_success(state.clone(), keys, org_keys).await?;
+                respond_ack(sock).await?;
+                return Ok(());
+            }
+            Err(rbw::error::Error::PinIncorrect) => {
+                if attempt == 3 {
+                    anyhow::bail!("PIN is incorrect");
+                }
+                err_msg = Some("PIN is incorrect. Try again.".to_string());
+            }
+            Err(rbw::error::Error::PinExpired) => {
+                anyhow::bail!(
+                    "Cached PIN data expired. Unlock with your master password."
+                );
+            }
+            Err(rbw::error::Error::PinBackendWeak { backend }) => {
+                anyhow::bail!(
+                    "PIN unlock disabled: backend {backend} does not meet policy"
+                );
+            }
+            Err(rbw::error::Error::PinBackendUnavailable) => {
+                anyhow::bail!("PIN unlock unavailable on this device");
+            }
+            Err(rbw::error::Error::PinNotSet) => {
+                anyhow::bail!("no PIN configured for this profile");
+            }
+            Err(rbw::error::Error::PinLocalDataMissing) => {
+                anyhow::bail!(
+                    "PIN unlock unavailable until the cached vault is regenerated. Unlock with your master password."
+                );
+            }
+            Err(rbw::error::Error::PinTooManyFailures) => {
+                anyhow::bail!(
+                    "PIN cleared after too many failed attempts. Unlock with your master password and set a new PIN."
+                );
+            }
+            Err(e) => return Err(anyhow::Error::new(e)),
+        }
+    }
+
+    anyhow::bail!("failed to unlock with PIN")
+}
+
+pub async fn set_pin(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+    let keys = {
+        let state = state.lock().await;
+        if state.needs_unlock() {
+            anyhow::bail!("agent is locked");
+        }
+        state
+            .priv_key
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("agent is locked"))?
+    };
+
+    let profile = rbw::dirs::profile();
+    let pinentry = config_pinentry().await?;
+    let mut err = None;
+    let pin = loop {
+        let pin1 = rbw::pinentry::getpin(
+            &pinentry,
+            "New PIN",
+            "Set local unlock PIN",
+            err.as_deref(),
+            environment,
+            true,
+        )
+        .await
+        .context("failed to read pin from pinentry")?;
+        if pin1.password().is_empty() {
+            err = Some("PIN cannot be empty".to_string());
+            continue;
+        }
+
+        let pin2 = rbw::pinentry::getpin(
+            &pinentry,
+            "Confirm PIN",
+            "Confirm local unlock PIN",
+            None,
+            environment,
+            true,
+        )
+        .await
+        .context("failed to confirm pin from pinentry")?;
+
+        if pin1.password() == pin2.password() {
+            break pin1;
+        }
+
+        err = Some("PINs did not match".to_string());
+    };
+
+    rbw::local_unlock::set_pin(&pin, &keys, &profile)
+        .map_err(anyhow::Error::new)?;
+    respond_ack(sock).await?;
+    Ok(())
+}
+
+pub async fn clear_pin(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
+    rbw::local_unlock::clear_pin(&rbw::dirs::profile())
+        .map_err(anyhow::Error::new)?;
+    respond_ack(sock).await?;
+    Ok(())
+}
+
+pub async fn pin_status(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
+    let status = rbw::local_unlock::status(&rbw::dirs::profile())
+        .map_err(anyhow::Error::new)?;
+
+    sock.send(&rbw::protocol::Response::PinStatus {
+        configured: status.blob_present,
+        created_at: status.created_at,
+        counter: status.counter,
+        kdf: status.kdf,
+        fail_count: status.fail_count,
+        expires_at: status.expires_at,
+        keyring: status.keyring,
+        last_seen_counter: status.last_seen_counter,
+    })
+    .await?;
+
+    Ok(())
+}
+
 async fn unlock_success(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     keys: rbw::locked::Keys,

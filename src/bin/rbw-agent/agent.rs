@@ -131,6 +131,28 @@ async fn handle_request(
             crate::actions::unlock(sock, state.clone(), &environment).await?;
             true
         }
+        rbw::protocol::Action::UnlockWithPin => {
+            crate::actions::unlock_with_pin(
+                sock,
+                state.clone(),
+                &environment,
+            )
+            .await?;
+            true
+        }
+        rbw::protocol::Action::SetPin => {
+            crate::actions::set_pin(sock, state.clone(), &environment)
+                .await?;
+            true
+        }
+        rbw::protocol::Action::ClearPin => {
+            crate::actions::clear_pin(sock).await?;
+            false
+        }
+        rbw::protocol::Action::PinStatus => {
+            crate::actions::pin_status(sock).await?;
+            false
+        }
         rbw::protocol::Action::CheckLock => {
             crate::actions::check_lock(sock, state.clone()).await?;
             false

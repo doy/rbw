@@ -18,6 +18,24 @@ pub enum Error {
     #[error("failed to create reqwest client")]
     CreateReqwestClient { source: reqwest::Error },
 
+    #[error("failed to remove wrapped master blob at {}", .file.display())]
+    RemoveWrappedMaster {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
+
+    #[error("failed to save wrapped master blob to {}", .file.display())]
+    SaveWrappedMaster {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
+
+    #[error("failed to load wrapped master blob from {}", .file.display())]
+    LoadWrappedMaster {
+        source: std::io::Error,
+        file: std::path::PathBuf,
+    },
+
     #[error("failed to create sso callback server: {err}")]
     CreateSSOCallbackServer { err: std::io::Error },
 
@@ -112,6 +130,15 @@ pub enum Error {
         file: std::path::PathBuf,
     },
 
+    #[error("failed to parse wrapped master blob metadata")]
+    WrappedMasterAad { source: serde_json::Error },
+
+    #[error("failed to parse wrapped master blob from {}", .file.display())]
+    WrappedMasterJson {
+        source: serde_json::Error,
+        file: std::path::PathBuf,
+    },
+
     #[error("failed to load db from {}", .file.display())]
     LoadDb {
         source: std::io::Error,
@@ -198,6 +225,48 @@ pub enum Error {
         source: std::io::Error,
         file: std::path::PathBuf,
     },
+
+    #[error("keyring error")]
+    Keyring { source: keyring::Error },
+
+    #[error("PIN must not be empty")]
+    PinTooShort,
+
+    #[error("no local PIN is configured")]
+    PinNotSet,
+
+    #[error("PIN local secret missing from keyring")]
+    PinMissingLocalSecret,
+
+    #[error("failed to encrypt PIN-wrapped key")]
+    PinEncrypt,
+
+    #[error("PIN is incorrect")]
+    PinIncorrect,
+
+    #[error("PIN unlock blob has expired; unlock with master password")]
+    PinExpired,
+
+    #[error("PIN unlock backend {backend} is considered weak")]
+    PinBackendWeak { backend: String },
+
+    #[error("PIN unlock backend unavailable")]
+    PinBackendUnavailable,
+
+    #[error("PIN removed after too many failed attempts")]
+    PinTooManyFailures,
+
+    #[error("PIN local data missing; unlock with your master password")]
+    PinLocalDataMissing,
+
+    #[error("failed to derive key from PIN")]
+    PinPepper,
+
+    #[error("invalid wrapped master blob: {reason}")]
+    InvalidWrappedMaster { reason: &'static str },
+
+    #[error("failed to (de)serialize PIN metadata")]
+    PinMetadataJson { source: serde_json::Error },
 
     #[error("failed to save config to {}", .file.display())]
     SaveConfigJson {

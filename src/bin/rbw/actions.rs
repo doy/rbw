@@ -134,6 +134,64 @@ pub fn clipboard_store(text: &str) -> anyhow::Result<()> {
     })
 }
 
+pub fn pin_set() -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::SetPin)
+}
+
+pub fn pin_unlock() -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::UnlockWithPin)
+}
+
+pub fn pin_clear() -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::ClearPin)
+}
+
+pub struct PinStatus {
+    pub configured: bool,
+    pub created_at: Option<i64>,
+    pub counter: Option<u64>,
+    pub kdf: Option<rbw::local_unlock::KdfParams>,
+    pub fail_count: u32,
+    pub expires_at: Option<i64>,
+    pub keyring: Option<rbw::local_unlock::KeyringInfo>,
+    pub last_seen_counter: u64,
+}
+
+pub fn pin_status() -> anyhow::Result<PinStatus> {
+    let mut sock = connect()?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::PinStatus,
+    ))?;
+
+    let res = sock.recv()?;
+    match res {
+        rbw::protocol::Response::PinStatus {
+            configured,
+            created_at,
+            counter,
+            kdf,
+            fail_count,
+            expires_at,
+            keyring,
+            last_seen_counter,
+        } => Ok(PinStatus {
+            configured,
+            created_at,
+            counter,
+            kdf,
+            fail_count,
+            expires_at,
+            keyring,
+            last_seen_counter,
+        }),
+        rbw::protocol::Response::Error { error } => {
+            Err(anyhow::anyhow!("{}", error))
+        }
+        other => Err(anyhow::anyhow!("unexpected message: {:?}", other)),
+    }
+}
+
 pub fn version() -> anyhow::Result<u32> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request::new(
