@@ -843,6 +843,147 @@ impl DecryptedCipher {
         }
     }
 
+    /// This implementation mirror the `fn display_fied` method on which field to list
+    fn display_fields_list(&self) {
+        match &self.data {
+            DecryptedData::Login {
+                username,
+                password,
+                totp,
+                uris,
+                ..
+            } => {
+                if username.is_some() {
+                    println!("{}", Field::Username);
+                }
+                if totp.is_some() {
+                    println!("{}", Field::Totp);
+                }
+                if uris.is_some() {
+                    println!("{}", Field::Uris);
+                }
+                if password.is_some() {
+                    println!("{}", Field::Password);
+                }
+            }
+            DecryptedData::Card {
+                cardholder_name,
+                number,
+                brand,
+                exp_month,
+                exp_year,
+                code,
+                ..
+            } => {
+                if number.is_some() {
+                    println!("{}", Field::CardNumber);
+                }
+                if exp_month.is_some() {
+                    println!("{}", Field::ExpMonth);
+                }
+                if exp_year.is_some() {
+                    println!("{}", Field::ExpYear);
+                }
+                if code.is_some() {
+                    println!("{}", Field::Cvv);
+                }
+                if cardholder_name.is_some() {
+                    println!("{}", Field::Cardholder);
+                }
+                if brand.is_some() {
+                    println!("{}", Field::Brand);
+                }
+            }
+
+            DecryptedData::Identity {
+                address1,
+                address2,
+                address3,
+                city,
+                state,
+                postal_code,
+                country,
+                phone,
+                email,
+                ssn,
+                license_number,
+                passport_number,
+                username,
+                title,
+                first_name,
+                middle_name,
+                last_name,
+                ..
+            } => {
+                if [title, first_name, middle_name, last_name]
+                    .iter()
+                    .any(|f| f.is_some())
+                {
+                    // the display_field combines all these fields together.
+                    println!("name");
+                }
+                if email.is_some() {
+                    println!("{}", Field::Email);
+                }
+                if [address1, address2, address3].iter().any(|f| f.is_some())
+                {
+                    // the display_field combines all these fields together.
+                    println!("address");
+                }
+                if city.is_some() {
+                    println!("{}", Field::City);
+                }
+                if state.is_some() {
+                    println!("{}", Field::State);
+                }
+                if postal_code.is_some() {
+                    println!("{}", Field::PostalCode);
+                }
+                if country.is_some() {
+                    println!("{}", Field::Country);
+                }
+                if phone.is_some() {
+                    println!("{}", Field::Phone);
+                }
+                if ssn.is_some() {
+                    println!("{}", Field::Ssn);
+                }
+                if license_number.is_some() {
+                    println!("{}", Field::License);
+                }
+                if passport_number.is_some() {
+                    println!("{}", Field::Passport);
+                }
+                if username.is_some() {
+                    println!("{}", Field::Username);
+                }
+            }
+
+            DecryptedData::SecureNote => (), // handled at the end
+            DecryptedData::SshKey {
+                fingerprint,
+                public_key,
+                ..
+            } => {
+                if fingerprint.is_some() {
+                    println!("{}", Field::Fingerprint);
+                }
+                if public_key.is_some() {
+                    println!("{}", Field::PublicKey);
+                }
+            }
+        }
+
+        if self.notes.is_some() {
+            println!("{}", Field::Notes);
+        }
+        for f in &self.fields {
+            if let Some(name) = &f.name {
+                println!("{name}");
+            }
+        }
+    }
+
     fn display_json(&self, desc: &str) -> anyhow::Result<()> {
         serde_json::to_writer_pretty(std::io::stdout(), &self)
             .context(format!("failed to write entry '{desc}' to stdout"))?;
@@ -1232,6 +1373,7 @@ pub fn get(
     raw: bool,
     clipboard: bool,
     ignore_case: bool,
+    list_fields: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1246,7 +1388,9 @@ pub fn get(
     let (_, decrypted) =
         find_entry(&db, needle, user, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
-    if raw {
+    if list_fields {
+        decrypted.display_fields_list();
+    } else if raw {
         decrypted.display_json(&desc)?;
     } else if full {
         decrypted.display_long(&desc, clipboard);
