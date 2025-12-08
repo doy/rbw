@@ -31,7 +31,11 @@ will always build from the latest master commit.
 
 ### Debian/Ubuntu
 
-You can download a Debian package from
+`rbw` is officially packaged for Debian as
+[`rust-rbw`](https://tracker.debian.org/pkg/rust-rbw) and is available in
+testing (forky). You can install it using `sudo apt install rbw`.
+
+Alternatively, you can download a Debian package from
 [https://git.tozt.net/rbw/releases/deb/
 ](https://git.tozt.net/rbw/releases/deb/). The packages are signed by
 [`minisign`](https://github.com/jedisct1/minisign), and can be verified using
