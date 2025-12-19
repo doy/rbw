@@ -182,6 +182,15 @@ async fn handle_request(
             crate::actions::version(sock).await?;
             false
         }
+        #[cfg(feature = "pin")]
+        rbw::protocol::Action::PinRegister { .. } => {
+            // Placeholder - actual implementation will be added in the next commit
+            sock.send(&rbw::protocol::Response::Error {
+                error: "PIN register action not yet implemented in agent".to_string(),
+            })
+            .await?;
+            false
+        }
     };
 
     let mut state = state.lock().await;

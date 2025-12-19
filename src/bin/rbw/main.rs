@@ -235,6 +235,13 @@ enum Opt {
         about = "Generate completion script for the given shell"
     )]
     GenCompletions { shell: CompletionShell },
+
+    #[cfg(feature = "pin")]
+    #[command(about = "Manage local PIN unlock")]
+    Pin {
+        #[command(subcommand)]
+        cmd: rbw::pin::cli::Pin,
+    },
 }
 
 impl Opt {
@@ -261,6 +268,8 @@ impl Opt {
             Self::Purge => "purge".to_string(),
             Self::StopAgent => "stop-agent".to_string(),
             Self::GenCompletions { .. } => "gen-completions".to_string(),
+            #[cfg(feature = "pin")]
+            Self::Pin { cmd } => format!("pin {}", cmd.subcommand_name()),
         }
     }
 }
@@ -447,6 +456,14 @@ fn main() {
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),
         Opt::StopAgent => commands::stop_agent(),
+        #[cfg(feature = "pin")]
+        Opt::Pin { cmd } => match cmd {
+            rbw::pin::cli::Pin::Set { empty_pin, backend } => {
+                commands::register_pin(empty_pin, backend.clone())
+            }
+            rbw::pin::cli::Pin::Clear => rbw::pin::flow::clear(),
+            rbw::pin::cli::Pin::Status => rbw::pin::flow::status(),
+        },
         Opt::GenCompletions { shell } => {
             match shell {
                 CompletionShell::Bash => {
