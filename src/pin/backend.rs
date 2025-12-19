@@ -1,5 +1,8 @@
 #![cfg(feature = "pin")]
 
+pub mod age;
+
+use crate::pin::backend::age::{AgeConfig, AgePinBackend};
 use crate::pin::crypto::{Argon2Params, WrappedKey};
 use anyhow::{anyhow, Context};
 use argon2::password_hash::SaltString;
@@ -33,11 +36,62 @@ pub trait PinBackend {
     fn clear_local_secret(&self) -> anyhow::Result<()>;
 }
 
+impl PinBackend for Backend {
+    type Config = PinBackendConfig;
+    fn retrieve_local_secret(
+        &self,
+        config: &PinBackendConfig,
+    ) -> anyhow::Result<crate::locked::Vec> {
+        match self {
+            Self::Age => {
+                let config = config
+                    .age
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("age config not set"))?;
+                AgePinBackend.retrieve_local_secret(config)
+            }
+            Self::OSKeyring => {
+                anyhow::bail!("OSKeyring backend not yet implemented")
+            }
+        }
+    }
+
+    fn store_local_secret(
+        &self,
+        kek: &crate::locked::Vec,
+        config: &PinBackendConfig,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Age => {
+                let config = config
+                    .age
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("age config not set"))?;
+                AgePinBackend.store_local_secret(kek, config)
+            }
+            Self::OSKeyring => {
+                anyhow::bail!("OSKeyring backend not yet implemented")
+            }
+        }
+    }
+
+    fn clear_local_secret(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Age => AgePinBackend.clear_local_secret(),
+            Self::OSKeyring => {
+                anyhow::bail!("OSKeyring backend not yet implemented")
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PinBackendConfig {
     pub enable_pin: bool,
     #[serde(flatten)]
     pub kdf_params: Option<Argon2Params>,
+    #[serde(flatten)]
+    pub age: Option<AgeConfig>,
 }
 
 impl BackendConfig for PinBackendConfig {}
@@ -53,6 +107,7 @@ impl PinBackendConfig {
         Self {
             enable_pin: false,
             kdf_params: Some(Argon2Params::new()),
+            age: Some(AgeConfig::new()),
         }
     }
 }

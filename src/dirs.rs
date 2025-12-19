@@ -71,6 +71,16 @@ pub fn ssh_agent_socket_file() -> std::path::PathBuf {
     runtime_dir().join("ssh-agent-socket")
 }
 
+#[cfg(feature = "pin")]
+pub fn pin_age_wrapped_local_secret_file() -> std::path::PathBuf {
+    cache_dir().join(format!("{}-pin-wrapped-local-secret.age", &profile()))
+}
+
+#[cfg(feature = "pin")]
+pub fn pin_state_file() -> std::path::PathBuf {
+    cache_dir().join(format!("{}-pin-state.json", &profile()))
+}
+
 fn config_dir() -> std::path::PathBuf {
     let project_dirs =
         directories::ProjectDirs::from("", "", &profile()).unwrap();

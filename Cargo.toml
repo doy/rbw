@@ -87,11 +87,12 @@ arboard = { version = "3.5", default-features = false, features = [
     "wayland-data-control",
 ], optional = true }
 chacha20poly1305 = { version = "0.10.1", optional = true }
+age = { version = "0.11.1", features = ["armor", "plugin"], optional = true }
 
 [features]
 default = ["clipboard", "pin"]
 clipboard = ["arboard"]
-pin = ["chacha20poly1305"]
+pin = ["chacha20poly1305", "age"]
 
 [lints.clippy]
 cargo = { level = "warn", priority = -1 }
