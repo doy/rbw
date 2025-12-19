@@ -163,6 +163,9 @@ pub enum Error {
     #[error("pinentry error: {error}")]
     PinentryErrorMessage { error: String },
 
+    #[error("PIN error: {message}")]
+    PinError { message: String },
+
     #[error("error reading pinentry output")]
     PinentryReadOutput { source: tokio::io::Error },
 
