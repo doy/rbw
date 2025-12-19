@@ -1,8 +1,10 @@
 #![cfg(feature = "pin")]
 
 pub mod age;
+pub mod keyring;
 
 use crate::pin::backend::age::{AgeConfig, AgePinBackend};
+use crate::pin::backend::keyring::{KeyringConfig, KeyringPinBackend};
 use crate::pin::crypto::{Argon2Params, WrappedKey};
 use anyhow::{anyhow, Context};
 use argon2::password_hash::SaltString;
@@ -51,7 +53,11 @@ impl PinBackend for Backend {
                 AgePinBackend.retrieve_local_secret(config)
             }
             Self::OSKeyring => {
-                anyhow::bail!("OSKeyring backend not yet implemented")
+                let config = config
+                    .keyring
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("keyring config not set"))?;
+                KeyringPinBackend.retrieve_local_secret(config)
             }
         }
     }
@@ -70,7 +76,11 @@ impl PinBackend for Backend {
                 AgePinBackend.store_local_secret(kek, config)
             }
             Self::OSKeyring => {
-                anyhow::bail!("OSKeyring backend not yet implemented")
+                let config = config
+                    .keyring
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("keyring config not set"))?;
+                KeyringPinBackend.store_local_secret(kek, config)
             }
         }
     }
@@ -78,9 +88,7 @@ impl PinBackend for Backend {
     fn clear_local_secret(&self) -> anyhow::Result<()> {
         match self {
             Self::Age => AgePinBackend.clear_local_secret(),
-            Self::OSKeyring => {
-                anyhow::bail!("OSKeyring backend not yet implemented")
-            }
+            Self::OSKeyring => KeyringPinBackend.clear_local_secret(),
         }
     }
 }
@@ -92,6 +100,8 @@ pub struct PinBackendConfig {
     pub kdf_params: Option<Argon2Params>,
     #[serde(flatten)]
     pub age: Option<AgeConfig>,
+    #[serde(flatten)]
+    pub keyring: Option<KeyringConfig>,
 }
 
 impl BackendConfig for PinBackendConfig {}
@@ -108,6 +118,7 @@ impl PinBackendConfig {
             enable_pin: false,
             kdf_params: Some(Argon2Params::new()),
             age: Some(AgeConfig::new()),
+            keyring: None,
         }
     }
 }
