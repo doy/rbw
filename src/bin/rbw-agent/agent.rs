@@ -183,13 +183,16 @@ async fn handle_request(
             false
         }
         #[cfg(feature = "pin")]
-        rbw::protocol::Action::PinRegister { .. } => {
-            // Placeholder - actual implementation will be added in the next commit
-            sock.send(&rbw::protocol::Response::Error {
-                error: "PIN register action not yet implemented in agent".to_string(),
-            })
+        rbw::protocol::Action::PinRegister { empty_pin, backend } => {
+            crate::actions::pin_register(
+                sock,
+                state.clone(),
+                *empty_pin,
+                backend.clone(),
+                &environment,
+            )
             .await?;
-            false
+            true
         }
     };
 
