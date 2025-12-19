@@ -102,6 +102,71 @@ between by using the `RBW_PROFILE` environment variable. Setting it to a name
 switch between several different vaults - each will use its own separate
 configuration, local vault, and agent.
 
+## Quick Unlock (PIN)
+
+`rbw` supports unlocking your vault with a short PIN instead of your master password. The PIN protects a device-bound local secret that is used to encrypt your vault keys. This provides quick access while maintaining security: an attacker who gains read access to your storage cannot decrypt your vault without both the PIN and the device-bound local secret.
+
+### Supported Backends
+
+Two backend options are available for storing the local secret:
+
+#### `age` Backend
+
+Uses [age](https://github.com/FiloSottile/age) encryption with plugin-based identities. Only age plugins are supported (not regular age identities) to ensure the local secret is bound to hardware.
+
+**Supported age plugins:**
+- [`age-plugin-yubikey`](https://github.com/str4d/age-plugin-yubikey) - Uses YubiKey PIV
+- [`age-plugin-tpm`](https://github.com/Foxboron/age-plugin-tpm) - Uses TPM 2.0
+- [`age-plugin-se`](https://github.com/remko/age-plugin-se) - Uses macOS/iOS Secure Enclave
+
+**Setup:**
+
+1. Install your chosen age plugin and generate an identity
+2. Configure the path to the identity file in rbw:
+   ```sh
+   rbw config set age_identity_file_path /path/to/your/age/identity.txt
+   ```
+3. Register the PIN:
+   ```sh
+   rbw pin set --backend age
+   ```
+
+#### `os-keyring` Backend
+
+Uses your operating system's native keyring (macOS Keychain, Windows Credential Manager, or Linux Secret Service).
+
+**Setup:**
+```sh
+rbw pin set --backend os-keyring
+```
+
+### Usage
+
+Once configured, `rbw unlock` will prompt for your PIN instead of your master password. If PIN unlock fails, it automatically falls back to the master password.
+
+**Manage PIN:**
+```sh
+# Set up PIN with a backend
+rbw pin set --backend age
+rbw pin set --backend os-keyring
+
+# Check PIN status
+rbw pin status
+
+# Remove PIN
+rbw pin clear
+```
+
+### Empty PIN with Hardware Tokens
+
+For hardware token workflows where the security comes entirely from the hardware (e.g., YubiKey requiring touch), you can use an empty PIN:
+
+```sh
+rbw pin set --backend age --empty-pin
+```
+
+This skips PIN entry but still requires the hardware token for unlock.
+
 ## Usage
 
 Commands can generally be used directly, and will handle logging in or
