@@ -22,6 +22,8 @@ pub struct Config {
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
+    #[cfg(feature = "pin")]
+    pub pin_config: Option<crate::pin::backend::PinBackendConfig>,
 }
 
 impl Default for Config {
@@ -38,6 +40,8 @@ impl Default for Config {
             pinentry: default_pinentry(),
             client_cert_path: None,
             device_id: None,
+            #[cfg(feature = "pin")]
+            pin_config: Some(crate::pin::backend::PinBackendConfig::new()),
         }
     }
 }
