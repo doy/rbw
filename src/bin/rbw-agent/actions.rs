@@ -378,6 +378,44 @@ async fn unlock_state(
     environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
     if state.lock().await.needs_unlock() {
+        #[cfg(feature = "pin")]
+        {
+            // Try PIN unlock first if PIN is configured
+            let config = rbw::config::Config::load_async().await?;
+            if let Some(_pin_config) = &config.pin_config {
+                match rbw::pin::flow::load_pin_state() {
+                    Ok(pin_state) => {
+                        let pin = rbw::pinentry::getpin(
+                            &config.pinentry,
+                            "PIN",
+                            &format!(
+                                "Unlock the local database for '{}'",
+                                rbw::dirs::profile()
+                            ),
+                            None,
+                            environment,
+                            true,
+                        )
+                        .await
+                        .context("failed to read PIN from pinentry")?;
+
+                        match rbw::pin::flow::unlock_with_pin(Some(&pin), &pin_state, config) {
+                            Ok((keys, org_keys)) => {
+                                unlock_success(state, keys, org_keys).await?;
+                                return Ok(());
+                            }
+                            Err(_) => {
+                                // PIN unlock failed, fall through to master password
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // PIN not configured, fall through to master password
+                    }
+                }
+            }
+        }
+
         let db = load_db().await?;
 
         let Some(kdf) = db.kdf else {
@@ -818,6 +856,49 @@ async fn config_base_url() -> anyhow::Result<String> {
 async fn config_pinentry() -> anyhow::Result<String> {
     let config = rbw::config::Config::load_async().await?;
     Ok(config.pinentry)
+}
+
+#[cfg(feature = "pin")]
+pub async fn pin_register(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    empty_pin: bool,
+    backend: rbw::pin::backend::Backend,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+    let config = rbw::config::Config::load_async().await?;
+
+    let (keys, org_keys) = {
+        let state_guard = state.lock().await;
+        if state_guard.needs_unlock() {
+            return Err(anyhow::anyhow!("agent is locked"));
+        }
+
+        let keys = state_guard.priv_key.as_ref().unwrap().clone();
+        let org_keys = state_guard.org_keys.as_ref().unwrap().clone();
+        (keys, org_keys)
+    };
+
+    let pin = if empty_pin {
+        None
+    } else {
+        Some(rbw::pinentry::getpin(
+            &config.pinentry,
+            "PIN",
+            "Enter PIN for quick unlock",
+            None,
+            environment,
+            true,
+        )
+        .await
+        .context("failed to read PIN from pinentry")?)
+    };
+
+    rbw::pin::flow::register(&keys, &org_keys, pin.as_ref(), &config, backend)?;
+
+    respond_ack(sock).await?;
+
+    Ok(())
 }
 
 pub async fn subscribe_to_notifications(

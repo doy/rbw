@@ -182,6 +182,18 @@ async fn handle_request(
             crate::actions::version(sock).await?;
             false
         }
+        #[cfg(feature = "pin")]
+        rbw::protocol::Action::PinRegister { empty_pin, backend } => {
+            crate::actions::pin_register(
+                sock,
+                state.clone(),
+                *empty_pin,
+                backend.clone(),
+                &environment,
+            )
+            .await?;
+            true
+        }
     };
 
     let mut state = state.lock().await;

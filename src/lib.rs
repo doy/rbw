@@ -15,3 +15,5 @@ mod prelude;
 pub mod protocol;
 pub mod pwgen;
 pub mod wordlist;
+#[cfg(feature = "pin")]
+pub mod pin;
