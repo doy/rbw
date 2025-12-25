@@ -104,7 +104,7 @@ async fn subscribe_to_notifications(
 
     write
         .send(tokio_tungstenite::tungstenite::Message::Text(
-            "{\"protocol\":\"messagepack\",\"version\":1}\x1e".to_string(),
+            "{\"protocol\":\"messagepack\",\"version\":1}\x1e".into(),
         ))
         .await
         .unwrap();

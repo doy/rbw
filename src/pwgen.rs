@@ -1,4 +1,4 @@
-use rand::seq::SliceRandom as _;
+use rand::seq::IteratorRandom as _;
 
 const SYMBOLS: &[u8] = b"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 const NUMBERS: &[u8] = b"0123456789";
@@ -16,7 +16,7 @@ pub enum Type {
 }
 
 pub fn pwgen(ty: Type, len: usize) -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let alphabet = match ty {
         Type::AllChars => {
@@ -49,7 +49,7 @@ pub fn pwgen(ty: Type, len: usize) -> String {
 
     let mut pass = vec![];
     pass.extend(
-        std::iter::repeat_with(|| alphabet.choose(&mut rng).unwrap())
+        std::iter::repeat_with(|| alphabet.iter().choose(&mut rng).unwrap())
             .take(len),
     );
     // unwrap is safe because the method of generating passwords guarantees
@@ -61,7 +61,7 @@ fn diceware(rng: &mut impl rand::RngCore, len: usize) -> String {
     let mut words = vec![];
     for _ in 0..len {
         // unwrap is safe because choose only returns None for an empty slice
-        words.push(*crate::wordlist::EFF_LONG.choose(rng).unwrap());
+        words.push(*crate::wordlist::EFF_LONG.iter().choose(rng).unwrap());
     }
     words.join(" ")
 }

@@ -79,7 +79,7 @@ impl ssh_agent_lib::agent::Session for SshAgent {
                 let rsa_key = rsa::RsaPrivateKey::from_p_q(p, q, e)
                     .map_err(ssh_agent_lib::error::AgentError::other)?;
 
-                let mut rng = rand::rngs::OsRng;
+                let mut rng = rand_8::rngs::OsRng;
 
                 let (algorithm, sig_bytes) = if request.flags
                     & SSH_AGENT_RSA_SHA2_512

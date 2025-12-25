@@ -261,7 +261,7 @@ impl std::fmt::Display for CipherString {
 
 fn random_iv() -> Vec<u8> {
     let mut iv = vec![0_u8; 16];
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rng.fill_bytes(&mut iv);
     iv
 }

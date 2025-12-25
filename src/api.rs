@@ -4,7 +4,7 @@
 
 use crate::prelude::*;
 
-use rand::Rng as _;
+use rand::distr::SampleString as _;
 use sha2::Digest as _;
 use tokio::io::AsyncReadExt as _;
 
@@ -1098,17 +1098,10 @@ impl Client {
         &self,
         sso_id: &str,
     ) -> Result<(String, String, String)> {
-        let state: String = rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect();
-
-        let sso_code_verifier: String = rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect();
+        let state =
+            rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 64);
+        let sso_code_verifier =
+            rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 64);
 
         let mut hasher = sha2::Sha256::new();
         hasher.update(sso_code_verifier.clone());
