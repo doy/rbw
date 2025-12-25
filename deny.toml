@@ -15,6 +15,9 @@ ignore = [
     "RUSTSEC-2023-0071",
     # https://github.com/3Hren/msgpack-rust/pull/366
     "RUSTSEC-2024-0436",
+    # this is only a warning about being unmaintained, the only known
+    # undefined behavior is in a function we don't use
+    "RUSTSEC-2025-0069",
 ]
 
 [bans]
