@@ -511,7 +511,11 @@ impl DecryptedCipher {
                     }
                 }
             },
-            DecryptedData::SshKey { fingerprint, .. } => match field {
+            DecryptedData::SshKey {
+                fingerprint,
+                private_key,
+                ..
+            } => match field {
                 "fingerprint" => {
                     if let Some(fingerprint) = fingerprint {
                         val_display_or_store(clipboard, fingerprint);
@@ -519,6 +523,11 @@ impl DecryptedCipher {
                 }
                 "public_key" => {
                     self.display_short(desc, clipboard);
+                }
+                "private_key" => {
+                    if let Some(private_key) = private_key {
+                        val_display_or_store(clipboard, private_key);
+                    }
                 }
                 "notes" => {
                     if let Some(notes) = &self.notes {
