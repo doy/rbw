@@ -21,7 +21,9 @@ pub fn disable_tracing() -> anyhow::Result<()> {
 pub fn disable_tracing() -> anyhow::Result<()> {
     // safety: correct arguments to ptrace
     // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/ptrace.2.html
-    let ret = unsafe { libc::ptrace(libc::PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0) };
+    let ret = unsafe {
+        libc::ptrace(libc::PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0)
+    };
     if ret != 0 {
         let e = std::io::Error::last_os_error();
         return Err(anyhow::anyhow!(
