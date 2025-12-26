@@ -153,6 +153,21 @@ export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/rbw/ssh-agent-socket"
 If you're using a profile, the socket will be located at
 `"XDG_RUNTIME_DIR/rbw-<profile>/ssh-agent-socket"`.
 
+### 2FA support
+
+`rbw` supports the following 2FA mechanisms :
+
+* Email
+* Authenticator App
+* Yubico OTP security key (https://support.yubico.com/hc/en-us/articles/360013712639-Testing-Yubico-OTP)
+
+WebAuthn / Passkey and Duo security are unsupported 2FA mechanisms.
+
+If you use only unsupported 2FA mechanism, you need to add a supported 2FA
+mechanism on your bitwarden account to use rbw. It allows you to use rbw
+with a supported mechanism, and use other clients with you preferred
+2FA mechanism.
+
 ## Related projects
 
 * [rofi-rbw](https://github.com/fdw/rofi-rbw): A rofi frontend for Bitwarden
