@@ -127,7 +127,7 @@ pub fn unlock<S: std::hash::BuildHasher>(
                 Ok(org_key) => crate::locked::Keys::new(org_key),
                 Err(e) => return Err(e),
             };
-        org_keys.insert(org_id.to_string(), org_key);
+        org_keys.insert(org_id.clone(), org_key);
     }
 
     Ok((key, org_keys))

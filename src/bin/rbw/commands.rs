@@ -305,10 +305,8 @@ impl DecryptedCipher {
                 }
                 "uris" | "urls" | "sites" => {
                     if let Some(uris) = uris {
-                        let uri_strs: Vec<_> = uris
-                            .iter()
-                            .map(|uri| uri.uri.to_string())
-                            .collect();
+                        let uri_strs: Vec<_> =
+                            uris.iter().map(|uri| uri.uri.clone()).collect();
                         val_display_or_store(clipboard, &uri_strs.join("\n"));
                     }
                 }
@@ -595,8 +593,9 @@ impl DecryptedCipher {
                 code,
                 ..
             } => {
-                let mut displayed = self.display_short(desc, clipboard);
+                let mut displayed = false;
 
+                displayed |= self.display_short(desc, clipboard);
                 if let (Some(exp_month), Some(exp_year)) =
                     (exp_month, exp_year)
                 {
@@ -915,7 +914,7 @@ impl std::convert::TryFrom<&String> for ListField {
             "id" => Self::Id,
             "user" => Self::User,
             "folder" => Self::Folder,
-            _ => return Err(anyhow::anyhow!("unknown field {}", s)),
+            _ => return Err(anyhow::anyhow!("unknown field {s}")),
         })
     }
 }
@@ -973,7 +972,7 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
-        _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
+        _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
 
@@ -1002,7 +1001,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
-        _ => return Err(anyhow::anyhow!("invalid config key: {}", key)),
+        _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
 
@@ -1655,9 +1654,7 @@ fn ensure_agent() -> anyhow::Result<()> {
         if agent_version != client_version {
             crate::actions::quit()?;
             return Err(anyhow::anyhow!(
-                "incompatible protocol versions: client ({}), agent ({})",
-                client_version,
-                agent_version
+                "incompatible protocol versions: client ({client_version}), agent ({agent_version})"
             ));
         }
     }
@@ -1676,8 +1673,7 @@ fn ensure_agent_once() -> anyhow::Result<()> {
         if let Some(code) = status.code() {
             if code != 23 {
                 return Err(anyhow::anyhow!(
-                    "failed to run rbw-agent: {}",
-                    status
+                    "failed to run rbw-agent: {status}"
                 ));
             }
         }
@@ -1788,7 +1784,7 @@ fn find_entry_raw(
             .map(|(_, decrypted)| decrypted.display_name())
             .collect();
         let entries = entries.join(", ");
-        Err(anyhow::anyhow!("multiple entries found: {}", entries))
+        Err(anyhow::anyhow!("multiple entries found: {entries}"))
     }
 }
 
@@ -2428,9 +2424,7 @@ fn generate_totp_algorithm_type(
         "SHA256" => Ok(totp_rs::Algorithm::SHA256),
         "SHA512" => Ok(totp_rs::Algorithm::SHA512),
         "STEAM" => Ok(totp_rs::Algorithm::Steam),
-        _ => {
-            Err(anyhow::anyhow!(format!("{} is not a valid algorithm", alg)))
-        }
+        _ => Err(anyhow::anyhow!(format!("{alg} is not a valid algorithm"))),
     }
 }
 
@@ -2450,8 +2444,7 @@ fn generate_totp(secret: &str) -> anyhow::Result<String> {
         "STEAM" => Ok(totp_rs::TOTP::new_steam(totp_params.secret)
             .generate_current()?),
         _ => Err(anyhow::anyhow!(format!(
-            "{} is not a valid totp algorithm",
-            alg
+            "{alg} is not a valid totp algorithm"
         ))),
     }
 }

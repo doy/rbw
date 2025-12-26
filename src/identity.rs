@@ -86,7 +86,7 @@ impl Identity {
         let master_password_hash = crate::locked::PasswordHash::new(hash);
 
         Ok(Self {
-            email: email.to_string(),
+            email: email.clone(),
             keys,
             master_password_hash,
         })

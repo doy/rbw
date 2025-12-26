@@ -1142,7 +1142,7 @@ impl Client {
 
         let sso_code = callback_server.await?;
 
-        Ok((sso_code, sso_code_verifier, callback_url.to_string()))
+        Ok((sso_code, sso_code_verifier, callback_url))
     }
 
     pub async fn sync(
@@ -1225,7 +1225,7 @@ impl Client {
                     Some(
                         uris.iter()
                             .map(|s| CipherLoginUri {
-                                uri: Some(s.uri.to_string()),
+                                uri: Some(s.uri.clone()),
                                 match_type: s.match_type,
                             })
                             .collect(),
@@ -1375,7 +1375,7 @@ impl Client {
                     Some(
                         uris.iter()
                             .map(|s| CipherLoginUri {
-                                uri: Some(s.uri.to_string()),
+                                uri: Some(s.uri.clone()),
                                 match_type: s.match_type,
                             })
                             .collect(),
@@ -1704,7 +1704,7 @@ fn sso_query_code(
         });
     }
 
-    Ok(sso_code.to_string())
+    Ok(sso_code.clone())
 }
 
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {

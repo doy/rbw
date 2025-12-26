@@ -13,7 +13,7 @@ pub fn disable_tracing() -> anyhow::Result<()> {
         Ok(())
     } else {
         let e = std::io::Error::last_os_error();
-        Err(anyhow::anyhow!("failed to disable PTRACE_ATTACH, agent memory may be dumpable by other processes: {}", e))
+        Err(anyhow::anyhow!("failed to disable PTRACE_ATTACH, agent memory may be dumpable by other processes: {e}"))
     }
 }
 
