@@ -1,16 +1,21 @@
 use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 
-// eventually it would be nice to make this a const function so that we could
-// just get the version from a variable directly, but this is fine for now
-pub fn version() -> u32 {
+pub const VERSION: u32 = {
+    const fn unwrap(res: &Result<u32, std::num::ParseIntError>) -> u32 {
+        match res {
+            Ok(t) => *t,
+            Err(_) => panic!("failed to parse cargo version"),
+        }
+    }
+
     let major = env!("CARGO_PKG_VERSION_MAJOR");
     let minor = env!("CARGO_PKG_VERSION_MINOR");
     let patch = env!("CARGO_PKG_VERSION_PATCH");
 
-    major.parse::<u32>().unwrap() * 1_000_000
-        + minor.parse::<u32>().unwrap() * 1_000
-        + patch.parse::<u32>().unwrap()
-}
+    unwrap(&u32::from_str_radix(major, 10)) * 1_000_000
+        + unwrap(&u32::from_str_radix(minor, 10)) * 1_000_000
+        + unwrap(&u32::from_str_radix(patch, 10)) * 1_000_000
+};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Request {

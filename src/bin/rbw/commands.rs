@@ -1956,7 +1956,7 @@ fn ensure_agent() -> anyhow::Result<()> {
     check_config()?;
 
     ensure_agent_once()?;
-    let client_version = rbw::protocol::version();
+    let client_version = rbw::protocol::VERSION;
     let agent_version = version_or_quit()?;
     if agent_version != client_version {
         log::debug!(

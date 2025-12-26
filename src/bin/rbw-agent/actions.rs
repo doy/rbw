@@ -745,7 +745,7 @@ pub async fn clipboard_store(
 
 pub async fn version(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Version {
-        version: rbw::protocol::version(),
+        version: rbw::protocol::VERSION,
     })
     .await?;
 
