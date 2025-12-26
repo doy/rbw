@@ -54,6 +54,7 @@ struct DecryptedListCipher {
     name: Option<String>,
     user: Option<String>,
     folder: Option<String>,
+    uris: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -194,6 +195,7 @@ impl From<DecryptedSearchCipher> for DecryptedListCipher {
             name: Some(value.name),
             user: value.user,
             folder: value.folder,
+            uris: Some(value.uris.into_iter().map(|(s, _)| s).collect()),
         }
     }
 }
@@ -906,11 +908,12 @@ enum ListField {
     Name,
     User,
     Folder,
+    Uri,
 }
 
 impl ListField {
     fn all() -> Vec<Self> {
-        vec![Self::Id, Self::Name, Self::User, Self::Folder]
+        vec![Self::Id, Self::Name, Self::User, Self::Folder, Self::Uri]
     }
 }
 
@@ -1157,6 +1160,14 @@ fn print_entry_list(
                         String::new,
                         std::string::ToString::to_string,
                     ),
+                    ListField::Uri => {
+                        // "uri" is not listed in the TryFrom
+                        // implementation, so there's no way to try to
+                        // print it (and it's not clear what that would
+                        // look like, since it's a list and not a single
+                        // string)
+                        unreachable!()
+                    }
                 })
                 .collect();
 
@@ -1854,12 +1865,32 @@ fn decrypt_list_cipher(
     } else {
         None
     };
+    let uris = if fields.contains(&ListField::Uri) {
+        match &entry.data {
+            rbw::db::EntryData::Login { uris, .. } => Some(
+                uris.iter()
+                    .filter_map(|s| {
+                        decrypt_field(
+                            "uri",
+                            Some(&s.uri),
+                            entry.key.as_deref(),
+                            entry.org_id.as_deref(),
+                        )
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
 
     Ok(DecryptedListCipher {
         id,
         name,
         user,
         folder,
+        uris,
     })
 }
 
