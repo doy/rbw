@@ -1342,7 +1342,9 @@ pub fn unlock() -> anyhow::Result<()> {
 }
 
 pub fn unlocked() -> anyhow::Result<()> {
-    // ensure_agent()?;
+    // not ensure_agent, because we don't want `rbw unlocked` to start the
+    // agent if it's not running
+    let _ = check_agent_version();
     crate::actions::unlocked()?;
 
     Ok(())
@@ -1954,28 +1956,15 @@ pub fn stop_agent() -> anyhow::Result<()> {
 
 fn ensure_agent() -> anyhow::Result<()> {
     check_config()?;
-
-    ensure_agent_once()?;
-    let client_version = rbw::protocol::VERSION;
-    let agent_version = version_or_quit()?;
-    if agent_version != client_version {
-        log::debug!(
-            "client protocol version is {client_version} but agent protocol version is {agent_version}"
-        );
-        crate::actions::quit()?;
-        ensure_agent_once()?;
-        let agent_version = version_or_quit()?;
-        if agent_version != client_version {
-            crate::actions::quit()?;
-            return Err(anyhow::anyhow!(
-                "incompatible protocol versions: client ({client_version}), agent ({agent_version})"
-            ));
-        }
+    if matches!(check_agent_version(), Ok(())) {
+        return Ok(());
     }
+    run_agent()?;
+    check_agent_version()?;
     Ok(())
 }
 
-fn ensure_agent_once() -> anyhow::Result<()> {
+fn run_agent() -> anyhow::Result<()> {
     let agent_path = std::env::var_os("RBW_AGENT");
     let agent_path = agent_path
         .as_deref()
@@ -2001,6 +1990,18 @@ fn check_config() -> anyhow::Result<()> {
         log::error!("{MISSING_CONFIG_HELP}");
         anyhow::Error::new(e)
     })
+}
+
+fn check_agent_version() -> anyhow::Result<()> {
+    let client_version = rbw::protocol::VERSION;
+    let agent_version = version_or_quit()?;
+    if agent_version != client_version {
+        crate::actions::quit()?;
+        return Err(anyhow::anyhow!(
+            "client protocol version is {client_version} but agent protocol version is {agent_version}"
+        ));
+    }
+    Ok(())
 }
 
 fn version_or_quit() -> anyhow::Result<u32> {
