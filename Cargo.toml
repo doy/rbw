@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.82.0"
 
 description = "Unofficial Bitwarden CLI"
-repository = "https://git.tozt.net/rbw"
+repository = "https://github.com/doy/rbw"
 readme = "README.md"
 keywords = ["bitwarden"]
 categories = ["command-line-utilities", "cryptography"]
