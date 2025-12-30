@@ -121,6 +121,9 @@ where
                 data.copy_within(2..nl, 0);
                 len = nl - 2;
                 break;
+            } else if data.starts_with(b"S ") {
+                data.copy_within((nl + 1).., 0);
+                len -= nl + 1;
             } else if data.starts_with(b"ERR ") {
                 let line: Vec<u8> = data.iter().take(nl).copied().collect();
                 let line = String::from_utf8(line).unwrap();
@@ -149,7 +152,9 @@ where
                 }
             } else {
                 return Err(Error::FailedToParsePinentry {
-                    out: String::from_utf8_lossy(data).to_string(),
+                    out: String::from_utf8_lossy(data)
+                        .trim_end_matches('\0')
+                        .to_string(),
                 });
             }
         } else {
