@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.15.0] - 2025-12-31
+
+## Added
+
+* Added support for `rbw get --field=private_key` for ssh key entries (#291).
+* Added support for `rbw list --field=type` (Antoine Carnec, #283).
+* `rbw list --raw` and `rbw search --raw` now also include entry uris (#279).
+
+## Changed
+
+* `rbw search` no longer searches hidden fields (#303).
+* `ptrace` and core dumps are now also disabled on macos (Antoine Carnec,
+  #300).
+* Adjusted metadata to allow installation via `cargo binstall` (GideonBear, #275).
+* More accurate shell completion for the `--field` option (Tin Lai, #287).
+
+## Fixed
+
+* `rbw list` and `rbw search` no longer trigger master password reprompt on
+  entries with hidden fields (#303).
+* `rbw unlocked` now ensures that the agent it is talking to is the correct
+  version, even though it doesn't launch a new one (#276).
+* A few improvements around pinentry protocol error parsing, to make logs
+  more readable.
+
 ## [1.14.1] - 2025-09-01
 
 ## Added
