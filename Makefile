@@ -58,7 +58,7 @@ pkg/$(TGZ_PACKAGE): release completion | pkg
 	@tar czf $@ -C target/x86_64-unknown-linux-musl/release rbw rbw-agent completion
 
 release-dir-deb:
-	@ssh tozt.net mkdir -p releases/rbw/deb
+	@ssh partofme mkdir -p releases/rbw/deb
 .PHONY: release-dir-deb
 
 publish: publish-crates-io publish-git-tags publish-deb publish-github
@@ -76,7 +76,7 @@ publish-git-tags: test
 .PHONY: publish-git-tags
 
 publish-deb: test pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig release-dir-deb
-	@scp pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig tozt.net:releases/rbw/deb
+	@scp pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig partofme:releases/rbw/deb
 .PHONY: publish-deb
 
 publish-github: test pkg/$(TGZ_PACKAGE)
