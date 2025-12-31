@@ -1,0 +1,127 @@
+name: build
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*-ponces.*'
+env:
+  RUST_BACKTRACE: 1
+jobs:
+  build-linux-amd64:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          cargo build --target x86_64-unknown-linux-gnu --all-features --release
+          cd target/x86_64-unknown-linux-gnu/release
+          mkdir -p completion
+          ./rbw gen-completions bash > completion/bash
+          ./rbw gen-completions elvish > completion/elvish
+          ./rbw gen-completions fish > completion/fish
+          ./rbw gen-completions powershell > completion/powershell
+          ./rbw gen-completions zsh > completion/zsh
+          tar -czf rbw_${{ github.ref_name }}_linux_amd64.tar.gz completion rbw rbw-agent
+      - uses: softprops/action-gh-release@v2.2.1
+        with:
+          files: target/x86_64-unknown-linux-gnu/release/rbw_${{ github.ref_name }}_linux_amd64.tar.gz
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          cargo build --target aarch64-unknown-linux-gnu --all-features --release
+          cd target/aarch64-unknown-linux-gnu/release
+          mkdir -p completion
+          ./rbw gen-completions bash > completion/bash
+          ./rbw gen-completions elvish > completion/elvish
+          ./rbw gen-completions fish > completion/fish
+          ./rbw gen-completions powershell > completion/powershell
+          ./rbw gen-completions zsh > completion/zsh
+          tar -czf rbw_${{ github.ref_name }}_linux_arm64.tar.gz completion rbw rbw-agent
+      - uses: softprops/action-gh-release@v2.2.1
+        with:
+          files: target/aarch64-unknown-linux-gnu/release/rbw_${{ github.ref_name }}_linux_arm64.tar.gz
+  build-linux-musl:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - run: sudo apt-get install clang-18
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - run: |
+          TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo build --target x86_64-unknown-linux-musl --all-features --release
+          cd target/x86_64-unknown-linux-musl/release
+          mkdir -p completion
+          ./rbw gen-completions bash > completion/bash
+          ./rbw gen-completions elvish > completion/elvish
+          ./rbw gen-completions fish > completion/fish
+          ./rbw gen-completions powershell > completion/powershell
+          ./rbw gen-completions zsh > completion/zsh
+          tar -czf rbw_${{ github.ref_name }}_linux-musl_amd64.tar.gz completion rbw rbw-agent
+      - uses: softprops/action-gh-release@v2.2.1
+        with:
+          files: target/x86_64-unknown-linux-musl/release/rbw_${{ github.ref_name }}_linux-musl_amd64.tar.gz
+  # build-macos-amd64:
+  #   runs-on: macos-latest-large
+  #   permissions:
+  #     contents: write
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - run: |
+  #         cargo build --target x86_64-apple-darwin --all-features --release
+  #         cd target/x86_64-apple-darwin/release
+  #         mkdir -p completion
+  #         ./rbw gen-completions bash > completion/bash
+  #         ./rbw gen-completions elvish > completion/elvish
+  #         ./rbw gen-completions fish > completion/fish
+  #         ./rbw gen-completions powershell > completion/powershell
+  #         ./rbw gen-completions zsh > completion/zsh
+  #         tar -czf rbw_${{ github.ref_name }}_macOS_amd64.tar.gz completion rbw rbw-agent
+      - uses: softprops/action-gh-release@v2.2.1
+        with:
+          files: target/x86_64-apple-darwin/release/rbw_${{ github.ref_name }}_macOS_amd64.tar.gz
+  build-macos-arm64:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          cargo build --target aarch64-apple-darwin --all-features --release
+          cd target/aarch64-apple-darwin/release
+          mkdir -p completion
+          ./rbw gen-completions bash > completion/bash
+          ./rbw gen-completions elvish > completion/elvish
+          ./rbw gen-completions fish > completion/fish
+          ./rbw gen-completions powershell > completion/powershell
+          ./rbw gen-completions zsh > completion/zsh
+          tar -czf rbw_${{ github.ref_name }}_macOS_arm64.tar.gz completion rbw rbw-agent
+      - uses: softprops/action-gh-release@v2.2.1
+        with:
+          files: target/aarch64-apple-darwin/release/rbw_${{ github.ref_name }}_macOS_arm64.tar.gz
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+          cross build --target aarch64-linux-android --no-default-features --release
+          cd target/aarch64-linux-android/release
+          tar -czf rbw_${{ github.ref_name }}_linux-android_arm64.tar.gz rbw rbw-agent
+      - uses: softprops/action-gh-release@v2.2.1
+        with:
+          files: target/aarch64-linux-android/release/rbw_${{ github.ref_name }}_linux-android_arm64.tar.gz
