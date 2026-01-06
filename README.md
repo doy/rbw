@@ -76,6 +76,7 @@ configuration options:
 
 * `email`: The email address to use as the account name when logging into the
   Bitwarden server. Required.
+* `client_id`: Client ID part of the API key. Defaults to regular login process if unset.
 * `sso_id`: The SSO organization ID. Defaults to regular login process if unset.
 * `base_url`: The URL of the Bitwarden server to use. Defaults to the official
   server at `https://api.bitwarden.com/` if unset.
@@ -104,6 +105,19 @@ between by using the `RBW_PROFILE` environment variable. Setting it to a name
 (for example, `RBW_PROFILE=work` or `RBW_PROFILE=personal`) can be used to
 switch between several different vaults - each will use its own separate
 configuration, local vault, and agent.
+
+### Auth methods
+
+Currently `rbw` supports three login strategies, listed by order of priority:
+1. `apikey`, requires you to provide `client_id` and `client_secret`. Will be enabled
+  when a `client_id` value is set in the config file. `client_secret` can be provided in the
+  config file, `rbw` will prompt for it via pinentry otherwise
+2. `SSO` (Enterprise Single Sign-On). Will be enabled when a `sso_id` value is set in
+  the config file. (Note: due to the current implementation, if your account is secured with 2FA
+  you'll be required to go through the browser flow twice. You'll be prompted for the 2FA code
+  after the first run)
+3. `email&password`, regular auth method, uses the same credentials as Bitwarden's Web Vault.
+  That's most likely what you want to use
 
 ## Usage
 

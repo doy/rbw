@@ -103,18 +103,78 @@ pub async fn login(
             } else {
                 None
             };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                &format!("Log in to {host}"),
-                err.as_deref(),
-                environment,
-                true,
+
+            let client_id = config_client_id().await?;
+            let apikey = if let Some(client_id) = client_id {
+                let client_secret = if let Some(client_secret) =
+                    config_client_secret().await?
+                {
+                    let mut client_secret_vec = rbw::locked::Vec::new();
+                    client_secret_vec.extend(
+                        client_secret.clone().into_bytes().into_iter(),
+                    );
+                    client_secret_vec.truncate(client_secret.len());
+
+                    rbw::locked::Password::new(client_secret_vec)
+                } else {
+                    rbw::pinentry::getpin(
+                        &config_pinentry().await?,
+                        "API key client__secret",
+                        &format!("Log in to {host}"),
+                        err.as_deref(),
+                        environment,
+                        false,
+                    )
+                    .await
+                    .context("failed to read client_secret from pinentry")?
+                };
+
+                let mut client_id_vec = rbw::locked::Vec::new();
+                client_id_vec
+                    .extend(client_id.clone().into_bytes().into_iter());
+                client_id_vec.truncate(client_id.len());
+
+                Some(rbw::locked::ApiKey::new(
+                    rbw::locked::Password::new(client_id_vec),
+                    client_secret,
+                ))
+            } else {
+                None
+            };
+
+            // TODO: this should be done with a proper Option instead of this dummy WA
+            // Currently we just setup a "dummy" password so it works with current identity
+            // implementation
+            // TODO: probably we could run the same check for the SSO login strategy,
+            // as password shouldn't be needed there instantly
+            let password = if apikey.is_none() {
+                rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "Master Password",
+                    &format!("Log in to {host}"),
+                    err.as_deref(),
+                    environment,
+                    true,
+                )
+                .await
+                .context("failed to read password from pinentry")?
+            } else {
+                let temp_password = "dummy".to_string();
+                let mut password_vec = rbw::locked::Vec::new();
+                password_vec
+                    .extend(temp_password.clone().into_bytes().into_iter());
+                password_vec.truncate(temp_password.len());
+                rbw::locked::Password::new(password_vec)
+            };
+
+            match rbw::actions::login(
+                &email,
+                apikey.clone(),
+                password.clone(),
+                None,
+                None,
             )
             .await
-            .context("failed to read password from pinentry")?;
-            match rbw::actions::login(&email, password.clone(), None, None)
-                .await
             {
                 Ok((
                     access_token,
@@ -177,6 +237,7 @@ pub async fn login(
                             ) = two_factor(
                                 environment,
                                 &email,
+                                apikey,
                                 password.clone(),
                                 provider,
                             )
@@ -227,6 +288,7 @@ pub async fn login(
 async fn two_factor(
     environment: &rbw::protocol::Environment,
     email: &str,
+    apikey: Option<rbw::locked::ApiKey>,
     password: rbw::locked::Password,
     provider: rbw::api::TwoFactorProviderType,
 ) -> anyhow::Result<(
@@ -261,6 +323,7 @@ async fn two_factor(
             .context("code was not valid utf8")?;
         match rbw::actions::login(
             email,
+            apikey.clone(),
             password.clone(),
             Some(code),
             Some(provider),
@@ -816,6 +879,16 @@ async fn config_base_url() -> anyhow::Result<String> {
 async fn config_pinentry() -> anyhow::Result<String> {
     let config = rbw::config::Config::load_async().await?;
     Ok(config.pinentry)
+}
+
+async fn config_client_id() -> anyhow::Result<Option<String>> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.client_id)
+}
+
+async fn config_client_secret() -> anyhow::Result<Option<String>> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.client_secret)
 }
 
 pub async fn subscribe_to_notifications(
