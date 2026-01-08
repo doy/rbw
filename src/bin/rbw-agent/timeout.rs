@@ -1,4 +1,6 @@
+use std::time::SystemTime;
 use futures_util::StreamExt as _;
+use tokio::time;
 
 #[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
 enum Streams {
@@ -37,9 +39,28 @@ impl Timeout {
                     (_, Event::Request(Action::Set(dur))) => {
                         stream.insert(
                             Streams::Timer,
-                            futures_util::stream::once(tokio::time::sleep(
-                                dur,
-                            ))
+                            futures_util::stream::once(async move {
+                                // Need to poll the system time here as otherwise,
+                                // e.g. long-sleep with tokio::time::sleep(dur) or polling Instant::elapsed(),
+                                // the timer will not continue to run down while the system is in sleep or hibernate
+                                let start = SystemTime::now();
+                                loop {
+                                    match start.elapsed() {
+                                        Ok(elapsed) => {
+                                            if elapsed >= dur {
+                                                break;
+                                            }
+
+                                            tokio::time::sleep(time::Duration::from_secs(1)).await;
+                                        }
+                                        // Clock went backwards, expire timer immediately just to be cautious
+                                        Err(e) => {
+                                            eprintln!("Backwards time jump by {:.2}s detected, immediately expire timer.", e.duration().as_secs_f32());
+                                            break
+                                        }
+                                    }
+                                }
+                            })
                             .map(|()| Event::Timer)
                             .boxed(),
                         );
