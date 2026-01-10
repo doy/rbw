@@ -353,6 +353,7 @@ fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
         &config.identity_url(),
         &config.ui_url(),
         config.client_cert_path(),
+        config.extra_headers(),
     );
     Ok((client, config))
 }
@@ -365,6 +366,7 @@ async fn api_client_async(
         &config.identity_url(),
         &config.ui_url(),
         config.client_cert_path(),
+        config.extra_headers(),
     );
     Ok((client, config))
 }
