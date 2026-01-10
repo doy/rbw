@@ -1170,6 +1170,7 @@ pub struct Client {
     identity_url: String,
     ui_url: String,
     client_cert_path: Option<std::path::PathBuf>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl Client {
@@ -1178,6 +1179,7 @@ impl Client {
         identity_url: &str,
         ui_url: &str,
         client_cert_path: Option<&std::path::Path>,
+        extra_headers: Vec<(String, String)>,
     ) -> Self {
         Self {
             base_url: base_url.to_string(),
@@ -1185,11 +1187,26 @@ impl Client {
             ui_url: ui_url.to_string(),
             client_cert_path: client_cert_path
                 .map(std::path::Path::to_path_buf),
+            extra_headers,
         }
     }
 
-    fn default_headers() -> axum::http::HeaderMap {
+    fn default_headers(&self) -> Result<axum::http::HeaderMap> {
         let mut default_headers = axum::http::HeaderMap::new();
+        for (key, val) in &self.extra_headers {
+            default_headers.insert(
+                axum::http::HeaderName::try_from(key).map_err(|_| {
+                    Error::InvalidHttpHeaderName {
+                        header_name: key.clone(),
+                    }
+                })?,
+                axum::http::HeaderValue::try_from(val).map_err(|_| {
+                    Error::InvalidHttpHeaderValue {
+                        header_name: key.clone(),
+                    }
+                })?,
+            );
+        }
         default_headers.insert(
             "Bitwarden-Client-Name",
             axum::http::HeaderValue::from_static(BITWARDEN_CLIENT),
@@ -1205,7 +1222,7 @@ impl Client {
             axum::http::HeaderValue::from_str(&DEVICE_TYPE.to_string())
                 .unwrap(),
         );
-        default_headers
+        Ok(default_headers)
     }
 
     fn user_agent() -> String {
@@ -1220,7 +1237,7 @@ impl Client {
     async fn reqwest_client(&self) -> Result<reqwest::Client> {
         let mut builder = reqwest::Client::builder()
             .user_agent(Self::user_agent())
-            .default_headers(Self::default_headers());
+            .default_headers(self.default_headers()?);
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
             let mut f = tokio::fs::File::open(client_cert_path)
@@ -1249,7 +1266,7 @@ impl Client {
     fn blocking_reqwest_client(&self) -> Result<reqwest::blocking::Client> {
         let mut builder = reqwest::blocking::Client::builder()
             .user_agent(Self::user_agent())
-            .default_headers(Self::default_headers());
+            .default_headers(self.default_headers()?);
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let buf = std::fs::read(client_cert_path).map_err(|e| {
                 Error::LoadClientCert {
@@ -2097,7 +2114,7 @@ mod tests {
             stream.write_all(response.as_bytes()).unwrap();
         });
         let url = format!("http://{addr}");
-        Client::new(&url, &url, &url, None)
+        Client::new(&url, &url, &url, None, Vec::new())
     }
 
     #[test]

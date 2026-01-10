@@ -101,6 +101,9 @@ configuration options:
   anything. Defaults to `false`.
 * `client_cert_path`: Path to a PEM file holding a client certificate and its
   private key, for servers that require mutual TLS. Unset by default.
+* `extra_headers`: Additional HTTP headers (in `[['key1', 'value1'], ['key2',
+  'value2']]` form) to send in API calls. Useful if the server is behind a
+  reverse proxy that supports header-based authentication, e.g. Cloudflare.
 
 ### Profiles
 
