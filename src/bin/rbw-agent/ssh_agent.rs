@@ -43,7 +43,11 @@ impl ssh_agent_lib::agent::Session for SshAgent {
                 p.parse::<ssh_agent_lib::ssh_key::PublicKey>()
                     .map(|pk| ssh_agent_lib::proto::Identity {
                         pubkey: pk.key_data().clone(),
-                        comment: String::new(),
+                        comment: p
+                            .splitn(3, ' ')
+                            .nth(2)
+                            .unwrap_or("")
+                            .to_string(),
                     })
                     .map_err(ssh_agent_lib::error::AgentError::other)
             })
