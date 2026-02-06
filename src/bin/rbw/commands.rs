@@ -1948,6 +1948,10 @@ pub fn purge() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn ssh_agent_socket() {
+    println!("{}", rbw::dirs::ssh_agent_socket_file().display());
+}
+
 pub fn stop_agent() -> anyhow::Result<()> {
     crate::actions::quit()?;
 

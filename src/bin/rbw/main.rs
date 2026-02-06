@@ -229,6 +229,12 @@ enum Opt {
     #[command(about = "Remove the local copy of the password database")]
     Purge,
 
+    #[command(
+        name = "ssh-agent-socket",
+        about = "Print the path to the SSH agent socket"
+    )]
+    SshAgentSocket,
+
     #[command(name = "stop-agent", about = "Terminate the background agent")]
     StopAgent,
 
@@ -261,6 +267,7 @@ impl Opt {
             Self::History { .. } => "history".to_string(),
             Self::Lock => "lock".to_string(),
             Self::Purge => "purge".to_string(),
+            Self::SshAgentSocket => "ssh-agent-socket".to_string(),
             Self::StopAgent => "stop-agent".to_string(),
             Self::GenCompletions { .. } => "gen-completions".to_string(),
         }
@@ -448,6 +455,10 @@ fn main() {
             find_args.folder.as_deref(),
             find_args.ignorecase,
         ),
+        Opt::SshAgentSocket => {
+            commands::ssh_agent_socket();
+            Ok(())
+        }
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),
         Opt::StopAgent => commands::stop_agent(),
