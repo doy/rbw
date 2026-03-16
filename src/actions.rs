@@ -18,6 +18,7 @@ pub async fn login(
     password: crate::locked::Password,
     two_factor_token: Option<&str>,
     two_factor_provider: Option<crate::api::TwoFactorProviderType>,
+    device_verification_code: Option<&str>,
 ) -> Result<(
     String,
     String,
@@ -47,6 +48,7 @@ pub async fn login(
             &identity.master_password_hash,
             two_factor_token,
             two_factor_provider,
+            device_verification_code,
         )
         .await?;
 

@@ -235,6 +235,9 @@ pub enum Error {
         sso_email_2fa_session_token: Option<String>,
     },
 
+    #[error("new device verification required")]
+    NewDeviceVerificationRequired,
+
     #[error("unimplemented cipherstring type: {ty}")]
     UnimplementedCipherStringType { ty: String },
 
