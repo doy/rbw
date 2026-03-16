@@ -113,8 +113,14 @@ pub async fn login(
             )
             .await
             .context("failed to read password from pinentry")?;
-            match rbw::actions::login(&email, password.clone(), None, None)
-                .await
+            match rbw::actions::login(
+                &email,
+                password.clone(),
+                None,
+                None,
+                None,
+            )
+            .await
             {
                 Ok((
                     access_token,
@@ -125,6 +131,37 @@ pub async fn login(
                     parallelism,
                     protected_key,
                 )) => {
+                    login_success(
+                        state.clone(),
+                        access_token,
+                        refresh_token,
+                        kdf,
+                        iterations,
+                        memory,
+                        parallelism,
+                        protected_key,
+                        password,
+                        db,
+                        email,
+                    )
+                    .await?;
+                    break 'attempts;
+                }
+                Err(rbw::error::Error::NewDeviceVerificationRequired) => {
+                    let (
+                        access_token,
+                        refresh_token,
+                        kdf,
+                        iterations,
+                        memory,
+                        parallelism,
+                        protected_key,
+                    ) = device_verification(
+                        environment,
+                        &email,
+                        password.clone(),
+                    )
+                    .await?;
                     login_success(
                         state.clone(),
                         access_token,
@@ -264,6 +301,7 @@ async fn two_factor(
             password.clone(),
             Some(code),
             Some(provider),
+            None,
         )
         .await
         {
@@ -298,6 +336,98 @@ async fn two_factor(
             // can get this if the user passes an empty string
             Err(rbw::error::Error::TwoFactorRequired { .. }) => {
                 let message = "TOTP code is not a number".to_string();
+                if i == 3 {
+                    return Err(rbw::error::Error::IncorrectPassword {
+                        message,
+                    })
+                    .context("failed to log in to bitwarden instance");
+                }
+                err_msg = Some(message);
+            }
+            Err(e) => {
+                return Err(e)
+                    .context("failed to log in to bitwarden instance")
+            }
+        }
+    }
+
+    unreachable!()
+}
+
+async fn device_verification(
+    environment: &rbw::protocol::Environment,
+    email: &str,
+    password: rbw::locked::Password,
+) -> anyhow::Result<(
+    String,
+    String,
+    rbw::api::KdfType,
+    u32,
+    Option<u32>,
+    Option<u32>,
+    String,
+)> {
+    let mut err_msg = None;
+    for i in 1_u8..=3 {
+        let err = if i > 1 {
+            // this unwrap is safe because we only ever continue the loop if
+            // we have set err_msg
+            Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+        } else {
+            None
+        };
+        let code = rbw::pinentry::getpin(
+            &config_pinentry().await?,
+            "New Device Verification",
+            "Check your email for a verification code",
+            err.as_deref(),
+            environment,
+            false,
+        )
+        .await
+        .context("failed to read code from pinentry")?;
+        let code = std::str::from_utf8(code.password())
+            .context("code was not valid utf8")?;
+        match rbw::actions::login(
+            email,
+            password.clone(),
+            None,
+            None,
+            Some(code),
+        )
+        .await
+        {
+            Ok((
+                access_token,
+                refresh_token,
+                kdf,
+                iterations,
+                memory,
+                parallelism,
+                protected_key,
+            )) => {
+                return Ok((
+                    access_token,
+                    refresh_token,
+                    kdf,
+                    iterations,
+                    memory,
+                    parallelism,
+                    protected_key,
+                ))
+            }
+            Err(rbw::error::Error::IncorrectPassword { message }) => {
+                if i == 3 {
+                    return Err(rbw::error::Error::IncorrectPassword {
+                        message,
+                    })
+                    .context("failed to log in to bitwarden instance");
+                }
+                err_msg = Some(message);
+            }
+            Err(rbw::error::Error::NewDeviceVerificationRequired) => {
+                let message =
+                    "New device verification code is incorrect".to_string();
                 if i == 3 {
                     return Err(rbw::error::Error::IncorrectPassword {
                         message,

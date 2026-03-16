@@ -305,6 +305,11 @@ struct ConnectTokenReq {
     two_factor_token: Option<String>,
     #[serde(rename = "twoFactorProvider")]
     two_factor_provider: Option<u32>,
+    #[serde(
+        rename = "newDeviceOtp",
+        skip_serializing_if = "Option::is_none"
+    )]
+    device_verification_code: Option<String>,
     #[serde(flatten)]
     auth: ConnectTokenAuth,
 }
@@ -977,6 +982,7 @@ impl Client {
             device_push_token: String::new(),
             two_factor_token: None,
             two_factor_provider: None,
+            device_verification_code: None,
         };
         let client = self.reqwest_client().await?;
         let res = client
@@ -1013,6 +1019,7 @@ impl Client {
         password_hash: &crate::locked::PasswordHash,
         two_factor_token: Option<&str>,
         two_factor_provider: Option<TwoFactorProviderType>,
+        device_verification_code: Option<&str>,
     ) -> Result<(String, String, String)> {
         let connect_req = match sso_id {
             Some(sso_id) => {
@@ -1036,6 +1043,8 @@ impl Client {
                         .map(std::string::ToString::to_string),
                     two_factor_provider: two_factor_provider
                         .map(|ty| ty as u32),
+                    device_verification_code: device_verification_code
+                        .map(std::string::ToString::to_string),
                 }
             }
             None => ConnectTokenReq {
@@ -1054,6 +1063,8 @@ impl Client {
                 two_factor_token: two_factor_token
                     .map(std::string::ToString::to_string),
                 two_factor_provider: two_factor_provider.map(|ty| ty as u32),
+                device_verification_code: device_verification_code
+                    .map(std::string::ToString::to_string),
             },
         };
 
@@ -1779,6 +1790,9 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         },
         "invalid_client" => {
             return Error::IncorrectApiKey;
+        }
+        "device_error" => {
+            return Error::NewDeviceVerificationRequired;
         }
         // bitwarden_rs returns an empty error and error_description for
         // this case, for some reason
