@@ -27,7 +27,7 @@ clap_complete = "4.5.62"
 clap = { version = "4.5.53", features = ["wrap_help", "derive"] }
 clap_complete_nushell = "4.5.10"
 clap_complete_fig = "4.5.2"
-daemonize = "0.5.0"
+daemonix = "0.1.0"
 directories = "6.0.0"
 env_logger = "0.11.8"
 futures = "0.3.31"
