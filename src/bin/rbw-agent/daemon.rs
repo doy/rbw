@@ -47,12 +47,12 @@ pub fn daemonize(no_daemonize: bool) -> anyhow::Result<Option<StartupAck>> {
         .open(rbw::dirs::agent_stderr_file())?;
 
     let (r, w) = rustix::pipe::pipe()?;
-    let daemonize = daemonize::Daemonize::new()
+    let daemonize = daemonix::Daemonize::new()
         .pid_file(rbw::dirs::pid_file())
         .stdout(stdout)
         .stderr(stderr);
     let res = match daemonize.execute() {
-        daemonize::Outcome::Parent(_) => {
+        daemonix::Outcome::Parent(_) => {
             drop(w);
             let mut buf = [0; 1];
             // unwraps are necessary because not really a good way to handle
@@ -61,7 +61,7 @@ pub fn daemonize(no_daemonize: bool) -> anyhow::Result<Option<StartupAck>> {
             drop(r);
             std::process::exit(0);
         }
-        daemonize::Outcome::Child(res) => res,
+        daemonix::Outcome::Child(res) => res,
     };
 
     drop(r);
