@@ -1,4 +1,8 @@
+use std::ffi::OsString;
 use std::io::Write as _;
+
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt as _;
 
 use anyhow::Context as _;
 use clap::{CommandFactory as _, Parser as _};
@@ -115,6 +119,34 @@ enum Opt {
         #[cfg(feature = "clipboard")]
         #[structopt(long, help = "Copy result to clipboard")]
         clipboard: bool,
+    },
+
+    #[command(about = "Inject secrets into a template")]
+    Inject {
+        #[arg(
+            short = 'i',
+            long = "in-file",
+            help = "Read the template from a file"
+        )]
+        input: Option<std::path::PathBuf>,
+        #[arg(
+            short = 'o',
+            long = "out-file",
+            help = "Write the rendered template to a file"
+        )]
+        output: Option<std::path::PathBuf>,
+    },
+
+    #[command(about = "Run a command with injected values")]
+    Run {
+        #[arg(
+            long,
+            default_value = "./.env",
+            help = "Read environment bindings from an env file"
+        )]
+        env_file: std::path::PathBuf,
+        #[arg(last = true, required = true, num_args = 1..)]
+        command: Vec<OsString>,
     },
 
     #[command(
@@ -254,6 +286,8 @@ impl Opt {
             Self::Get { .. } => "get".to_string(),
             Self::Search { .. } => "search".to_string(),
             Self::Code { .. } => "code".to_string(),
+            Self::Inject { .. } => "inject".to_string(),
+            Self::Run { .. } => "run".to_string(),
             Self::Add { .. } => "add".to_string(),
             Self::Generate { .. } => "generate".to_string(),
             Self::Edit { .. } => "edit".to_string(),
@@ -380,6 +414,19 @@ fn main() {
             false,
             find_args.ignorecase,
         ),
+        Opt::Inject { input, output } => {
+            commands::inject(input.as_deref(), output.as_deref())
+        }
+        Opt::Run { env_file, command } => commands::run(&env_file, &command)
+            .map(|status| {
+                if !status.success() {
+                    #[cfg(unix)]
+                    if let Some(signal) = status.signal() {
+                        std::process::exit(128 + signal);
+                    }
+                    std::process::exit(status.code().unwrap_or(1));
+                }
+            }),
         Opt::Add {
             name,
             user,

@@ -4,6 +4,8 @@
 
 ## Added
 
+* Added `rbw inject` and `rbw run` for rendering templates and launching
+  commands with `bw://` secret references (#246).
 * Added support for `rbw get --field=private_key` for ssh key entries (#291).
 * Added support for `rbw list --field=type` (Antoine Carnec, #283).
 * `rbw list --raw` and `rbw search --raw` now also include entry uris (#279).
