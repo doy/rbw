@@ -96,6 +96,9 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `extra_headers`: Additional HTTP headers (in `[['key1', 'value1'], ['key2',
+  'value2']]` form) to send in API calls. Useful if the server is behind a
+  reverse proxy that supports header-based authentication, e.g. Cloudflare.
 
 ### Profiles
 

@@ -822,6 +822,7 @@ pub struct Client {
     identity_url: String,
     ui_url: String,
     client_cert_path: Option<std::path::PathBuf>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl Client {
@@ -830,6 +831,7 @@ impl Client {
         identity_url: &str,
         ui_url: &str,
         client_cert_path: Option<&std::path::Path>,
+        extra_headers: Vec<(String, String)>,
     ) -> Self {
         Self {
             base_url: base_url.to_string(),
@@ -837,11 +839,26 @@ impl Client {
             ui_url: ui_url.to_string(),
             client_cert_path: client_cert_path
                 .map(std::path::Path::to_path_buf),
+            extra_headers,
         }
     }
 
     async fn reqwest_client(&self) -> Result<reqwest::Client> {
         let mut default_headers = axum::http::HeaderMap::new();
+        for (key, val) in &self.extra_headers {
+            default_headers.insert(
+                axum::http::HeaderName::try_from(key).map_err(|_| {
+                    Error::InvalidHttpHeaderName {
+                        header_name: key.clone(),
+                    }
+                })?,
+                axum::http::HeaderValue::try_from(val).map_err(|_| {
+                    Error::InvalidHttpHeaderValue {
+                        header_name: key.clone(),
+                    }
+                })?,
+            );
+        }
         default_headers.insert(
             "Bitwarden-Client-Name",
             axum::http::HeaderValue::from_static(BITWARDEN_CLIENT),

@@ -83,6 +83,16 @@ pub enum Error {
         editor: std::ffi::OsString,
     },
 
+    #[error("invalid http header name {header_name:?}")]
+    InvalidHttpHeaderName { header_name: String },
+
+    #[error("invalid http header value for header {header_name:?}")]
+    InvalidHttpHeaderValue {
+        /// `header_name` is the header **name** rather than the value (even
+        /// though the name might be valid), as the value might contain secrets.
+        header_name: String,
+    },
+
     #[error("invalid mac")]
     InvalidMac,
 

@@ -22,6 +22,7 @@ pub struct Config {
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
+    pub extra_headers: Option<Vec<(String, String)>>,
 }
 
 impl Default for Config {
@@ -38,6 +39,7 @@ impl Default for Config {
             pinentry: default_pinentry(),
             client_cert_path: None,
             device_id: None,
+            extra_headers: None,
         }
     }
 }
@@ -213,6 +215,10 @@ impl Config {
         self.base_url
             .clone()
             .unwrap_or_else(|| "default".to_string())
+    }
+
+    pub fn extra_headers(&self) -> Vec<(String, String)> {
+        self.extra_headers.as_deref().unwrap_or_default().to_vec()
     }
 }
 
