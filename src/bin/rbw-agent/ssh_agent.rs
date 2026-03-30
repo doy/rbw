@@ -57,6 +57,20 @@ impl ssh_agent_lib::agent::Session for SshAgent {
         ssh_agent_lib::ssh_key::Signature,
         ssh_agent_lib::error::AgentError,
     > {
+        // Security keys (FIDO2) require physical hardware interaction that
+        // this agent cannot perform. Decline early so the SSH client can
+        // fall back to another agent or direct hardware access.
+        if matches!(
+            &request.pubkey,
+            ssh_agent_lib::ssh_key::public::KeyData::SkEcdsaSha2NistP256(_)
+                | ssh_agent_lib::ssh_key::public::KeyData::SkEd25519(_)
+        ) {
+            return Err(ssh_agent_lib::error::AgentError::Other(
+                "security keys require hardware interaction; declining"
+                    .into(),
+            ));
+        }
+
         let pubkey =
             ssh_agent_lib::ssh_key::PublicKey::new(request.pubkey, "");
 
