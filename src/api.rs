@@ -812,6 +812,7 @@ struct FoldersPostReq {
 // Used for the Bitwarden-Client-Name header. Accepted values:
 // https://github.com/bitwarden/server/blob/main/src/Core/Enums/BitwardenClient.cs
 const BITWARDEN_CLIENT: &str = "cli";
+const BITWARDEN_CLIENT_VERSION: &str = "2024.12.0";
 
 // DeviceType.LinuxDesktop, as per Bitwarden API device types.
 const DEVICE_TYPE: u8 = 8;
@@ -848,7 +849,7 @@ impl Client {
         );
         default_headers.insert(
             "Bitwarden-Client-Version",
-            axum::http::HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+            axum::http::HeaderValue::from_static(BITWARDEN_CLIENT_VERSION),
         );
         default_headers.append(
             "Device-Type",
@@ -1159,7 +1160,7 @@ impl Client {
             .get(self.api_url("/sync"))
             .header("Authorization", format!("Bearer {access_token}"))
             // This is necessary for vaultwarden to include the ssh keys in the response
-            .header("Bitwarden-Client-Version", "2024.12.0")
+            .header("Bitwarden-Client-Version", BITWARDEN_CLIENT_VERSION)
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
@@ -1453,6 +1454,7 @@ impl Client {
         let res = client
             .put(self.api_url(&format!("/ciphers/{id}")))
             .header("Authorization", format!("Bearer {access_token}"))
+            .header("Bitwarden-Client-Version", BITWARDEN_CLIENT_VERSION)
             .json(&req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
