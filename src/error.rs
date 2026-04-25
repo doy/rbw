@@ -232,6 +232,10 @@ pub enum Error {
     #[error("two factor required")]
     TwoFactorRequired {
         providers: Vec<crate::api::TwoFactorProviderType>,
+        providers_data: std::collections::HashMap<
+            crate::api::TwoFactorProviderType,
+            Option<crate::api::PublicKeyCredentialRequestOptions>,
+        >,
         sso_email_2fa_session_token: Option<String>,
     },
 

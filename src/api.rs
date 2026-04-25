@@ -6,7 +6,14 @@ use crate::prelude::*;
 
 use rand::distr::SampleString as _;
 use sha2::Digest as _;
+use std::collections::HashMap;
 use tokio::io::AsyncReadExt as _;
+#[cfg(feature = "webauthn")]
+pub use webauthn_rs_proto::PublicKeyCredentialRequestOptions;
+
+#[cfg(not(feature = "webauthn"))]
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct PublicKeyCredentialRequestOptions {}
 
 use crate::json::{
     DeserializeJsonWithPath as _, DeserializeJsonWithPathAsync as _,
@@ -47,7 +54,7 @@ impl std::fmt::Display for UriMatchType {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TwoFactorProviderType {
     Authenticator = 0,
     Email = 1,
@@ -65,6 +72,7 @@ impl TwoFactorProviderType {
             Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
             Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
+            Self::WebAuthn => "Enter your security key PIN.",
             _ => "Enter the code."
         }
     }
@@ -74,6 +82,7 @@ impl TwoFactorProviderType {
             Self::Authenticator => "Authenticator App",
             Self::Yubikey => "Yubikey",
             Self::Email => "Email Code",
+            Self::WebAuthn => "Security Key PIN",
             _ => "Two Factor Authentication",
         }
     }
@@ -349,6 +358,15 @@ struct ConnectErrorRes {
     error_model: Option<ConnectErrorResErrorModel>,
     #[serde(rename = "TwoFactorProviders", alias = "twoFactorProviders")]
     two_factor_providers: Option<Vec<TwoFactorProviderType>>,
+    // TwoFactorProviders2 is the only place the WebAuthn challenge is
+    // delivered; for non-WebAuthn methods the value is `null` and we just
+    // ignore it. Deserialized independently of `two_factor_providers` so
+    // a server that only emits the legacy array (or a malformed challenge
+    // shape) still drives the TOTP/Yubikey/Email paths correctly.
+    #[serde(default, rename = "TwoFactorProviders2", alias = "twoFactorProviders2")]
+    two_factor_providers_data: Option<
+        HashMap<TwoFactorProviderType, Option<PublicKeyCredentialRequestOptions>>,
+    >,
     #[serde(
         rename = "SsoEmail2faSessionToken",
         alias = "ssoEmail2faSessionToken"
@@ -1724,6 +1742,10 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                 {
                     return Error::TwoFactorRequired {
                         providers: providers.clone(),
+                        providers_data: error_res
+                            .two_factor_providers_data
+                            .clone()
+                            .unwrap_or_default(),
                         sso_email_2fa_session_token: error_res
                             .sso_email_2fa_session_token
                             .clone(),
