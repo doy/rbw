@@ -1269,6 +1269,7 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
+        "confirm_ssh" => config.confirm_ssh = Some(value == "true"),
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1298,6 +1299,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        "confirm_ssh" => config.confirm_ssh = rbw::config::default_confirm_ssh(),
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;

@@ -18,6 +18,7 @@ pub struct Config {
     pub sync_interval: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
+    pub confirm_ssh: Option<bool>,
     pub client_cert_path: Option<std::path::PathBuf>,
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
@@ -36,6 +37,7 @@ impl Default for Config {
             lock_timeout: default_lock_timeout(),
             sync_interval: default_sync_interval(),
             pinentry: default_pinentry(),
+            confirm_ssh: None,
             client_cert_path: None,
             device_id: None,
         }
@@ -52,6 +54,10 @@ pub fn default_sync_interval() -> u64 {
 
 pub fn default_pinentry() -> String {
     "pinentry".to_string()
+}
+
+pub fn default_confirm_ssh() -> Option<bool> {
+    None
 }
 
 impl Config {

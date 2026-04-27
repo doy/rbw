@@ -2,16 +2,13 @@ use crate::prelude::*;
 
 use std::convert::TryFrom as _;
 
-use tokio::io::AsyncWriteExt as _;
+use tokio::{io::AsyncWriteExt as _, process::Child};
 
-pub async fn getpin(
+fn spawn_pinentry(
     pinentry: &str,
-    prompt: &str,
-    desc: &str,
-    err: Option<&str>,
     environment: &crate::protocol::Environment,
     grab: bool,
-) -> Result<crate::locked::Password> {
+) -> Result<Child> {
     let mut opts = tokio::process::Command::new(pinentry);
     opts.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped());
@@ -42,9 +39,22 @@ pub async fn getpin(
     }
     opts.envs(env_vars);
 
-    let mut child = opts.spawn().map_err(|source| Error::Spawn { source })?;
+    let child = opts.spawn().map_err(|source| Error::Spawn { source })?;
     // unwrap is safe because we specified stdin as piped in the command opts
     // above
+
+    Ok(child)
+}
+
+pub async fn getpin(
+    pinentry: &str,
+    prompt: &str,
+    desc: &str,
+    err: Option<&str>,
+    environment: &crate::protocol::Environment,
+    grab: bool,
+) -> Result<crate::locked::Password> {
+    let mut child = spawn_pinentry(pinentry, environment, grab)?;
     let mut stdin = child.stdin.take().unwrap();
 
     let mut ncommands = 1;
@@ -95,6 +105,45 @@ pub async fn getpin(
         .map_err(|source| Error::PinentryWait { source })?;
 
     Ok(crate::locked::Password::new(buf))
+}
+
+pub async fn confirm(
+    pinentry: &str,
+    desc: &str,
+    environment: &crate::protocol::Environment,
+    grab: bool,
+) -> Result<bool> {
+    let mut child = spawn_pinentry(pinentry, environment, grab)?;
+    let mut stdin = child.stdin.take().unwrap();
+
+    let mut ncommands = 1;
+    stdin
+        .write_all(b"SETTITLE rbw\n")
+        .await
+        .map_err(|source| Error::WriteStdin { source })?;
+    ncommands += 1;
+    stdin
+        .write_all(format!("SETDESC {desc}\n").as_bytes())
+        .await
+        .map_err(|source| Error::WriteStdin { source })?;
+    ncommands += 1;
+    stdin
+        .write_all(b"CONFIRM\n")
+        .await
+        .map_err(|source| Error::WriteStdin { source })?;
+    ncommands += 1;
+    drop(stdin);
+
+    let mut buf = [0u8; 64];
+    read_password(ncommands, &mut buf, child.stdout.as_mut().unwrap())
+        .await?;
+
+    child
+        .wait()
+        .await
+        .map_err(|source| Error::PinentryWait { source })?;
+
+    Ok(true)
 }
 
 async fn read_password<R>(

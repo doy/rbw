@@ -3,6 +3,16 @@ use signature::{RandomizedSigner as _, SignatureEncoding as _, Signer as _};
 const SSH_AGENT_RSA_SHA2_256: u32 = 2;
 const SSH_AGENT_RSA_SHA2_512: u32 = 4;
 
+async fn config_pinentry() -> anyhow::Result<String> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.pinentry)
+}
+
+async fn config_confirm_ssh() -> anyhow::Result<bool> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.confirm_ssh.is_some_and(|o| o == true))
+}
+
 #[derive(Clone)]
 pub struct SshAgent {
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
@@ -66,6 +76,29 @@ impl ssh_agent_lib::agent::Session for SshAgent {
                 .map_err(|e| {
                     ssh_agent_lib::error::AgentError::Other(e.into())
                 })?;
+
+        if config_confirm_ssh().await.map_err(|_| {
+            ssh_agent_lib::error::AgentError::Other(
+                "Unable to load configuration".into(),
+            )
+        })? {
+            let confirmed = rbw::pinentry::confirm(
+                &config_pinentry()
+                    .await
+                    .map_err(|_| ssh_agent_lib::error::AgentError::Failure)?,
+                "Allow SSH key use?",
+                &self.state.lock().await.last_environment,
+                true,
+            )
+            .await
+            .map_err(|_| ssh_agent_lib::error::AgentError::Failure)?;
+
+            if !confirmed {
+                return Err(ssh_agent_lib::error::AgentError::Other(
+                    "User did not confirm".into(),
+                ));
+            }
+        }
 
         match private_key.key_data() {
             ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(key) => key

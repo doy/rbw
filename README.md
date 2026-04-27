@@ -96,6 +96,8 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `confirm_ssh`: If set to `true` will ask for confirmation for SSH signature
+requests. If unset defaults to not asking.
 
 ### Profiles
 
