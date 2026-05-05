@@ -170,7 +170,9 @@ impl Environment {
 pub enum Action {
     Login,
     Register,
-    Unlock,
+    Unlock {
+        password: Option<String>,
+    },
     CheckLock,
     Lock,
     Sync,

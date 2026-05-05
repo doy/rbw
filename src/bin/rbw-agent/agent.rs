@@ -118,7 +118,7 @@ async fn handle_request(
         }
     };
     let (action, environment) = req.into_parts();
-    let set_timeout = match &action {
+    let set_timeout = match action {
         rbw::protocol::Action::Register => {
             crate::actions::register(sock, &environment).await?;
             true
@@ -127,8 +127,25 @@ async fn handle_request(
             crate::actions::login(sock, state.clone(), &environment).await?;
             true
         }
-        rbw::protocol::Action::Unlock => {
-            crate::actions::unlock(sock, state.clone(), &environment).await?;
+        rbw::protocol::Action::Unlock { mut password } => {
+            // Copy the password into locked memory, then zeroize
+            // the original String
+            let locked_password = password.as_deref().map(|p| {
+                let mut v = rbw::locked::Vec::new();
+                v.extend(p.as_bytes().iter().copied());
+                rbw::locked::Password::new(v)
+            });
+            if let Some(ref mut p) = password {
+                zeroize::Zeroize::zeroize(p);
+            }
+
+            crate::actions::unlock(
+                sock,
+                state.clone(),
+                &environment,
+                locked_password.as_ref(),
+            )
+            .await?;
             true
         }
         rbw::protocol::Action::CheckLock => {
@@ -148,9 +165,6 @@ async fn handle_request(
             entry_key,
             org_id,
         } => {
-            let cipherstring = cipherstring.clone();
-            let entry_key = entry_key.clone();
-            let org_id = org_id.clone();
             crate::actions::decrypt(
                 sock,
                 state.clone(),
@@ -166,14 +180,14 @@ async fn handle_request(
             crate::actions::encrypt(
                 sock,
                 state.clone(),
-                plaintext,
+                &plaintext,
                 org_id.as_deref(),
             )
             .await?;
             true
         }
         rbw::protocol::Action::ClipboardStore { text } => {
-            crate::actions::clipboard_store(sock, state.clone(), text)
+            crate::actions::clipboard_store(sock, state.clone(), &text)
                 .await?;
             true
         }

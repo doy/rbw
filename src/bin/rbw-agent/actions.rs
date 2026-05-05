@@ -374,6 +374,7 @@ async fn login_success(
 async fn unlock_state(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     environment: &rbw::protocol::Environment,
+    password: Option<&rbw::locked::Password>,
 ) -> anyhow::Result<()> {
     if state.lock().await.needs_unlock() {
         let db = load_db().await?;
@@ -403,6 +404,26 @@ async fn unlock_state(
         };
 
         let email = config_email().await?;
+
+        if let Some(password) = password {
+            // Password was passed through stdin
+            match rbw::actions::unlock(
+                &email,
+                &password,
+                kdf,
+                iterations,
+                memory,
+                parallelism,
+                &protected_key,
+                &protected_private_key,
+                &db.protected_org_keys,
+            ) {
+                Ok((keys, org_keys)) => {
+                    return unlock_success(state, keys, org_keys).await
+                }
+                Err(e) => return Err(e).context("failed to unlock database"),
+            }
+        }
 
         let mut err_msg = None;
         for i in 1_u8..=3 {
@@ -462,8 +483,9 @@ pub async fn unlock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     environment: &rbw::protocol::Environment,
+    password: Option<&rbw::locked::Password>,
 ) -> anyhow::Result<()> {
-    unlock_state(state, environment).await?;
+    unlock_state(state, environment, password).await?;
 
     respond_ack(sock).await?;
 
@@ -858,7 +880,7 @@ pub async fn get_ssh_public_keys(
         state.set_timeout();
         state.last_environment().clone()
     };
-    unlock_state(state.clone(), &environment).await?;
+    unlock_state(state.clone(), &environment, None).await?;
 
     let db = load_db().await?;
     let mut pubkeys = Vec::new();
@@ -894,7 +916,7 @@ pub async fn find_ssh_private_key(
         state.set_timeout();
         state.last_environment().clone()
     };
-    unlock_state(state.clone(), &environment).await?;
+    unlock_state(state.clone(), &environment, None).await?;
 
     let request_bytes = request_public_key.to_bytes();
 

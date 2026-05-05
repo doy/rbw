@@ -10,8 +10,8 @@ pub fn login() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Login)
 }
 
-pub fn unlock() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Unlock)
+pub fn unlock(password: Option<String>) -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::Unlock { password })
 }
 
 pub fn unlocked() -> anyhow::Result<()> {
