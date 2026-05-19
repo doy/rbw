@@ -96,6 +96,9 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `client_cert_path`: Path to a PEM-encoded client certificate file to use for
+  mutual TLS (mTLS) authentication with the Bitwarden server. If unset, no
+  client certificate is used.
 
 ### Profiles
 
