@@ -94,6 +94,8 @@ configuration options:
   discarded when the agent exits. Defaults to `false`.
 * `touch_id_ssh`: On macOS, ask for Touch ID before the SSH agent signs
   anything. Defaults to `false`.
+* `client_cert_path`: Path to a PEM file holding a client certificate and its
+  private key, for servers that require mutual TLS. Unset by default.
 
 ### Profiles
 
