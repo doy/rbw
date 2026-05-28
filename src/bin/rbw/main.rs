@@ -75,6 +75,12 @@ enum Opt {
         find_args: FindArgs,
         #[arg(short, long, help = "Field to get")]
         field: Option<String>,
+        #[arg(long, help = "Attachment filename or id to download")]
+        attachment: Option<String>,
+        #[arg(long, help = "Entry id for `rbw get attachment <name>`")]
+        itemid: Option<String>,
+        #[arg(short, long, help = "Write attachment to this path")]
+        output: Option<String>,
         #[arg(long, help = "Display the notes in addition to the password")]
         full: bool,
         #[structopt(long, help = "Display output as JSON")]
@@ -341,6 +347,9 @@ fn main() {
         Opt::Get {
             find_args,
             field,
+            attachment,
+            itemid,
+            output,
             full,
             raw,
             #[cfg(feature = "clipboard")]
@@ -351,6 +360,9 @@ fn main() {
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             field.as_deref(),
+            attachment.as_deref(),
+            itemid.as_deref(),
+            output.as_deref(),
             full,
             raw,
             #[cfg(feature = "clipboard")]

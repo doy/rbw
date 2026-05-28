@@ -422,6 +422,8 @@ struct SyncResCipher {
     password_history: Option<Vec<SyncResPasswordHistory>>,
     #[serde(rename = "Fields", alias = "fields")]
     fields: Option<Vec<CipherField>>,
+    #[serde(rename = "Attachments", alias = "attachments")]
+    attachments: Option<Vec<SyncResAttachment>>,
     #[serde(rename = "DeletedDate", alias = "deletedDate")]
     deleted_date: Option<String>,
     #[serde(rename = "Key", alias = "key")]
@@ -539,6 +541,22 @@ impl SyncResCipher {
                 })
                 .collect()
         });
+        let attachments =
+            self.attachments
+                .as_ref()
+                .map_or_else(Vec::new, |attachments| {
+                    attachments
+                        .iter()
+                        .map(|attachment| crate::db::Attachment {
+                            id: attachment.id.clone(),
+                            file_name: attachment.file_name.clone(),
+                            key: attachment.key.clone(),
+                            url: attachment.url.clone(),
+                            size: attachment.size.clone(),
+                            size_name: attachment.size_name.clone(),
+                        })
+                        .collect()
+                });
         Some(crate::db::Entry {
             id: self.id.clone(),
             org_id: self.organization_id.clone(),
@@ -550,6 +568,7 @@ impl SyncResCipher {
             notes: self.notes.clone(),
             history,
             key: self.key.clone(),
+            attachments,
             master_password_reprompt: self.reprompt,
         })
     }
@@ -732,6 +751,28 @@ struct CipherField {
     value: Option<String>,
     #[serde(rename = "LinkedId", alias = "linkedId")]
     linked_id: Option<LinkedIdType>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct SyncResAttachment {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
+    #[serde(rename = "FileName", alias = "fileName")]
+    file_name: Option<String>,
+    #[serde(rename = "Key", alias = "key")]
+    key: Option<String>,
+    #[serde(rename = "Url", alias = "url")]
+    url: Option<String>,
+    #[serde(rename = "Size", alias = "size")]
+    size: Option<String>,
+    #[serde(rename = "SizeName", alias = "sizeName")]
+    size_name: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct AttachmentResponse {
+    #[serde(rename = "Url", alias = "url")]
+    pub url: Option<String>,
 }
 
 // this is just a name and some notes, both of which are already on the cipher
@@ -1485,6 +1526,53 @@ impl Client {
         }
     }
 
+    pub fn get_attachment_data(
+        &self,
+        access_token: &str,
+        cipher_id: &str,
+        attachment_id: &str,
+    ) -> Result<AttachmentResponse> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(self.api_url(&format!(
+                "/ciphers/{cipher_id}/attachment/{attachment_id}"
+            )))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let attachment_res: AttachmentResponse =
+                    res.json_with_path()?;
+                Ok(attachment_res)
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn download_file(&self, url: &str) -> Result<Vec<u8>> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(url)
+            .header(reqwest::header::CACHE_CONTROL, "no-cache")
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(res
+                .bytes()
+                .map_err(|source| Error::Reqwest { source })?
+                .to_vec()),
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
     pub fn folders(
         &self,
         access_token: &str,
@@ -1738,23 +1826,19 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
-        "" => {
+        "" if error_desc.is_none() || error_desc == Some("") => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_desc.is_none() || error_desc == Some("") {
-                if let Some(error_model) = error_res.error_model.as_ref() {
-                    let message = error_model.message.as_str().to_string();
-                    match message.as_str() {
-                        "Username or password is incorrect. Try again"
-                        | "TOTP code is not a number" => {
+            if let Some(error_model) = error_res.error_model.as_ref() {
+                let message = error_model.message.as_str().to_string();
+                match message.as_str() {
+                    "Username or password is incorrect. Try again"
+                    | "TOTP code is not a number" => {
+                        return Error::IncorrectPassword { message };
+                    }
+                    s => {
+                        if s.starts_with("Invalid TOTP code! Server time: ") {
                             return Error::IncorrectPassword { message };
-                        }
-                        s => {
-                            if s.starts_with(
-                                "Invalid TOTP code! Server time: ",
-                            ) {
-                                return Error::IncorrectPassword { message };
-                            }
                         }
                     }
                 }
