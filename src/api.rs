@@ -750,9 +750,11 @@ struct SyncResPasswordHistory {
 #[derive(serde::Serialize, Debug)]
 struct CiphersPostReq {
     #[serde(rename = "type")]
-    ty: u32, // XXX what are the valid types?
+    ty: u32,
     #[serde(rename = "folderId")]
     folder_id: Option<String>,
+    #[serde(rename = "organizationId")]
+    organization_id: Option<String>,
     name: String,
     notes: Option<String>,
     login: Option<CipherLogin>,
@@ -760,12 +762,17 @@ struct CiphersPostReq {
     identity: Option<CipherIdentity>,
     #[serde(rename = "secureNote")]
     secure_note: Option<CipherSecureNote>,
+    #[serde(rename = "sshKey")]
+    ssh_key: Option<CipherSshKey>,
+    fields: Vec<CipherField>,
+    #[serde(rename = "passwordHistory")]
+    password_history: Vec<CiphersPutReqHistory>,
 }
 
 #[derive(serde::Serialize, Debug)]
 struct CiphersPutReq {
     #[serde(rename = "type")]
-    ty: u32, // XXX what are the valid types?
+    ty: u32,
     #[serde(rename = "folderId")]
     folder_id: Option<String>,
     #[serde(rename = "organizationId")]
@@ -778,8 +785,12 @@ struct CiphersPutReq {
     fields: Vec<CipherField>,
     #[serde(rename = "secureNote")]
     secure_note: Option<CipherSecureNote>,
+    #[serde(rename = "sshKey")]
+    ssh_key: Option<CipherSshKey>,
     #[serde(rename = "passwordHistory")]
     password_history: Vec<CiphersPutReqHistory>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -1197,147 +1208,23 @@ impl Client {
     pub fn add(
         &self,
         access_token: &str,
-        name: &str,
-        data: &crate::db::EntryData,
-        notes: Option<&str>,
-        folder_id: Option<&str>,
-    ) -> Result<()> {
-        let mut req = CiphersPostReq {
-            ty: 1,
-            folder_id: folder_id.map(std::string::ToString::to_string),
-            name: name.to_string(),
-            notes: notes.map(std::string::ToString::to_string),
-            login: None,
-            card: None,
-            identity: None,
-            secure_note: None,
-        };
-        match data {
-            crate::db::EntryData::Login {
-                username,
-                password,
-                totp,
-                uris,
-            } => {
-                let uris = if uris.is_empty() {
-                    None
-                } else {
-                    Some(
-                        uris.iter()
-                            .map(|s| CipherLoginUri {
-                                uri: Some(s.uri.clone()),
-                                match_type: s.match_type,
-                            })
-                            .collect(),
-                    )
-                };
-                req.login = Some(CipherLogin {
-                    username: username.clone(),
-                    password: password.clone(),
-                    totp: totp.clone(),
-                    uris,
-                });
-            }
-            crate::db::EntryData::Card {
-                cardholder_name,
-                number,
-                brand,
-                exp_month,
-                exp_year,
-                code,
-            } => {
-                req.card = Some(CipherCard {
-                    cardholder_name: cardholder_name.clone(),
-                    number: number.clone(),
-                    brand: brand.clone(),
-                    exp_month: exp_month.clone(),
-                    exp_year: exp_year.clone(),
-                    code: code.clone(),
-                });
-            }
-            crate::db::EntryData::Identity {
-                title,
-                first_name,
-                middle_name,
-                last_name,
-                address1,
-                address2,
-                address3,
-                city,
-                state,
-                postal_code,
-                country,
-                phone,
-                email,
-                ssn,
-                license_number,
-                passport_number,
-                username,
-            } => {
-                req.identity = Some(CipherIdentity {
-                    title: title.clone(),
-                    first_name: first_name.clone(),
-                    middle_name: middle_name.clone(),
-                    last_name: last_name.clone(),
-                    address1: address1.clone(),
-                    address2: address2.clone(),
-                    address3: address3.clone(),
-                    city: city.clone(),
-                    state: state.clone(),
-                    postal_code: postal_code.clone(),
-                    country: country.clone(),
-                    phone: phone.clone(),
-                    email: email.clone(),
-                    ssn: ssn.clone(),
-                    license_number: license_number.clone(),
-                    passport_number: passport_number.clone(),
-                    username: username.clone(),
-                });
-            }
-            crate::db::EntryData::SecureNote => {
-                req.secure_note = Some(CipherSecureNote {});
-            }
-            crate::db::EntryData::SshKey { .. } => unreachable!(),
-        }
-        let client = reqwest::blocking::Client::new();
-        let res = client
-            .post(self.api_url("/ciphers"))
-            .header("Authorization", format!("Bearer {access_token}"))
-            .json(&req)
-            .send()
-            .map_err(|source| Error::Reqwest { source })?;
-        match res.status() {
-            reqwest::StatusCode::OK => Ok(()),
-            reqwest::StatusCode::UNAUTHORIZED => {
-                Err(Error::RequestUnauthorized)
-            }
-            _ => Err(Error::RequestFailed {
-                status: res.status().as_u16(),
-            }),
-        }
-    }
-
-    pub fn edit(
-        &self,
-        access_token: &str,
-        id: &str,
         org_id: Option<&str>,
         name: &str,
         data: &crate::db::EntryData,
         fields: &[crate::db::Field],
         notes: Option<&str>,
-        folder_uuid: Option<&str>,
+        folder_id: Option<&str>,
         history: &[crate::db::HistoryEntry],
     ) -> Result<()> {
-        let mut req = CiphersPutReq {
+        let mut req = CiphersPostReq {
             ty: match data {
                 crate::db::EntryData::Login { .. } => 1,
                 crate::db::EntryData::SecureNote => 2,
                 crate::db::EntryData::Card { .. } => 3,
                 crate::db::EntryData::Identity { .. } => 4,
-                crate::db::EntryData::SshKey { .. } => unreachable!(),
+                crate::db::EntryData::SshKey { .. } => 5,
             },
-            folder_id: folder_uuid.map(std::string::ToString::to_string),
+            folder_id: folder_id.map(std::string::ToString::to_string),
             organization_id: org_id.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
@@ -1345,6 +1232,7 @@ impl Client {
             card: None,
             identity: None,
             secure_note: None,
+            ssh_key: None,
             fields: fields
                 .iter()
                 .map(|field| CipherField {
@@ -1447,7 +1335,181 @@ impl Client {
             crate::db::EntryData::SecureNote => {
                 req.secure_note = Some(CipherSecureNote {});
             }
-            crate::db::EntryData::SshKey { .. } => unreachable!(),
+            crate::db::EntryData::SshKey {
+                private_key,
+                public_key,
+                fingerprint,
+            } => {
+                req.ssh_key = Some(CipherSshKey {
+                    private_key: private_key.clone(),
+                    public_key: public_key.clone(),
+                    fingerprint: fingerprint.clone(),
+                });
+            }
+        }
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(self.api_url("/ciphers"))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(&req)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn edit(
+        &self,
+        access_token: &str,
+        id: &str,
+        org_id: Option<&str>,
+        name: &str,
+        data: &crate::db::EntryData,
+        fields: &[crate::db::Field],
+        notes: Option<&str>,
+        folder_uuid: Option<&str>,
+        history: &[crate::db::HistoryEntry],
+        key: Option<&str>,
+    ) -> Result<()> {
+        let mut req = CiphersPutReq {
+            ty: match data {
+                crate::db::EntryData::Login { .. } => 1,
+                crate::db::EntryData::SecureNote => 2,
+                crate::db::EntryData::Card { .. } => 3,
+                crate::db::EntryData::Identity { .. } => 4,
+                crate::db::EntryData::SshKey { .. } => 5,
+            },
+            folder_id: folder_uuid.map(std::string::ToString::to_string),
+            organization_id: org_id.map(std::string::ToString::to_string),
+            name: name.to_string(),
+            notes: notes.map(std::string::ToString::to_string),
+            login: None,
+            card: None,
+            identity: None,
+            secure_note: None,
+            ssh_key: None,
+            fields: fields
+                .iter()
+                .map(|field| CipherField {
+                    ty: field.ty,
+                    name: field.name.clone(),
+                    value: field.value.clone(),
+                    linked_id: field.linked_id,
+                })
+                .collect(),
+            password_history: history
+                .iter()
+                .map(|entry| CiphersPutReqHistory {
+                    last_used_date: entry.last_used_date.clone(),
+                    password: entry.password.clone(),
+                })
+                .collect(),
+            key: key.map(std::string::ToString::to_string),
+        };
+        match data {
+            crate::db::EntryData::Login {
+                username,
+                password,
+                totp,
+                uris,
+            } => {
+                let uris = if uris.is_empty() {
+                    None
+                } else {
+                    Some(
+                        uris.iter()
+                            .map(|s| CipherLoginUri {
+                                uri: Some(s.uri.clone()),
+                                match_type: s.match_type,
+                            })
+                            .collect(),
+                    )
+                };
+                req.login = Some(CipherLogin {
+                    username: username.clone(),
+                    password: password.clone(),
+                    totp: totp.clone(),
+                    uris,
+                });
+            }
+            crate::db::EntryData::Card {
+                cardholder_name,
+                number,
+                brand,
+                exp_month,
+                exp_year,
+                code,
+            } => {
+                req.card = Some(CipherCard {
+                    cardholder_name: cardholder_name.clone(),
+                    number: number.clone(),
+                    brand: brand.clone(),
+                    exp_month: exp_month.clone(),
+                    exp_year: exp_year.clone(),
+                    code: code.clone(),
+                });
+            }
+            crate::db::EntryData::Identity {
+                title,
+                first_name,
+                middle_name,
+                last_name,
+                address1,
+                address2,
+                address3,
+                city,
+                state,
+                postal_code,
+                country,
+                phone,
+                email,
+                ssn,
+                license_number,
+                passport_number,
+                username,
+            } => {
+                req.identity = Some(CipherIdentity {
+                    title: title.clone(),
+                    first_name: first_name.clone(),
+                    middle_name: middle_name.clone(),
+                    last_name: last_name.clone(),
+                    address1: address1.clone(),
+                    address2: address2.clone(),
+                    address3: address3.clone(),
+                    city: city.clone(),
+                    state: state.clone(),
+                    postal_code: postal_code.clone(),
+                    country: country.clone(),
+                    phone: phone.clone(),
+                    email: email.clone(),
+                    ssn: ssn.clone(),
+                    license_number: license_number.clone(),
+                    passport_number: passport_number.clone(),
+                    username: username.clone(),
+                });
+            }
+            crate::db::EntryData::SecureNote => {
+                req.secure_note = Some(CipherSecureNote {});
+            }
+            crate::db::EntryData::SshKey {
+                private_key,
+                public_key,
+                fingerprint,
+            } => {
+                req.ssh_key = Some(CipherSshKey {
+                    private_key: private_key.clone(),
+                    public_key: public_key.clone(),
+                    fingerprint: fingerprint.clone(),
+                });
+            }
         }
         let client = reqwest::blocking::Client::new();
         let res = client
@@ -1738,23 +1800,19 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
-        "" => {
+        "" if error_desc.is_none() || error_desc == Some("") => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_desc.is_none() || error_desc == Some("") {
-                if let Some(error_model) = error_res.error_model.as_ref() {
-                    let message = error_model.message.as_str().to_string();
-                    match message.as_str() {
-                        "Username or password is incorrect. Try again"
-                        | "TOTP code is not a number" => {
+            if let Some(error_model) = error_res.error_model.as_ref() {
+                let message = error_model.message.as_str().to_string();
+                match message.as_str() {
+                    "Username or password is incorrect. Try again"
+                    | "TOTP code is not a number" => {
+                        return Error::IncorrectPassword { message };
+                    }
+                    s => {
+                        if s.starts_with("Invalid TOTP code! Server time: ") {
                             return Error::IncorrectPassword { message };
-                        }
-                        s => {
-                            if s.starts_with(
-                                "Invalid TOTP code! Server time: ",
-                            ) {
-                                return Error::IncorrectPassword { message };
-                            }
                         }
                     }
                 }

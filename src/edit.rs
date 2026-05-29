@@ -4,7 +4,12 @@ use std::io::{Read as _, Write as _};
 
 use is_terminal::IsTerminal as _;
 
-pub fn edit(contents: &str, help: &str) -> Result<String> {
+pub fn edit(
+    contents: &str,
+    help: &str,
+    filename: &str,
+    extra_files: &[(&str, &str)],
+) -> Result<String> {
     if !std::io::stdin().is_terminal() {
         // directly read from piped content
         return match std::io::read_to_string(std::io::stdin()) {
@@ -20,11 +25,17 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
     });
 
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("rbw");
+    let file = dir.path().join(filename);
     let mut fh = std::fs::File::create(&file).unwrap();
     fh.write_all(contents.as_bytes()).unwrap();
     fh.write_all(help.as_bytes()).unwrap();
     drop(fh);
+
+    for (name, data) in extra_files {
+        let path = dir.path().join(name);
+        let mut fh = std::fs::File::create(&path).unwrap();
+        fh.write_all(data.as_bytes()).unwrap();
+    }
 
     let (cmd, args) = if contains_shell_metacharacters(&editor) {
         let mut cmdline = std::ffi::OsString::new();

@@ -77,8 +77,14 @@ enum Opt {
         field: Option<String>,
         #[arg(long, help = "Display the notes in addition to the password")]
         full: bool,
-        #[structopt(long, help = "Display output as JSON")]
+        #[arg(
+            long,
+            conflicts_with = "yaml",
+            help = "Display output as JSON"
+        )]
         raw: bool,
+        #[arg(long, help = "Display output as YAML")]
+        yaml: bool,
         #[cfg(feature = "clipboard")]
         #[structopt(short, long, help = "Copy result to clipboard")]
         clipboard: bool,
@@ -127,8 +133,10 @@ enum Opt {
             remainder will be saved as a note."
     )]
     Add {
-        #[arg(help = "Name of the password entry")]
-        name: String,
+        #[arg(
+            help = "Name of the password entry (optional if using --raw or --yaml)"
+        )]
+        name: Option<String>,
         #[arg(help = "Username for the password entry")]
         user: Option<String>,
         #[arg(
@@ -139,6 +147,14 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(
+            long,
+            conflicts_with = "yaml",
+            help = "Add entry from JSON raw input"
+        )]
+        raw: bool,
+        #[arg(long, help = "Add entry from YAML raw input")]
+        yaml: bool,
     },
 
     #[command(
@@ -209,6 +225,14 @@ enum Opt {
     Edit {
         #[command(flatten)]
         find_args: FindArgs,
+        #[arg(
+            long,
+            conflicts_with = "yaml",
+            help = "Edit entry as JSON raw"
+        )]
+        raw: bool,
+        #[arg(long, help = "Edit entry as YAML")]
+        yaml: bool,
     },
 
     #[command(about = "Remove a given entry", visible_alias = "rm")]
@@ -343,6 +367,7 @@ fn main() {
             field,
             full,
             raw,
+            yaml,
             #[cfg(feature = "clipboard")]
             clipboard,
             list_fields,
@@ -353,6 +378,7 @@ fn main() {
             field.as_deref(),
             full,
             raw,
+            yaml,
             #[cfg(feature = "clipboard")]
             clipboard,
             #[cfg(not(feature = "clipboard"))]
@@ -385,8 +411,10 @@ fn main() {
             user,
             uri,
             folder,
+            raw,
+            yaml,
         } => commands::add(
-            &name,
+            name.as_deref(),
             user.as_deref(),
             &uri.iter()
                 // XXX not sure what the ui for specifying the match type
@@ -394,6 +422,8 @@ fn main() {
                 .map(|uri| (uri.clone(), None))
                 .collect::<Vec<_>>(),
             folder.as_deref(),
+            raw,
+            yaml,
         ),
         Opt::Generate {
             len,
@@ -430,11 +460,17 @@ fn main() {
                 ty,
             )
         }
-        Opt::Edit { find_args } => commands::edit(
+        Opt::Edit {
+            find_args,
+            raw,
+            yaml,
+        } => commands::edit(
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             find_args.ignorecase,
+            raw,
+            yaml,
         ),
         Opt::Remove { find_args } => commands::remove(
             find_args.needle,

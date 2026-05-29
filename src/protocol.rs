@@ -181,6 +181,8 @@ pub enum Action {
     },
     Encrypt {
         plaintext: String,
+        #[serde(default)]
+        entry_key: Option<String>,
         org_id: Option<String>,
     },
     ClipboardStore {
