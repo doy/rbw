@@ -130,6 +130,12 @@ flag will show the output as JSON. In addition to matching against the name,
 you can pass a UUID as the name to search for the entry with that id, or a
 URL to search for an entry with a matching website entry.
 
+Entries with attachments show an `Attachments` section in `rbw get --full`.
+Run `rbw get <name> --attachment <filename>` to download an attachment to
+stdout, or add `--output <path>` to write it to a file. `rbw get attachment
+<filename> --itemid <name-or-id>` is also supported for compatibility with the
+official Bitwarden CLI form.
+
 *Note to users of the official Bitwarden server (at bitwarden.com)*: The
 official server has a tendency to detect command line traffic as bot traffic
 (see [this issue](https://github.com/bitwarden/cli/issues/383) for details). In
