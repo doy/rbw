@@ -688,6 +688,38 @@ pub async fn decrypt(
     Ok(())
 }
 
+pub async fn decrypt_batch(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    entries: &[rbw::protocol::DecryptRequest],
+) -> anyhow::Result<()> {
+    let mut results = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let result = decrypt_cipher(
+            state.clone(),
+            environment,
+            &entry.cipherstring,
+            entry.entry_key.as_deref(),
+            entry.org_id.as_deref(),
+        )
+        .await;
+        results.push(match result {
+            Ok(plaintext) => {
+                rbw::protocol::DecryptResult::Success { plaintext }
+            }
+            Err(e) => rbw::protocol::DecryptResult::Failure {
+                error: format!("{e:#}"),
+            },
+        });
+    }
+
+    sock.send(&rbw::protocol::Response::DecryptBatch { results })
+        .await?;
+
+    Ok(())
+}
+
 pub async fn encrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,

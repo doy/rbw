@@ -179,6 +179,9 @@ pub enum Action {
         entry_key: Option<String>,
         org_id: Option<String>,
     },
+    DecryptBatch {
+        entries: Vec<DecryptRequest>,
+    },
     Encrypt {
         plaintext: String,
         org_id: Option<String>,
@@ -196,6 +199,28 @@ pub enum Response {
     Ack,
     Error { error: String },
     Decrypt { plaintext: String },
+    DecryptBatch { results: Vec<DecryptResult> },
     Encrypt { cipherstring: String },
     Version { version: u32 },
+}
+
+// A single cipherstring to decrypt as part of an `Action::DecryptBatch`. Each
+// entry carries its own keys so that fields encrypted with different keys
+// (e.g. organization items vs. local folders) can be batched together.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct DecryptRequest {
+    pub cipherstring: String,
+    pub entry_key: Option<String>,
+    pub org_id: Option<String>,
+}
+
+// The result of decrypting a single `DecryptRequest`. Failures are reported
+// per entry rather than failing the whole batch, so the caller can decide
+// whether a given field is fatal (e.g. an entry name) or skippable (e.g. an
+// optional login field).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+pub enum DecryptResult {
+    Success { plaintext: String },
+    Failure { error: String },
 }

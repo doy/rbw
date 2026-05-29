@@ -1371,10 +1371,27 @@ pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
-    let mut entries: Vec<DecryptedListCipher> = db
+
+    // Gather every cipherstring that needs decrypting across all entries, then
+    // decrypt them in a single batch request to the agent. This avoids a
+    // separate socket round-trip per field per entry, which dominates the
+    // runtime of `list` on large vaults.
+    let mut requests = BatchRequests::new();
+    let plans: Vec<ListCipherPlan> = db
         .entries
         .iter()
-        .map(|entry| decrypt_list_cipher(entry, &fields))
+        .map(|entry| ListCipherPlan::build(entry, &fields, &mut requests))
+        .collect();
+
+    let results = if requests.is_empty() {
+        Vec::new()
+    } else {
+        crate::actions::decrypt_batch(requests.into_vec())?
+    };
+
+    let mut entries: Vec<DecryptedListCipher> = plans
+        .into_iter()
+        .map(|plan| plan.resolve(&results))
         .collect::<anyhow::Result<_>>()?;
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
@@ -1500,10 +1517,24 @@ pub fn search(
 
     let db = load_db()?;
 
-    let mut entries: Vec<DecryptedListCipher> = db
+    // As in `list`, decrypt every entry's searchable fields in a single batch
+    // request rather than one socket round-trip per field per entry.
+    let mut requests = BatchRequests::new();
+    let plans: Vec<SearchCipherPlan> = db
         .entries
         .iter()
-        .map(decrypt_search_cipher)
+        .map(|entry| SearchCipherPlan::build(entry, &mut requests))
+        .collect();
+
+    let results = if requests.is_empty() {
+        Vec::new()
+    } else {
+        crate::actions::decrypt_batch(requests.into_vec())?
+    };
+
+    let mut entries: Vec<DecryptedListCipher> = plans
+        .into_iter()
+        .map(|plan| plan.resolve(&results))
         .filter(|entry| {
             entry
                 .as_ref()
@@ -2026,11 +2057,23 @@ fn find_entry(
         needle = Needle::Name(s);
     }
 
+    let mut requests = BatchRequests::new();
+    let plans: Vec<SearchCipherPlan> = db
+        .entries
+        .iter()
+        .map(|entry| SearchCipherPlan::build(entry, &mut requests))
+        .collect();
+    let results = if requests.is_empty() {
+        Vec::new()
+    } else {
+        crate::actions::decrypt_batch(requests.into_vec())?
+    };
     let ciphers: Vec<(rbw::db::Entry, DecryptedSearchCipher)> = db
         .entries
         .iter()
-        .map(|entry| {
-            decrypt_search_cipher(entry)
+        .zip(plans)
+        .map(|(entry, plan)| {
+            plan.resolve(&results)
                 .map(|decrypted| (entry.clone(), decrypted))
         })
         .collect::<anyhow::Result<_>>()?;
@@ -2122,179 +2165,345 @@ fn decrypt_field(
     }
 }
 
-fn decrypt_list_cipher(
-    entry: &rbw::db::Entry,
-    fields: &[ListField],
-) -> anyhow::Result<DecryptedListCipher> {
-    let id = entry.id.clone();
-    let name = if fields.contains(&ListField::Name) {
-        Some(crate::actions::decrypt(
-            &entry.name,
-            entry.key.as_deref(),
-            entry.org_id.as_deref(),
-        )?)
-    } else {
-        None
-    };
-    let user = if fields.contains(&ListField::User) {
-        match &entry.data {
-            rbw::db::EntryData::Login { username, .. } => decrypt_field(
-                Field::Username,
-                username.as_deref(),
-                entry.key.as_deref(),
-                entry.org_id.as_deref(),
-            ),
-            _ => None,
-        }
-    } else {
-        None
-    };
-    let folder = if fields.contains(&ListField::Folder) {
-        // folder name should always be decrypted with the local key because
-        // folders are local to a specific user's vault, not the organization
-        entry
-            .folder
-            .as_ref()
-            .map(|folder| crate::actions::decrypt(folder, None, None))
-            .transpose()?
-    } else {
-        None
-    };
-    let uris = if fields.contains(&ListField::Uri) {
-        match &entry.data {
-            rbw::db::EntryData::Login { uris, .. } => Some(
-                uris.iter()
-                    .filter_map(|s| {
-                        decrypt_field(
-                            Field::Uris,
-                            Some(&s.uri),
-                            entry.key.as_deref(),
-                            entry.org_id.as_deref(),
-                        )
-                    })
-                    .collect(),
-            ),
-            _ => None,
-        }
-    } else {
-        None
-    };
-    let entry_type = fields
-        .contains(&ListField::EntryType)
-        .then_some(match &entry.data {
-            rbw::db::EntryData::Login { .. } => "Login",
-            rbw::db::EntryData::Identity { .. } => "Identity",
-            rbw::db::EntryData::SshKey { .. } => "SSH Key",
-            rbw::db::EntryData::SecureNote => "Note",
-            rbw::db::EntryData::Card { .. } => "Card",
-        })
-        .map(str::to_string);
+// Accumulates the cipherstrings to be decrypted in a single `decrypt_batch`
+// call. `push` returns the index at which the corresponding plaintext will
+// appear in the results vector, which the cipher plans record and later
+// resolve.
+struct BatchRequests(Vec<rbw::protocol::DecryptRequest>);
 
-    Ok(DecryptedListCipher {
-        id,
-        name,
-        user,
-        folder,
-        uris,
-        entry_type,
-    })
+impl BatchRequests {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn push(
+        &mut self,
+        cipherstring: &str,
+        entry_key: Option<&str>,
+        org_id: Option<&str>,
+    ) -> usize {
+        let index = self.0.len();
+        self.0.push(rbw::protocol::DecryptRequest {
+            cipherstring: cipherstring.to_string(),
+            entry_key: entry_key.map(std::string::ToString::to_string),
+            org_id: org_id.map(std::string::ToString::to_string),
+        });
+        index
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn into_vec(self) -> Vec<rbw::protocol::DecryptRequest> {
+        self.0
+    }
 }
 
-fn decrypt_search_cipher(
-    entry: &rbw::db::Entry,
-) -> anyhow::Result<DecryptedSearchCipher> {
-    let id = entry.id.clone();
-    let name = crate::actions::decrypt(
-        &entry.name,
-        entry.key.as_deref(),
-        entry.org_id.as_deref(),
-    )?;
-    let user = match &entry.data {
-        rbw::db::EntryData::Login { username, .. } => decrypt_field(
-            Field::Username,
-            username.as_deref(),
-            entry.key.as_deref(),
-            entry.org_id.as_deref(),
-        ),
-        _ => None,
-    };
-    // folder name should always be decrypted with the local key because
-    // folders are local to a specific user's vault, not the organization
-    let folder = entry
-        .folder
-        .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None, None))
-        .transpose()?;
-    let notes = entry
-        .notes
-        .as_ref()
-        .map(|notes| {
-            crate::actions::decrypt(
-                notes,
-                entry.key.as_deref(),
-                entry.org_id.as_deref(),
-            )
-        })
-        .transpose();
-    let uris = if let rbw::db::EntryData::Login { uris, .. } = &entry.data {
-        uris.iter()
-            .filter_map(|s| {
-                decrypt_field(
-                    Field::Uris,
-                    Some(&s.uri),
-                    entry.key.as_deref(),
-                    entry.org_id.as_deref(),
-                )
-                .map(|uri| (uri, s.match_type))
-            })
-            .collect()
-    } else {
-        vec![]
-    };
-    let fields = entry
-        .fields
-        .iter()
-        .filter_map(|field| {
-            if field.ty == Some(rbw::api::FieldType::Hidden) {
-                None
-            } else {
-                field.value.as_ref()
-            }
-        })
-        .map(|value| {
-            crate::actions::decrypt(
-                value,
-                entry.key.as_deref(),
-                entry.org_id.as_deref(),
-            )
-        })
-        .collect::<anyhow::Result<_>>()?;
-    let notes = match notes {
-        Ok(notes) => notes,
-        Err(e) => {
-            log::warn!("failed to decrypt notes: {e}");
-            None
-        }
-    };
-    let entry_type = (match &entry.data {
+fn entry_type_name(data: &rbw::db::EntryData) -> &'static str {
+    match data {
         rbw::db::EntryData::Login { .. } => "Login",
         rbw::db::EntryData::Identity { .. } => "Identity",
         rbw::db::EntryData::SshKey { .. } => "SSH Key",
         rbw::db::EntryData::SecureNote => "Note",
         rbw::db::EntryData::Card { .. } => "Card",
-    })
-    .to_string();
+    }
+}
 
-    Ok(DecryptedSearchCipher {
-        id,
-        entry_type,
-        folder,
-        name,
-        user,
-        uris,
-        fields,
-        notes,
-    })
+// A plan describing which batch-decrypt results make up a single list entry.
+// The `usize` fields are indices into the flat results vector returned by
+// `decrypt_batch`; `entry_type` needs no decryption so it is resolved up front.
+struct ListCipherPlan {
+    id: String,
+    name: Option<usize>,
+    user: Option<usize>,
+    folder: Option<usize>,
+    uris: Option<Vec<usize>>,
+    entry_type: Option<String>,
+}
+
+impl ListCipherPlan {
+    fn build(
+        entry: &rbw::db::Entry,
+        fields: &[ListField],
+        requests: &mut BatchRequests,
+    ) -> Self {
+        let name = fields.contains(&ListField::Name).then(|| {
+            requests.push(
+                &entry.name,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        });
+
+        let user = if fields.contains(&ListField::User) {
+            match &entry.data {
+                rbw::db::EntryData::Login {
+                    username: Some(username),
+                    ..
+                } => Some(requests.push(
+                    username,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let folder = if fields.contains(&ListField::Folder) {
+            // folder name should always be decrypted with the local key
+            // because folders are local to a specific user's vault, not the
+            // organization
+            entry
+                .folder
+                .as_ref()
+                .map(|folder| requests.push(folder, None, None))
+        } else {
+            None
+        };
+
+        let uris = if fields.contains(&ListField::Uri) {
+            match &entry.data {
+                rbw::db::EntryData::Login { uris, .. } => Some(
+                    uris.iter()
+                        .map(|s| {
+                            requests.push(
+                                &s.uri,
+                                entry.key.as_deref(),
+                                entry.org_id.as_deref(),
+                            )
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let entry_type = fields
+            .contains(&ListField::EntryType)
+            .then(|| entry_type_name(&entry.data).to_string());
+
+        Self {
+            id: entry.id.clone(),
+            name,
+            user,
+            folder,
+            uris,
+            entry_type,
+        }
+    }
+
+    fn resolve(
+        self,
+        results: &[rbw::protocol::DecryptResult],
+    ) -> anyhow::Result<DecryptedListCipher> {
+        // entry name and folder are required, so a decryption failure is fatal
+        let name = self
+            .name
+            .map(|index| strict_result(&results[index]))
+            .transpose()?;
+        let folder = self
+            .folder
+            .map(|index| strict_result(&results[index]))
+            .transpose()?;
+        // optional login fields are skipped (with a warning) on failure, to
+        // match the previous best-effort behavior of `decrypt_field`
+        let user = self.user.and_then(|index| {
+            lenient_result(&results[index], Field::Username)
+        });
+        let uris = self.uris.map(|indices| {
+            indices
+                .iter()
+                .filter_map(|&index| {
+                    lenient_result(&results[index], Field::Uris)
+                })
+                .collect()
+        });
+
+        Ok(DecryptedListCipher {
+            id: self.id,
+            name,
+            user,
+            folder,
+            uris,
+            entry_type: self.entry_type,
+        })
+    }
+}
+
+fn strict_result(
+    result: &rbw::protocol::DecryptResult,
+) -> anyhow::Result<String> {
+    match result {
+        rbw::protocol::DecryptResult::Success { plaintext } => {
+            Ok(plaintext.clone())
+        }
+        rbw::protocol::DecryptResult::Failure { error } => {
+            Err(anyhow::anyhow!("{error}"))
+        }
+    }
+}
+
+fn lenient_result(
+    result: &rbw::protocol::DecryptResult,
+    name: Field,
+) -> Option<String> {
+    match result {
+        rbw::protocol::DecryptResult::Success { plaintext } => {
+            Some(plaintext.clone())
+        }
+        rbw::protocol::DecryptResult::Failure { error } => {
+            log::warn!("failed to decrypt {name}: {error}");
+            None
+        }
+    }
+}
+
+// A plan describing which batch-decrypt results make up a single search entry.
+// Like `ListCipherPlan`, the `usize` fields index into the flat results vector
+// returned by `decrypt_batch`. Search decrypts more per entry than list (notes
+// and the custom field values), because those are searchable too.
+struct SearchCipherPlan {
+    id: String,
+    entry_type: String,
+    name: usize,
+    user: Option<usize>,
+    folder: Option<usize>,
+    notes: Option<usize>,
+    uris: Vec<(usize, Option<rbw::api::UriMatchType>)>,
+    fields: Vec<usize>,
+}
+
+impl SearchCipherPlan {
+    fn build(entry: &rbw::db::Entry, requests: &mut BatchRequests) -> Self {
+        let name = requests.push(
+            &entry.name,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        );
+
+        let user = match &entry.data {
+            rbw::db::EntryData::Login {
+                username: Some(username),
+                ..
+            } => Some(requests.push(
+                username,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )),
+            _ => None,
+        };
+
+        // folder name should always be decrypted with the local key because
+        // folders are local to a specific user's vault, not the organization
+        let folder = entry
+            .folder
+            .as_ref()
+            .map(|folder| requests.push(folder, None, None));
+
+        let notes = entry.notes.as_ref().map(|notes| {
+            requests.push(
+                notes,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        });
+
+        let uris = match &entry.data {
+            rbw::db::EntryData::Login { uris, .. } => uris
+                .iter()
+                .map(|s| {
+                    (
+                        requests.push(
+                            &s.uri,
+                            entry.key.as_deref(),
+                            entry.org_id.as_deref(),
+                        ),
+                        s.match_type,
+                    )
+                })
+                .collect(),
+            _ => vec![],
+        };
+
+        let fields = entry
+            .fields
+            .iter()
+            .filter_map(|field| {
+                if field.ty == Some(rbw::api::FieldType::Hidden) {
+                    None
+                } else {
+                    field.value.as_ref()
+                }
+            })
+            .map(|value| {
+                requests.push(
+                    value,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )
+            })
+            .collect();
+
+        Self {
+            id: entry.id.clone(),
+            entry_type: entry_type_name(&entry.data).to_string(),
+            name,
+            user,
+            folder,
+            notes,
+            uris,
+            fields,
+        }
+    }
+
+    fn resolve(
+        self,
+        results: &[rbw::protocol::DecryptResult],
+    ) -> anyhow::Result<DecryptedSearchCipher> {
+        // name, folder, and the (non-hidden) custom fields were previously
+        // decrypted with `?`, so their failures stay fatal; user, uris, and
+        // notes were best-effort and are skipped (with a warning) on failure
+        let name = strict_result(&results[self.name])?;
+        let folder = self
+            .folder
+            .map(|index| strict_result(&results[index]))
+            .transpose()?;
+        let fields = self
+            .fields
+            .iter()
+            .map(|&index| strict_result(&results[index]))
+            .collect::<anyhow::Result<_>>()?;
+        let user = self.user.and_then(|index| {
+            lenient_result(&results[index], Field::Username)
+        });
+        let notes = self
+            .notes
+            .and_then(|index| lenient_result(&results[index], Field::Notes));
+        let uris = self
+            .uris
+            .into_iter()
+            .filter_map(|(index, match_type)| {
+                lenient_result(&results[index], Field::Uris)
+                    .map(|uri| (uri, match_type))
+            })
+            .collect();
+
+        Ok(DecryptedSearchCipher {
+            id: self.id,
+            entry_type: self.entry_type,
+            folder,
+            name,
+            user,
+            uris,
+            fields,
+            notes,
+        })
+    }
 }
 
 fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {

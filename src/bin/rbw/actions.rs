@@ -105,6 +105,25 @@ pub fn decrypt(
     }
 }
 
+pub fn decrypt_batch(
+    requests: Vec<rbw::protocol::DecryptRequest>,
+) -> anyhow::Result<Vec<rbw::protocol::DecryptResult>> {
+    let mut sock = connect()?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::DecryptBatch { entries: requests },
+    ))?;
+
+    let res = sock.recv()?;
+    match res {
+        rbw::protocol::Response::DecryptBatch { results } => Ok(results),
+        rbw::protocol::Response::Error { error } => {
+            Err(anyhow::anyhow!("failed to decrypt: {error}"))
+        }
+        _ => Err(anyhow::anyhow!("unexpected message: {res:?}")),
+    }
+}
+
 pub fn encrypt(
     plaintext: &str,
     org_id: Option<&str>,

@@ -162,6 +162,16 @@ async fn handle_request(
             .await?;
             true
         }
+        rbw::protocol::Action::DecryptBatch { entries } => {
+            crate::actions::decrypt_batch(
+                sock,
+                state.clone(),
+                &environment,
+                entries,
+            )
+            .await?;
+            true
+        }
         rbw::protocol::Action::Encrypt { plaintext, org_id } => {
             crate::actions::encrypt(
                 sock,
