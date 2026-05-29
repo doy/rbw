@@ -262,6 +262,31 @@ fn remove_once(access_token: &str, id: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn get_attachment_data(
+    access_token: &str,
+    refresh_token: &str,
+    cipher_id: &str,
+    attachment_id: &str,
+) -> Result<(Option<String>, crate::api::AttachmentResponse)> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        get_attachment_data_once(access_token, cipher_id, attachment_id)
+    })
+}
+
+fn get_attachment_data_once(
+    access_token: &str,
+    cipher_id: &str,
+    attachment_id: &str,
+) -> Result<crate::api::AttachmentResponse> {
+    let (client, _) = api_client()?;
+    client.get_attachment_data(access_token, cipher_id, attachment_id)
+}
+
+pub fn download_file(url: &str) -> Result<Vec<u8>> {
+    let (client, _) = api_client()?;
+    client.download_file(url)
+}
+
 pub fn list_folders(
     access_token: &str,
     refresh_token: &str,

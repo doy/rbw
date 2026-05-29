@@ -555,6 +555,24 @@ async fn decrypt_cipher(
     entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
+    let plaintext = decrypt_cipher_bytes(
+        state,
+        environment,
+        cipherstring,
+        entry_key,
+        org_id,
+    )
+    .await?;
+    String::from_utf8(plaintext).context("failed to parse decrypted secret")
+}
+
+async fn decrypt_cipher_bytes(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<Vec<u8>> {
     let mut state = state.lock().await;
     if !state.master_password_reprompt_initialized() {
         let db = load_db().await?;
@@ -662,14 +680,9 @@ async fn decrypt_cipher(
 
     let cipherstring = rbw::cipherstring::CipherString::new(cipherstring)
         .context("failed to parse encrypted secret")?;
-    let plaintext = String::from_utf8(
-        cipherstring
-            .decrypt_symmetric(keys, entry_key.as_ref())
-            .context("failed to decrypt encrypted secret")?,
-    )
-    .context("failed to parse decrypted secret")?;
-
-    Ok(plaintext)
+    cipherstring
+        .decrypt_symmetric(keys, entry_key.as_ref())
+        .context("failed to decrypt encrypted secret")
 }
 
 pub async fn decrypt(
@@ -684,6 +697,27 @@ pub async fn decrypt(
         decrypt_cipher(state, environment, cipherstring, entry_key, org_id)
             .await?;
     respond_decrypt(sock, plaintext).await?;
+
+    Ok(())
+}
+
+pub async fn decrypt_bytes(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let plaintext = decrypt_cipher_bytes(
+        state,
+        environment,
+        cipherstring,
+        entry_key,
+        org_id,
+    )
+    .await?;
+    respond_decrypt_bytes(sock, rbw::base64::encode(plaintext)).await?;
 
     Ok(())
 }
@@ -763,6 +797,16 @@ async fn respond_decrypt(
     plaintext: String,
 ) -> anyhow::Result<()> {
     sock.send(&rbw::protocol::Response::Decrypt { plaintext })
+        .await?;
+
+    Ok(())
+}
+
+async fn respond_decrypt_bytes(
+    sock: &mut crate::sock::Sock,
+    plaintext: String,
+) -> anyhow::Result<()> {
+    sock.send(&rbw::protocol::Response::DecryptBytes { plaintext })
         .await?;
 
     Ok(())

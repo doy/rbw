@@ -162,6 +162,25 @@ async fn handle_request(
             .await?;
             true
         }
+        rbw::protocol::Action::DecryptBytes {
+            cipherstring,
+            entry_key,
+            org_id,
+        } => {
+            let cipherstring = cipherstring.clone();
+            let entry_key = entry_key.clone();
+            let org_id = org_id.clone();
+            crate::actions::decrypt_bytes(
+                sock,
+                state.clone(),
+                &environment,
+                &cipherstring,
+                entry_key.as_deref(),
+                org_id.as_deref(),
+            )
+            .await?;
+            true
+        }
         rbw::protocol::Action::Encrypt { plaintext, org_id } => {
             crate::actions::encrypt(
                 sock,

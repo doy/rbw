@@ -179,6 +179,11 @@ pub enum Action {
         entry_key: Option<String>,
         org_id: Option<String>,
     },
+    DecryptBytes {
+        cipherstring: String,
+        entry_key: Option<String>,
+        org_id: Option<String>,
+    },
     Encrypt {
         plaintext: String,
         org_id: Option<String>,
@@ -196,6 +201,7 @@ pub enum Response {
     Ack,
     Error { error: String },
     Decrypt { plaintext: String },
+    DecryptBytes { plaintext: String },
     Encrypt { cipherstring: String },
     Version { version: u32 },
 }

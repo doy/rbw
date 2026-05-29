@@ -345,6 +345,19 @@ struct DecryptedCipher {
     fields: Vec<DecryptedField>,
     notes: Option<String>,
     history: Vec<DecryptedHistoryEntry>,
+    attachments: Vec<DecryptedAttachment>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+struct DecryptedAttachment {
+    id: String,
+    #[serde(rename = "fileName")]
+    file_name: Option<String>,
+    size: Option<String>,
+    #[serde(rename = "sizeName")]
+    size_name: Option<String>,
+    url: Option<String>,
 }
 
 impl DecryptedCipher {
@@ -851,6 +864,23 @@ impl DecryptedCipher {
                 }
             }
         }
+        self.display_attachments();
+    }
+
+    fn display_attachments(&self) {
+        if self.attachments.is_empty() {
+            return;
+        }
+
+        println!();
+        for attachment in &self.attachments {
+            let name =
+                attachment.file_name.as_deref().unwrap_or(&attachment.id);
+            match attachment.size_name.as_deref() {
+                Some(size) => println!("Attachment: {name} ({size})"),
+                None => println!("Attachment: {name}"),
+            }
+        }
     }
 
     /// This implementation mirror the `fn display_fied` method on which field to list
@@ -991,6 +1021,11 @@ impl DecryptedCipher {
             if let Some(name) = &f.name {
                 println!("{name}");
             }
+        }
+        for attachment in &self.attachments {
+            let name =
+                attachment.file_name.as_deref().unwrap_or(&attachment.id);
+            println!("attachment: {name}");
         }
     }
 
@@ -1389,6 +1424,9 @@ pub fn get(
     user: Option<&str>,
     folder: Option<&str>,
     field: Option<&str>,
+    attachment: Option<&str>,
+    itemid: Option<&str>,
+    output: Option<&str>,
     full: bool,
     raw: bool,
     clipboard: bool,
@@ -1397,7 +1435,9 @@ pub fn get(
 ) -> anyhow::Result<()> {
     unlock()?;
 
-    let db = load_db()?;
+    let mut db = load_db()?;
+    let (needle, user, attachment) =
+        normalize_attachment_lookup(needle, user, attachment, itemid)?;
 
     let desc = format!(
         "{}{}",
@@ -1405,10 +1445,19 @@ pub fn get(
         needle
     );
 
-    let (_, decrypted) =
+    let (entry, decrypted) =
         find_entry(&db, needle, user, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
-    if list_fields {
+    if let Some(attachment) = attachment {
+        if field.is_some() || full || raw || clipboard || list_fields {
+            anyhow::bail!(
+                "--attachment cannot be combined with --field, --full, --raw, --clipboard, or --list-fields"
+            );
+        }
+        download_attachment(&entry, &decrypted, attachment, output, &mut db)?;
+    } else if output.is_some() {
+        anyhow::bail!("--output requires --attachment");
+    } else if list_fields {
         decrypted.display_fields_list();
     } else if raw {
         decrypted.display_json(&desc)?;
@@ -1420,6 +1469,189 @@ pub fn get(
         decrypted.display_short(&desc, clipboard);
     }
 
+    Ok(())
+}
+
+fn normalize_attachment_lookup<'a>(
+    needle: Needle,
+    user: Option<&'a str>,
+    attachment: Option<&'a str>,
+    itemid: Option<&str>,
+) -> anyhow::Result<(Needle, Option<&'a str>, Option<&'a str>)> {
+    let Some(itemid) = itemid else {
+        return Ok((needle, user, attachment));
+    };
+
+    if attachment.is_some() {
+        anyhow::bail!("--itemid cannot be combined with --attachment");
+    }
+    match &needle {
+        Needle::Name(name) if name == "attachment" => {}
+        _ => {
+            anyhow::bail!(
+                "--itemid is only valid with `rbw get attachment <attachment>`"
+            )
+        }
+    }
+    let attachment =
+        user.context("missing attachment filename for `rbw get attachment`")?;
+    Ok((parse_needle(itemid).unwrap(), None, Some(attachment)))
+}
+
+fn download_attachment(
+    entry: &rbw::db::Entry,
+    decrypted: &DecryptedCipher,
+    needle: &str,
+    output: Option<&str>,
+    db: &mut rbw::db::Db,
+) -> anyhow::Result<()> {
+    if decrypted.attachments.is_empty() {
+        anyhow::bail!("entry has no attachments");
+    }
+
+    let mut matches: Vec<_> = decrypted
+        .attachments
+        .iter()
+        .filter(|attachment| {
+            attachment.id == needle
+                || attachment
+                    .file_name
+                    .as_deref()
+                    .is_some_and(|file_name| file_name.contains(needle))
+        })
+        .collect();
+    let exact_matches: Vec<_> = matches
+        .iter()
+        .copied()
+        .filter(|attachment| attachment.file_name.as_deref() == Some(needle))
+        .collect();
+    if exact_matches.len() == 1 {
+        matches = exact_matches;
+    }
+
+    match matches.as_slice() {
+        [] => anyhow::bail!("attachment '{needle}' was not found"),
+        [attachment] => {
+            let encrypted_attachment = entry
+                .attachments
+                .iter()
+                .find(|entry_attachment| entry_attachment.id == attachment.id)
+                .context("failed to find encrypted attachment metadata")?;
+            let key = encrypted_attachment.key.as_deref().context(
+                "attachment does not include a per-file encryption key; legacy attachment decryption is not supported",
+            )?;
+            let url =
+                attachment_download_url(entry, encrypted_attachment, db)?;
+            let encrypted_data = rbw::actions::download_file(&url)
+                .context("failed to download attachment")?;
+            let attachment_key = attachment_key(key, entry)?;
+            let decrypted_data = rbw::cipherstring::decrypt_file_data(
+                &encrypted_data,
+                &attachment_key,
+            )
+            .context("failed to decrypt attachment")?;
+            write_attachment(
+                &decrypted_data,
+                attachment.file_name.as_deref().unwrap_or(&attachment.id),
+                output,
+            )
+        }
+        attachments => {
+            let ids = attachments
+                .iter()
+                .map(|attachment| {
+                    attachment
+                        .file_name
+                        .as_deref()
+                        .map_or_else(|| attachment.id.clone(), str::to_string)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!("multiple attachments matched '{needle}': {ids}");
+        }
+    }
+}
+
+fn attachment_download_url(
+    entry: &rbw::db::Entry,
+    attachment: &rbw::db::Attachment,
+    db: &mut rbw::db::Db,
+) -> anyhow::Result<String> {
+    let access_token = db
+        .access_token
+        .as_ref()
+        .context("failed to find access token in db")?
+        .clone();
+    let refresh_token = db
+        .refresh_token
+        .as_ref()
+        .context("failed to find refresh token in db")?
+        .clone();
+
+    match rbw::actions::get_attachment_data(
+        &access_token,
+        &refresh_token,
+        &entry.id,
+        &attachment.id,
+    ) {
+        Ok((new_access_token, response)) => {
+            if let Some(new_access_token) = new_access_token {
+                db.access_token = Some(new_access_token);
+                save_db(db)?;
+            }
+            response
+                .url
+                .or_else(|| attachment.url.clone())
+                .context("attachment download URL was missing")
+        }
+        Err(rbw::error::Error::RequestFailed { status: 404 }) => attachment
+            .url
+            .clone()
+            .context("attachment download URL was missing"),
+        Err(e) => Err(e).context("failed to get attachment download URL"),
+    }
+}
+
+fn attachment_key(
+    key: &str,
+    entry: &rbw::db::Entry,
+) -> anyhow::Result<rbw::locked::Keys> {
+    let key = crate::actions::decrypt_bytes(
+        key,
+        entry.key.as_deref(),
+        entry.org_id.as_deref(),
+    )?;
+    let key = rbw::base64::decode(key)
+        .context("failed to decode decrypted attachment key")?;
+    let mut locked_key = rbw::locked::Vec::new();
+    locked_key.extend(key.into_iter());
+    Ok(rbw::locked::Keys::new(locked_key))
+}
+
+fn write_attachment(
+    contents: &[u8],
+    file_name: &str,
+    output: Option<&str>,
+) -> anyhow::Result<()> {
+    if output == Some("-") {
+        std::io::stdout()
+            .write_all(contents)
+            .context("failed to write attachment to stdout")?;
+        return Ok(());
+    }
+
+    let path = output.map_or_else(
+        || {
+            std::path::Path::new(file_name).file_name().map_or_else(
+                || std::path::PathBuf::from(file_name),
+                std::path::PathBuf::from,
+            )
+        },
+        std::path::PathBuf::from,
+    );
+    std::fs::write(&path, contents)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    println!("{}", path.display());
     Ok(())
 }
 
@@ -1507,8 +1739,7 @@ pub fn search(
         .filter(|entry| {
             entry
                 .as_ref()
-                .map(|entry| entry.search_match(term, folder))
-                .unwrap_or(true)
+                .map_or(true, |entry| entry.search_match(term, folder))
         })
         .map(|entry| entry.map(std::convert::Into::into))
         .collect::<Result<_, anyhow::Error>>()?;
@@ -2375,6 +2606,37 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             })
         })
         .collect::<anyhow::Result<_>>()?;
+    let attachments = entry
+        .attachments
+        .iter()
+        .map(|attachment| {
+            let file_name = attachment
+                .file_name
+                .as_ref()
+                .map(|file_name| {
+                    crate::actions::decrypt(
+                        file_name,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    )
+                })
+                .transpose();
+            let file_name = match file_name {
+                Ok(file_name) => file_name,
+                Err(e) => {
+                    log::warn!("failed to decrypt attachment filename: {e}");
+                    None
+                }
+            };
+            DecryptedAttachment {
+                id: attachment.id.clone(),
+                file_name,
+                size: attachment.size.clone(),
+                size_name: attachment.size_name.clone(),
+                url: attachment.url.clone(),
+            }
+        })
+        .collect();
 
     let data = match &entry.data {
         rbw::db::EntryData::Login {
@@ -2623,6 +2885,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         fields,
         notes,
         history,
+        attachments,
     })
 }
 
@@ -4050,6 +4313,34 @@ mod test {
         assert!(decoded == want, "strips spaces");
     }
 
+    #[test]
+    fn test_attachment_itemid_lookup_normalizes() {
+        let (needle, user, attachment) = normalize_attachment_lookup(
+            parse_needle("attachment").unwrap(),
+            Some("cert.pem"),
+            None,
+            Some("vpn"),
+        )
+        .unwrap();
+
+        assert!(matches!(needle, Needle::Name(name) if name == "vpn"));
+        assert_eq!(user, None);
+        assert_eq!(attachment, Some("cert.pem"));
+    }
+
+    #[test]
+    fn test_attachment_itemid_lookup_rejects_attachment_flag() {
+        let err = normalize_attachment_lookup(
+            parse_needle("attachment").unwrap(),
+            Some("cert.pem"),
+            Some("cert.pem"),
+            Some("vpn"),
+        )
+        .unwrap_err();
+
+        assert!(format!("{err}").contains("cannot be combined"));
+    }
+
     #[track_caller]
     fn one_match(
         entries: &[(rbw::db::Entry, DecryptedSearchCipher)],
@@ -4156,6 +4447,7 @@ mod test {
                 notes: None,
                 history: vec![],
                 key: None,
+                attachments: vec![],
                 master_password_reprompt: rbw::api::CipherRepromptType::None,
             },
             DecryptedSearchCipher {

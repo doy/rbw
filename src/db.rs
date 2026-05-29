@@ -18,6 +18,8 @@ pub struct Entry {
     pub notes: Option<String>,
     pub history: Vec<HistoryEntry>,
     pub key: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub master_password_reprompt: crate::api::CipherRepromptType,
 }
 
@@ -31,6 +33,18 @@ impl Entry {
 pub struct Uri {
     pub uri: String,
     pub match_type: Option<crate::api::UriMatchType>,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct Attachment {
+    pub id: String,
+    pub file_name: Option<String>,
+    pub key: Option<String>,
+    pub url: Option<String>,
+    pub size: Option<String>,
+    pub size_name: Option<String>,
 }
 
 // backwards compatibility

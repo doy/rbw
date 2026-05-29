@@ -124,6 +124,10 @@ impl State {
                     insert(field.value.as_deref());
                 }
             }
+
+            for attachment in &entry.attachments {
+                insert(attachment.key.as_deref());
+            }
         }
 
         self.master_password_reprompt_initialized = true;

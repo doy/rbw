@@ -234,6 +234,43 @@ fn decrypt_common_symmetric(
         .map_err(|source| Error::CreateBlockMode { source })
 }
 
+pub fn decrypt_file_data(
+    encrypted_data: &[u8],
+    keys: &crate::locked::Keys,
+) -> Result<Vec<u8>> {
+    const ENC_TYPE_LEN: usize = 1;
+    const IV_LEN: usize = 16;
+    const MAC_LEN: usize = 32;
+    const MIN_CIPHERTEXT_LEN: usize = 1;
+
+    if encrypted_data.len()
+        < ENC_TYPE_LEN + IV_LEN + MAC_LEN + MIN_CIPHERTEXT_LEN
+    {
+        return Err(Error::InvalidCipherString {
+            reason: "encrypted file data is too short".to_string(),
+        });
+    }
+
+    let ty = encrypted_data[0];
+    if ty != 2 {
+        return Err(Error::UnimplementedCipherStringType {
+            ty: ty.to_string(),
+        });
+    }
+
+    let iv_start = ENC_TYPE_LEN;
+    let mac_start = iv_start + IV_LEN;
+    let data_start = mac_start + MAC_LEN;
+    let iv = &encrypted_data[iv_start..mac_start];
+    let mac = &encrypted_data[mac_start..data_start];
+    let ciphertext = &encrypted_data[data_start..];
+
+    let cipher = decrypt_common_symmetric(keys, iv, ciphertext, Some(mac))?;
+    cipher
+        .decrypt_padded_vec_mut::<block_padding::Pkcs7>(ciphertext)
+        .map_err(|source| Error::Decrypt { source })
+}
+
 impl std::fmt::Display for CipherString {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -256,6 +293,60 @@ impl std::fmt::Display for CipherString {
                 write!(f, "4.{ciphertext}")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn decrypts_file_data_buffer() {
+        let keys = test_keys();
+        let encrypted =
+            CipherString::encrypt_symmetric(&keys, b"hello attachment")
+                .unwrap();
+        let data = file_data_from_cipherstring(encrypted);
+
+        let decrypted = decrypt_file_data(&data, &keys).unwrap();
+
+        assert_eq!(decrypted, b"hello attachment");
+    }
+
+    #[test]
+    fn rejects_file_data_with_bad_mac() {
+        let keys = test_keys();
+        let encrypted =
+            CipherString::encrypt_symmetric(&keys, b"hello attachment")
+                .unwrap();
+        let mut data = file_data_from_cipherstring(encrypted);
+        data[20] ^= 1;
+
+        let err = decrypt_file_data(&data, &keys).unwrap_err();
+
+        assert!(matches!(err, Error::InvalidMac));
+    }
+
+    fn test_keys() -> crate::locked::Keys {
+        let mut key = crate::locked::Vec::new();
+        key.extend((0_u8..64).map(|i| i.wrapping_mul(3)));
+        crate::locked::Keys::new(key)
+    }
+
+    fn file_data_from_cipherstring(cipherstring: CipherString) -> Vec<u8> {
+        let CipherString::Symmetric {
+            iv,
+            ciphertext,
+            mac: Some(mac),
+        } = cipherstring
+        else {
+            panic!("expected symmetric cipherstring with mac");
+        };
+        let mut data = vec![2];
+        data.extend(iv);
+        data.extend(mac);
+        data.extend(ciphertext);
+        data
     }
 }
 
