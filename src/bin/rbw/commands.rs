@@ -1269,6 +1269,11 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
+        "pinentry_timeout" => {
+            config.pinentry_timeout = value
+                .parse()
+                .context("failed to parse value for pinentry_timeout")?;
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1298,6 +1303,9 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        "pinentry_timeout" => {
+            config.pinentry_timeout = rbw::config::default_pinentry_timeout();
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1507,8 +1515,7 @@ pub fn search(
         .filter(|entry| {
             entry
                 .as_ref()
-                .map(|entry| entry.search_match(term, folder))
-                .unwrap_or(true)
+                .map_or(true, |entry| entry.search_match(term, folder))
         })
         .map(|entry| entry.map(std::convert::Into::into))
         .collect::<Result<_, anyhow::Error>>()?;

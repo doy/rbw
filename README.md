@@ -96,6 +96,11 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `pinentry_timeout`: The number of seconds before an unanswered pinentry
+  prompt times out and is dismissed. This prevents prompts that can't be seen
+  (for example one launched against a stale terminal by an ssh-agent request)
+  from lingering forever. Setting this to `0` disables the timeout. Defaults to
+  `120`.
 
 ### Profiles
 

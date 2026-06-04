@@ -30,6 +30,7 @@ pub async fn register(
             };
             let client_id = rbw::pinentry::getpin(
                 &config_pinentry().await?,
+                config_pinentry_timeout().await?,
                 "API key client__id",
                 &format!("Log in to {host}"),
                 err.as_deref(),
@@ -40,6 +41,7 @@ pub async fn register(
             .context("failed to read client_id from pinentry")?;
             let client_secret = rbw::pinentry::getpin(
                 &config_pinentry().await?,
+                config_pinentry_timeout().await?,
                 "API key client__secret",
                 &format!("Log in to {host}"),
                 err.as_deref(),
@@ -105,6 +107,7 @@ pub async fn login(
             };
             let password = rbw::pinentry::getpin(
                 &config_pinentry().await?,
+                config_pinentry_timeout().await?,
                 "Master Password",
                 &format!("Log in to {host}"),
                 err.as_deref(),
@@ -249,6 +252,7 @@ async fn two_factor(
         };
         let code = rbw::pinentry::getpin(
             &config_pinentry().await?,
+            config_pinentry_timeout().await?,
             provider.header(),
             provider.message(),
             err.as_deref(),
@@ -415,6 +419,7 @@ async fn unlock_state(
             };
             let password = rbw::pinentry::getpin(
                 &config_pinentry().await?,
+                config_pinentry_timeout().await?,
                 "Master Password",
                 &format!(
                     "Unlock the local database for '{}'",
@@ -624,6 +629,7 @@ async fn decrypt_cipher(
             };
             let password = rbw::pinentry::getpin(
                 &config_pinentry().await?,
+                config_pinentry_timeout().await?,
                 "Master Password",
                 "Accessing this entry requires the master password",
                 err.as_deref(),
@@ -818,6 +824,11 @@ async fn config_pinentry() -> anyhow::Result<String> {
     Ok(config.pinentry)
 }
 
+async fn config_pinentry_timeout() -> anyhow::Result<u64> {
+    let config = rbw::config::Config::load_async().await?;
+    Ok(config.pinentry_timeout)
+}
+
 pub async fn subscribe_to_notifications(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
@@ -850,14 +861,34 @@ pub async fn subscribe_to_notifications(
         .map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
 }
 
+// ssh-agent requests don't carry an environment of their own, so we fall back
+// to the last environment the main agent saw (see State::last_environment).
+// that environment is frequently stale by the time a background process makes
+// an ssh request, so if the vault is locked and there's no longer any way to
+// show a prompt, bail out instead of launching a pinentry that nobody can see
+// (which otherwise ends up invisible and spinning at 100% cpu forever).
+fn ensure_ssh_prompt_possible(
+    needs_unlock: bool,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+    if needs_unlock && !environment.can_prompt() {
+        return Err(anyhow::anyhow!(
+            "rbw is locked and no usable terminal or display is available to \
+             prompt for the master password; run `rbw unlock` first"
+        ));
+    }
+    Ok(())
+}
+
 pub async fn get_ssh_public_keys(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<Vec<String>> {
-    let environment = {
+    let (environment, needs_unlock) = {
         let state = state.lock().await;
         state.set_timeout();
-        state.last_environment().clone()
+        (state.last_environment().clone(), state.needs_unlock())
     };
+    ensure_ssh_prompt_possible(needs_unlock, &environment)?;
     unlock_state(state.clone(), &environment).await?;
 
     let db = load_db().await?;
@@ -889,11 +920,12 @@ pub async fn find_ssh_private_key(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     request_public_key: ssh_agent_lib::ssh_key::PublicKey,
 ) -> anyhow::Result<ssh_agent_lib::ssh_key::PrivateKey> {
-    let environment = {
+    let (environment, needs_unlock) = {
         let state = state.lock().await;
         state.set_timeout();
-        state.last_environment().clone()
+        (state.last_environment().clone(), state.needs_unlock())
     };
+    ensure_ssh_prompt_possible(needs_unlock, &environment)?;
     unlock_state(state.clone(), &environment).await?;
 
     let request_bytes = request_public_key.to_bytes();

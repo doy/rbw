@@ -153,6 +153,29 @@ impl Environment {
         self.tty.as_ref().map(|tty| tty.0.as_os_str())
     }
 
+    /// Returns true if the recorded tty still refers to a terminal that we can
+    /// actually open. The tty stored in an `Environment` can go stale (most
+    /// notably for ssh-agent requests, which reuse the last environment the
+    /// main agent saw), and handing a dead tty to pinentry produces an
+    /// invisible prompt that spins at 100% cpu.
+    pub fn has_usable_tty(&self) -> bool {
+        self.tty().is_some_and(tty_is_usable)
+    }
+
+    /// Returns true if there is some way to actually show a pinentry prompt to
+    /// the user - either a live controlling terminal or a graphical display.
+    pub fn can_prompt(&self) -> bool {
+        if self.has_usable_tty() {
+            return true;
+        }
+        // a graphical pinentry can display a prompt without any controlling
+        // terminal
+        self.env_vars().iter().any(|(k, v)| {
+            matches!(k.to_str(), Some("DISPLAY" | "WAYLAND_DISPLAY"))
+                && !v.is_empty()
+        })
+    }
+
     pub fn env_vars(
         &self,
     ) -> std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>
@@ -163,6 +186,22 @@ impl Environment {
             .filter(|(var, _)| (*ENVIRONMENT_VARIABLES_OS).contains(var))
             .collect()
     }
+}
+
+// checks whether the given path still refers to a terminal we can open. opened
+// non-blocking and with O_NOCTTY so we neither block on a dead tty nor
+// accidentally acquire it as our controlling terminal. if the tty has gone
+// away (or now belongs to a different user after the device number was reused)
+// the open fails and we report it as unusable.
+fn tty_is_usable(tty: &std::ffi::OsStr) -> bool {
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(tty)
+        .is_ok_and(|f| rustix::termios::isatty(&f))
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

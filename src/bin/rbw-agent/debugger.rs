@@ -27,7 +27,7 @@ pub fn disable_tracing() -> anyhow::Result<()> {
     if ret != 0 {
         let e = std::io::Error::last_os_error();
         return Err(anyhow::anyhow!(
-            "failed to deny debugger attach, agent memory may be readable by other processes: {}", e
+            "failed to deny debugger attach, agent memory may be readable by other processes: {e}"
         ));
     }
 
@@ -38,11 +38,11 @@ pub fn disable_tracing() -> anyhow::Result<()> {
     };
     // safety: correct argument
     // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/setrlimit.2.html
-    let ret = unsafe { libc::setrlimit(libc::RLIMIT_CORE, &rlim) };
+    let ret = unsafe { libc::setrlimit(libc::RLIMIT_CORE, &raw const rlim) };
     if ret != 0 {
         let e = std::io::Error::last_os_error();
         return Err(anyhow::anyhow!(
-            "failed to disable core dumps, agent memory may be dumped to disk: {}", e
+            "failed to disable core dumps, agent memory may be dumped to disk: {e}"
         ));
     }
 
