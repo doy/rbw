@@ -1,6 +1,16 @@
 use anyhow::Context as _;
 use sha2::Digest as _;
 
+fn password_from_env() -> Option<rbw::locked::Password> {
+    let val = std::env::var("BW_ACCOUNT_PASSWORD").ok()?;
+    if val.is_empty() {
+        return None;
+    }
+    let mut buf = rbw::locked::Vec::new();
+    buf.extend(val.bytes());
+    Some(rbw::locked::Password::new(buf))
+}
+
 pub async fn register(
     sock: &mut crate::sock::Sock,
     environment: &rbw::protocol::Environment,
@@ -95,24 +105,41 @@ pub async fn login(
         let email = config_email().await?;
 
         let mut err_msg = None;
+        let mut env_password_tried = false;
         'attempts: for i in 1_u8..=3 {
-            let err = if i > 1 {
-                // this unwrap is safe because we only ever continue the loop
-                // if we have set err_msg
-                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+            let password = if i == 1 {
+                if let Some(pw) = password_from_env() {
+                    env_password_tried = true;
+                    pw
+                } else {
+                    rbw::pinentry::getpin(
+                        &config_pinentry().await?,
+                        "Master Password",
+                        &format!("Log in to {host}"),
+                        None,
+                        environment,
+                        true,
+                    )
+                    .await
+                    .context("failed to read password from pinentry")?
+                }
             } else {
-                None
+                let err = Some(format!(
+                    "{} (attempt {}/3)",
+                    err_msg.as_ref().unwrap(),
+                    if env_password_tried { i - 1 } else { i }
+                ));
+                rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "Master Password",
+                    &format!("Log in to {host}"),
+                    err.as_deref(),
+                    environment,
+                    true,
+                )
+                .await
+                .context("failed to read password from pinentry")?
             };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                &format!("Log in to {host}"),
-                err.as_deref(),
-                environment,
-                true,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
             match rbw::actions::login(&email, password.clone(), None, None)
                 .await
             {
@@ -405,27 +432,47 @@ async fn unlock_state(
         let email = config_email().await?;
 
         let mut err_msg = None;
+        let mut env_password_tried = false;
         for i in 1_u8..=3 {
-            let err = if i > 1 {
-                // this unwrap is safe because we only ever continue the loop
-                // if we have set err_msg
-                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+            let password = if i == 1 {
+                if let Some(pw) = password_from_env() {
+                    env_password_tried = true;
+                    pw
+                } else {
+                    rbw::pinentry::getpin(
+                        &config_pinentry().await?,
+                        "Master Password",
+                        &format!(
+                            "Unlock the local database for '{}'",
+                            rbw::dirs::profile()
+                        ),
+                        None,
+                        environment,
+                        true,
+                    )
+                    .await
+                    .context("failed to read password from pinentry")?
+                }
             } else {
-                None
+                let err = Some(format!(
+                    "{} (attempt {}/3)",
+                    err_msg.as_ref().unwrap(),
+                    if env_password_tried { i - 1 } else { i }
+                ));
+                rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "Master Password",
+                    &format!(
+                        "Unlock the local database for '{}'",
+                        rbw::dirs::profile()
+                    ),
+                    err.as_deref(),
+                    environment,
+                    true,
+                )
+                .await
+                .context("failed to read password from pinentry")?
             };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                &format!(
-                    "Unlock the local database for '{}'",
-                    rbw::dirs::profile()
-                ),
-                err.as_deref(),
-                environment,
-                true,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
             match rbw::actions::unlock(
                 &email,
                 &password,
@@ -523,7 +570,13 @@ pub async fn sync(
     };
     let (
         access_token,
-        (protected_key, protected_private_key, protected_org_keys, entries),
+        (
+            protected_key,
+            protected_private_key,
+            protected_org_keys,
+            entries,
+            collections,
+        ),
     ) = rbw::actions::sync(&access_token, &refresh_token)
         .await
         .context("failed to sync database from server")?;
@@ -535,6 +588,7 @@ pub async fn sync(
     db.protected_private_key = Some(protected_private_key);
     db.protected_org_keys = protected_org_keys;
     db.entries = entries;
+    db.collections = collections;
     save_db(&db).await?;
 
     if let Err(e) = subscribe_to_notifications(state.clone()).await {
@@ -614,24 +668,41 @@ async fn decrypt_cipher(
         let email = config_email().await?;
 
         let mut err_msg = None;
+        let mut env_password_tried = false;
         for i in 1_u8..=3 {
-            let err = if i > 1 {
-                // this unwrap is safe because we only ever continue the loop
-                // if we have set err_msg
-                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+            let password = if i == 1 {
+                if let Some(pw) = password_from_env() {
+                    env_password_tried = true;
+                    pw
+                } else {
+                    rbw::pinentry::getpin(
+                        &config_pinentry().await?,
+                        "Master Password",
+                        "Accessing this entry requires the master password",
+                        None,
+                        environment,
+                        true,
+                    )
+                    .await
+                    .context("failed to read password from pinentry")?
+                }
             } else {
-                None
+                let err = Some(format!(
+                    "{} (attempt {}/3)",
+                    err_msg.as_ref().unwrap(),
+                    if env_password_tried { i - 1 } else { i }
+                ));
+                rbw::pinentry::getpin(
+                    &config_pinentry().await?,
+                    "Master Password",
+                    "Accessing this entry requires the master password",
+                    err.as_deref(),
+                    environment,
+                    true,
+                )
+                .await
+                .context("failed to read password from pinentry")?
             };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                "Accessing this entry requires the master password",
-                err.as_deref(),
-                environment,
-                true,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
             match rbw::actions::unlock(
                 &email,
                 &password,

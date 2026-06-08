@@ -394,6 +394,18 @@ struct SyncRes {
     profile: SyncResProfile,
     #[serde(rename = "Folders", alias = "folders")]
     folders: Vec<SyncResFolder>,
+    #[serde(rename = "Collections", alias = "collections", default)]
+    collections: Vec<SyncResCollection>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+struct SyncResCollection {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
+    #[serde(rename = "OrganizationId", alias = "organizationId")]
+    organization_id: String,
+    #[serde(rename = "Name", alias = "name")]
+    name: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -428,6 +440,8 @@ struct SyncResCipher {
     key: Option<String>,
     #[serde(rename = "Reprompt", alias = "reprompt")]
     reprompt: CipherRepromptType,
+    #[serde(rename = "CollectionIds", alias = "collectionIds", default)]
+    collection_ids: Vec<String>,
 }
 
 impl SyncResCipher {
@@ -551,6 +565,7 @@ impl SyncResCipher {
             history,
             key: self.key.clone(),
             master_password_reprompt: self.reprompt,
+            collection_ids: self.collection_ids.clone(),
         })
     }
 }
@@ -788,6 +803,105 @@ struct CiphersPutReqHistory {
     last_used_date: String,
     #[serde(rename = "Password")]
     password: String,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct CiphersCollectionsPutReq {
+    #[serde(rename = "collectionIds")]
+    collection_ids: Vec<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct CollectionPutReq {
+    name: String,
+    #[serde(rename = "organizationId")]
+    organization_id: String,
+    #[serde(rename = "externalId")]
+    external_id: Option<String>,
+    groups: Vec<serde_json::Value>,
+    users: Vec<serde_json::Value>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct CollectionCreateRes {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct OrgUser {
+    pub id: String,
+    pub email: String,
+    pub status: i32,
+    // Organization role: 0=Owner, 1=Admin, 2=User, 3=Manager.
+    pub role: i32,
+    pub access_all: bool,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct OrgUsersRes {
+    #[serde(rename = "Data", alias = "data")]
+    data: Vec<OrgUsersResData>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct OrgUsersResData {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
+    #[serde(rename = "Email", alias = "email")]
+    email: String,
+    #[serde(rename = "Status", alias = "status")]
+    status: i32,
+    #[serde(rename = "Type", alias = "type")]
+    role: i32,
+    #[serde(rename = "AccessAll", alias = "accessAll", default)]
+    access_all: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CollectionUser {
+    pub id: String,
+    pub read_only: bool,
+    pub hide_passwords: bool,
+    pub manage: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CollectionDetail {
+    pub id: String,
+    pub external_id: Option<String>,
+    pub groups: Vec<serde_json::Value>,
+    pub users: Vec<CollectionUser>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct CollectionUserData {
+    #[serde(rename = "id", alias = "Id")]
+    id: String,
+    #[serde(rename = "readOnly", alias = "ReadOnly", default)]
+    read_only: bool,
+    #[serde(rename = "hidePasswords", alias = "HidePasswords", default)]
+    hide_passwords: bool,
+    #[serde(rename = "manage", alias = "Manage", default)]
+    manage: bool,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct CollectionDetailsRes {
+    #[serde(rename = "Data", alias = "data")]
+    data: Vec<CollectionDetailsResData>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct CollectionDetailsResData {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
+    #[serde(rename = "ExternalId", alias = "externalId", default)]
+    external_id: Option<String>,
+    #[serde(rename = "Groups", alias = "groups", default)]
+    groups: Vec<serde_json::Value>,
+    #[serde(rename = "Users", alias = "users", default)]
+    users: Vec<CollectionUserData>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -1153,6 +1267,7 @@ impl Client {
         String,
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
+        Vec<crate::db::Collection>,
     )> {
         let client = self.reqwest_client().await?;
         let res = client
@@ -1178,11 +1293,21 @@ impl Client {
                     .iter()
                     .map(|org| (org.id.clone(), org.key.clone()))
                     .collect();
+                let collections = sync_res
+                    .collections
+                    .iter()
+                    .map(|c| crate::db::Collection {
+                        id: c.id.clone(),
+                        org_id: c.organization_id.clone(),
+                        name: c.name.clone(),
+                    })
+                    .collect();
                 Ok((
                     sync_res.profile.key,
                     sync_res.profile.private_key,
                     org_keys,
                     ciphers,
+                    collections,
                 ))
             }
             reqwest::StatusCode::UNAUTHORIZED => {
@@ -1485,6 +1610,258 @@ impl Client {
         }
     }
 
+    pub fn edit_collections(
+        &self,
+        access_token: &str,
+        id: &str,
+        collection_ids: &[String],
+    ) -> Result<()> {
+        let req = CiphersCollectionsPutReq {
+            collection_ids: collection_ids.to_vec(),
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .put(self.api_url(&format!("/ciphers/{id}/collections")))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(&req)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn rename_collection(
+        &self,
+        access_token: &str,
+        org_id: &str,
+        collection_id: &str,
+        encrypted_name: &str,
+    ) -> Result<()> {
+        let req = CollectionPutReq {
+            name: encrypted_name.to_string(),
+            organization_id: org_id.to_string(),
+            external_id: None,
+            groups: vec![],
+            users: vec![],
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .put(self.api_url(&format!(
+                "/organizations/{org_id}/collections/{collection_id}"
+            )))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(&req)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn create_collection(
+        &self,
+        access_token: &str,
+        org_id: &str,
+        encrypted_name: &str,
+    ) -> Result<String> {
+        let req = CollectionPutReq {
+            name: encrypted_name.to_string(),
+            organization_id: org_id.to_string(),
+            external_id: None,
+            groups: vec![],
+            users: vec![],
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(
+                self.api_url(&format!("/organizations/{org_id}/collections")),
+            )
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(&req)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let collection_res: CollectionCreateRes =
+                    res.json_with_path()?;
+                Ok(collection_res.id)
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn delete_collection(
+        &self,
+        access_token: &str,
+        org_id: &str,
+        collection_id: &str,
+    ) -> Result<()> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .delete(self.api_url(&format!(
+                "/organizations/{org_id}/collections/{collection_id}"
+            )))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn org_users(
+        &self,
+        access_token: &str,
+        org_id: &str,
+    ) -> Result<Vec<OrgUser>> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(self.api_url(&format!("/organizations/{org_id}/users")))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let users_res: OrgUsersRes = res.json_with_path()?;
+                Ok(users_res
+                    .data
+                    .into_iter()
+                    .map(|u| OrgUser {
+                        id: u.id,
+                        email: u.email,
+                        status: u.status,
+                        role: u.role,
+                        access_all: u.access_all,
+                    })
+                    .collect())
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn collections_details(
+        &self,
+        access_token: &str,
+        org_id: &str,
+    ) -> Result<Vec<CollectionDetail>> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(self.api_url(&format!(
+                "/organizations/{org_id}/collections/details"
+            )))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let details_res: CollectionDetailsRes =
+                    res.json_with_path()?;
+                Ok(details_res
+                    .data
+                    .into_iter()
+                    .map(|c| CollectionDetail {
+                        id: c.id,
+                        external_id: c.external_id,
+                        groups: c.groups,
+                        users: c
+                            .users
+                            .into_iter()
+                            .map(|u| CollectionUser {
+                                id: u.id,
+                                read_only: u.read_only,
+                                hide_passwords: u.hide_passwords,
+                                manage: u.manage,
+                            })
+                            .collect(),
+                    })
+                    .collect())
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn set_collection_users(
+        &self,
+        access_token: &str,
+        org_id: &str,
+        collection_id: &str,
+        encrypted_name: &str,
+        external_id: Option<&str>,
+        groups: &[serde_json::Value],
+        users: &[CollectionUser],
+    ) -> Result<()> {
+        let users: Vec<serde_json::Value> = users
+            .iter()
+            .map(|u| {
+                serde_json::json!({
+                    "id": u.id,
+                    "readOnly": u.read_only,
+                    "hidePasswords": u.hide_passwords,
+                    "manage": u.manage,
+                })
+            })
+            .collect();
+        let req = CollectionPutReq {
+            name: encrypted_name.to_string(),
+            organization_id: org_id.to_string(),
+            external_id: external_id.map(std::string::ToString::to_string),
+            groups: groups.to_vec(),
+            users,
+        };
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .put(self.api_url(&format!(
+                "/organizations/{org_id}/collections/{collection_id}"
+            )))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(&req)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
     pub fn folders(
         &self,
         access_token: &str,
@@ -1557,8 +1934,22 @@ impl Client {
             .form(&connect_req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
-        let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
-        Ok(connect_res.access_token)
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let connect_res: ConnectRefreshTokenRes =
+                    res.json_with_path()?;
+                Ok(connect_res.access_token)
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            s => {
+                let code = s.as_u16();
+                let body = res.text().unwrap_or_default();
+                log::warn!("refresh token exchange failed ({code}): {body}");
+                Err(Error::RequestFailed { status: code })
+            }
+        }
     }
 
     pub async fn exchange_refresh_token_async(
@@ -1577,9 +1968,22 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
-        let connect_res: ConnectRefreshTokenRes =
-            res.json_with_path().await?;
-        Ok(connect_res.access_token)
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let connect_res: ConnectRefreshTokenRes =
+                    res.json_with_path().await?;
+                Ok(connect_res.access_token)
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            s => {
+                let code = s.as_u16();
+                let body = res.text().await.unwrap_or_default();
+                log::warn!("refresh token exchange failed ({code}): {body}");
+                Err(Error::RequestFailed { status: code })
+            }
+        }
     }
 
     fn api_url(&self, path: &str) -> String {
@@ -1738,10 +2142,10 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
-        "" => {
+        ""
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_desc.is_none() || error_desc == Some("") {
+            if (error_desc.is_none() || error_desc == Some("")) => {
                 if let Some(error_model) = error_res.error_model.as_ref() {
                     let message = error_model.message.as_str().to_string();
                     match message.as_str() {
@@ -1759,7 +2163,6 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                     }
                 }
             }
-        }
         _ => {}
     }
 

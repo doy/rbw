@@ -143,6 +143,7 @@ pub async fn sync(
         String,
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
+        Vec<crate::db::Collection>,
     ),
 )> {
     with_exchange_refresh_token_async(
@@ -163,6 +164,7 @@ async fn sync_once(
     String,
     std::collections::HashMap<String, String>,
     Vec<crate::db::Entry>,
+    Vec<crate::db::Collection>,
 )> {
     let (client, _) = api_client_async().await?;
     client.sync(access_token).await
@@ -260,6 +262,180 @@ fn remove_once(access_token: &str, id: &str) -> Result<()> {
     let (client, _) = api_client()?;
     client.remove(access_token, id)?;
     Ok(())
+}
+
+pub fn edit_collections(
+    access_token: &str,
+    refresh_token: &str,
+    id: &str,
+    collection_ids: &[String],
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        edit_collections_once(access_token, id, collection_ids)
+    })
+}
+
+fn edit_collections_once(
+    access_token: &str,
+    id: &str,
+    collection_ids: &[String],
+) -> Result<()> {
+    let (client, _) = api_client()?;
+    client.edit_collections(access_token, id, collection_ids)?;
+    Ok(())
+}
+
+pub fn rename_collection(
+    access_token: &str,
+    refresh_token: &str,
+    org_id: &str,
+    collection_id: &str,
+    encrypted_name: &str,
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        rename_collection_once(
+            access_token,
+            org_id,
+            collection_id,
+            encrypted_name,
+        )
+    })
+}
+
+fn rename_collection_once(
+    access_token: &str,
+    org_id: &str,
+    collection_id: &str,
+    encrypted_name: &str,
+) -> Result<()> {
+    let (client, _) = api_client()?;
+    client.rename_collection(
+        access_token,
+        org_id,
+        collection_id,
+        encrypted_name,
+    )?;
+    Ok(())
+}
+
+pub fn create_collection(
+    access_token: &str,
+    refresh_token: &str,
+    org_id: &str,
+    encrypted_name: &str,
+) -> Result<(Option<String>, String)> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        create_collection_once(access_token, org_id, encrypted_name)
+    })
+}
+
+fn create_collection_once(
+    access_token: &str,
+    org_id: &str,
+    encrypted_name: &str,
+) -> Result<String> {
+    let (client, _) = api_client()?;
+    client.create_collection(access_token, org_id, encrypted_name)
+}
+
+pub fn delete_collection(
+    access_token: &str,
+    refresh_token: &str,
+    org_id: &str,
+    collection_id: &str,
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        delete_collection_once(access_token, org_id, collection_id)
+    })
+}
+
+fn delete_collection_once(
+    access_token: &str,
+    org_id: &str,
+    collection_id: &str,
+) -> Result<()> {
+    let (client, _) = api_client()?;
+    client.delete_collection(access_token, org_id, collection_id)
+}
+
+pub fn org_users(
+    access_token: &str,
+    refresh_token: &str,
+    org_id: &str,
+) -> Result<(Option<String>, Vec<crate::api::OrgUser>)> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        org_users_once(access_token, org_id)
+    })
+}
+
+fn org_users_once(
+    access_token: &str,
+    org_id: &str,
+) -> Result<Vec<crate::api::OrgUser>> {
+    let (client, _) = api_client()?;
+    client.org_users(access_token, org_id)
+}
+
+pub fn collections_details(
+    access_token: &str,
+    refresh_token: &str,
+    org_id: &str,
+) -> Result<(Option<String>, Vec<crate::api::CollectionDetail>)> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        collections_details_once(access_token, org_id)
+    })
+}
+
+fn collections_details_once(
+    access_token: &str,
+    org_id: &str,
+) -> Result<Vec<crate::api::CollectionDetail>> {
+    let (client, _) = api_client()?;
+    client.collections_details(access_token, org_id)
+}
+
+pub fn set_collection_users(
+    access_token: &str,
+    refresh_token: &str,
+    org_id: &str,
+    collection_id: &str,
+    encrypted_name: &str,
+    external_id: Option<&str>,
+    groups: &[serde_json::Value],
+    users: &[crate::api::CollectionUser],
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        set_collection_users_once(
+            access_token,
+            org_id,
+            collection_id,
+            encrypted_name,
+            external_id,
+            groups,
+            users,
+        )
+    })
+}
+
+fn set_collection_users_once(
+    access_token: &str,
+    org_id: &str,
+    collection_id: &str,
+    encrypted_name: &str,
+    external_id: Option<&str>,
+    groups: &[serde_json::Value],
+    users: &[crate::api::CollectionUser],
+) -> Result<()> {
+    let (client, _) = api_client()?;
+    client.set_collection_users(
+        access_token,
+        org_id,
+        collection_id,
+        encrypted_name,
+        external_id,
+        groups,
+        users,
+    )
 }
 
 pub fn list_folders(
