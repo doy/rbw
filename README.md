@@ -153,6 +153,29 @@ export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/rbw/ssh-agent-socket"
 If you're using a profile, the socket will be located at
 `"XDG_RUNTIME_DIR/rbw-<profile>/ssh-agent-socket"`.
 
+### Browser Extension Integration
+
+`rbw` can act as the native messaging host for the official Bitwarden browser
+extension. This allows the browser extension to unlock itself using
+`rbw-agent`.
+
+To configure this, run the installation command:
+```sh
+rbw browser-integration install
+```
+This will automatically scan for supported browsers (Firefox, Chrome,
+Chromium, Brave, Vivaldi, LibreWolf, Waterfox) and register the native
+messaging host.
+
+To clean up and remove the manifests:
+```sh
+rbw browser-integration uninstall
+```
+
+Run `rbw browser-integration install --help` for details on forcing
+installation (`--force`) or specifying a custom `rbw` executable path
+(`--rbw-path`).
+
 ### 2FA support
 
 `rbw` supports the following 2FA mechanisms :

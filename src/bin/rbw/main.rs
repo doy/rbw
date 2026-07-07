@@ -4,6 +4,7 @@ use anyhow::Context as _;
 use clap::{CommandFactory as _, Parser as _};
 
 mod actions;
+mod browser;
 mod commands;
 mod sock;
 
@@ -261,6 +262,15 @@ enum Opt {
         about = "Generate completion script for the given shell"
     )]
     GenCompletions { shell: CompletionShell },
+
+    #[command(
+        name = "browser-integration",
+        about = "Manage browser extension integration"
+    )]
+    BrowserIntegration {
+        #[command(subcommand)]
+        action: BrowserIntegrationAction,
+    },
 }
 
 impl Opt {
@@ -287,6 +297,9 @@ impl Opt {
             Self::Purge => "purge".to_string(),
             Self::StopAgent => "stop-agent".to_string(),
             Self::GenCompletions { .. } => "gen-completions".to_string(),
+            Self::BrowserIntegration { action } => {
+                format!("browser-integration {}", action.subcommand_name())
+            }
         }
     }
 }
@@ -300,6 +313,43 @@ enum CompletionShell {
     Elvish,
     Nushell,
     Fig,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum BrowserIntegrationAction {
+    #[command(hide = true, about = "Run the native messaging host loop")]
+    Host,
+    #[command(about = "Install the native messaging manifests")]
+    Install {
+        #[arg(value_enum, help = "Specific browser to install for")]
+        browser: Option<browser::Browser>,
+        #[arg(
+            long,
+            help = "Force installation even if a manifest already exists"
+        )]
+        force: bool,
+        #[arg(
+            long,
+            help = "Explicit path to the rbw binary to use in the wrapper script"
+        )]
+        rbw_path: Option<String>,
+    },
+    #[command(about = "Uninstall the native messaging manifests")]
+    Uninstall {
+        #[arg(value_enum, help = "Specific browser to uninstall from")]
+        browser: Option<browser::Browser>,
+    },
+}
+
+impl BrowserIntegrationAction {
+    fn subcommand_name(&self) -> String {
+        match self {
+            Self::Host => "host",
+            Self::Install { .. } => "install",
+            Self::Uninstall { .. } => "uninstall",
+        }
+        .to_string()
+    }
 }
 
 #[derive(Debug, clap::Parser)]
@@ -487,6 +537,17 @@ fn main() {
         Opt::Lock => commands::lock(),
         Opt::Purge => commands::purge(),
         Opt::StopAgent => commands::stop_agent(),
+        Opt::BrowserIntegration { action } => match action {
+            BrowserIntegrationAction::Host => browser::host(),
+            BrowserIntegrationAction::Install {
+                browser,
+                force,
+                rbw_path,
+            } => browser::install(browser, force, rbw_path.as_deref()),
+            BrowserIntegrationAction::Uninstall { browser } => {
+                browser::uninstall(browser)
+            }
+        },
         Opt::GenCompletions { shell } => {
             match shell {
                 CompletionShell::Bash => {

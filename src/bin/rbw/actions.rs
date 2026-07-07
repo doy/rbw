@@ -168,7 +168,7 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
     }
 }
 
-fn connect() -> anyhow::Result<crate::sock::Sock> {
+pub fn connect() -> anyhow::Result<crate::sock::Sock> {
     crate::sock::Sock::connect().with_context(|| {
         let log = rbw::dirs::agent_stderr_file();
         format!(
@@ -189,7 +189,7 @@ fn wait_for_exit(pid: rustix::process::Pid) {
     }
 }
 
-fn get_environment() -> rbw::protocol::Environment {
+pub fn get_environment() -> rbw::protocol::Environment {
     let tty = std::env::var_os("RBW_TTY").or_else(|| {
         rustix::termios::ttyname(std::io::stdin(), vec![])
             .ok()

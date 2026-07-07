@@ -963,3 +963,32 @@ pub async fn find_ssh_private_key(
 
     Err(anyhow::anyhow!("No matching private key found"))
 }
+
+pub async fn get_master_key(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+    use zeroize::Zeroize as _;
+
+    unlock_state(state.clone(), environment).await?;
+
+    let state = state.lock().await;
+    let keys = state.priv_key.as_ref().context("agent is locked")?;
+
+    let mut combined_keys = Vec::with_capacity(64);
+    combined_keys.extend_from_slice(keys.enc_key());
+    combined_keys.extend_from_slice(keys.mac_key());
+
+    let key_b64 = rbw::base64::encode(&combined_keys);
+    combined_keys.zeroize();
+
+    let mut resp = rbw::protocol::Response::MasterKey { key: key_b64 };
+    let res = sock.send(&resp).await;
+    if let rbw::protocol::Response::MasterKey { ref mut key } = resp {
+        key.zeroize();
+    }
+    res?;
+
+    Ok(())
+}

@@ -188,6 +188,7 @@ pub enum Action {
     ClipboardStore {
         text: String,
     },
+    GetMasterKey,
     Quit,
     Version,
 }
@@ -200,4 +201,5 @@ pub enum Response {
     Decrypt { plaintext: String },
     Encrypt { cipherstring: String },
     Version { version: u32 },
+    MasterKey { key: String },
 }

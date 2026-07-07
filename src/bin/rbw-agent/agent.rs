@@ -182,6 +182,11 @@ async fn handle_request(
                 .await?;
             true
         }
+        rbw::protocol::Action::GetMasterKey => {
+            crate::actions::get_master_key(sock, state.clone(), &environment)
+                .await?;
+            true
+        }
         rbw::protocol::Action::Quit => std::process::exit(0),
         rbw::protocol::Action::Version => {
             crate::actions::version(sock).await?;
