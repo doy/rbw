@@ -179,6 +179,11 @@ pub enum Action {
         entry_key: Option<String>,
         org_id: Option<String>,
     },
+    // decrypt a batch of cipherstrings with a single round trip; per-item
+    // failures are reported per item instead of failing the whole batch
+    DecryptMany {
+        items: Vec<DecryptItem>,
+    },
     Encrypt {
         plaintext: String,
         org_id: Option<String>,
@@ -191,11 +196,19 @@ pub enum Action {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct DecryptItem {
+    pub cipherstring: String,
+    pub entry_key: Option<String>,
+    pub org_id: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum Response {
     Ack,
     Error { error: String },
     Decrypt { plaintext: String },
+    DecryptMany { plaintexts: Vec<Result<String, String>> },
     Encrypt { cipherstring: String },
     Version { version: u32 },
 }

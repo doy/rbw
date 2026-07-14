@@ -105,6 +105,27 @@ pub fn decrypt(
     }
 }
 
+// decrypt a batch of cipherstrings with a single agent round trip; each
+// item succeeds or fails individually
+pub fn decrypt_many(
+    items: Vec<rbw::protocol::DecryptItem>,
+) -> anyhow::Result<Vec<Result<String, String>>> {
+    let mut sock = connect()?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::DecryptMany { items },
+    ))?;
+
+    let res = sock.recv()?;
+    match res {
+        rbw::protocol::Response::DecryptMany { plaintexts } => Ok(plaintexts),
+        rbw::protocol::Response::Error { error } => {
+            Err(anyhow::anyhow!("failed to decrypt: {error}"))
+        }
+        _ => Err(anyhow::anyhow!("unexpected message: {res:?}")),
+    }
+}
+
 pub fn encrypt(
     plaintext: &str,
     org_id: Option<&str>,

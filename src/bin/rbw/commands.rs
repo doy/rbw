@@ -1371,11 +1371,10 @@ pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
-    let mut entries: Vec<DecryptedListCipher> = db
-        .entries
-        .iter()
-        .map(|entry| decrypt_list_cipher(entry, &fields))
-        .collect::<anyhow::Result<_>>()?;
+    let mut entries: Vec<DecryptedListCipher> =
+        batch_decrypt(&db.entries, |entry, decryptor| {
+            decrypt_list_cipher(entry, &fields, decryptor)
+        })?;
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     print_entry_list(&entries, &fields, raw)?;
@@ -1500,18 +1499,14 @@ pub fn search(
 
     let db = load_db()?;
 
-    let mut entries: Vec<DecryptedListCipher> = db
-        .entries
-        .iter()
-        .map(decrypt_search_cipher)
-        .filter(|entry| {
-            entry
-                .as_ref()
-                .map(|entry| entry.search_match(term, folder))
-                .unwrap_or(true)
-        })
-        .map(|entry| entry.map(std::convert::Into::into))
-        .collect::<Result<_, anyhow::Error>>()?;
+    let mut entries: Vec<DecryptedListCipher> =
+        batch_decrypt(&db.entries, |entry, decryptor| {
+            decrypt_search_cipher(entry, decryptor)
+        })?
+        .into_iter()
+        .filter(|entry| entry.search_match(term, folder))
+        .map(std::convert::Into::into)
+        .collect();
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     print_entry_list(&entries, &fields, raw)?;
@@ -2020,23 +2015,20 @@ fn find_entry(
     if let Needle::Uuid(uuid, s) = needle {
         for cipher in &db.entries {
             if uuid::Uuid::parse_str(&cipher.id) == Ok(uuid) {
-                return Ok((cipher.clone(), decrypt_cipher(cipher)?));
+                return Ok((cipher.clone(), decrypt_cipher_batched(cipher)?));
             }
         }
         needle = Needle::Name(s);
     }
 
-    let ciphers: Vec<(rbw::db::Entry, DecryptedSearchCipher)> = db
-        .entries
-        .iter()
-        .map(|entry| {
-            decrypt_search_cipher(entry)
-                .map(|decrypted| (entry.clone(), decrypted))
-        })
-        .collect::<anyhow::Result<_>>()?;
+    let decrypted = batch_decrypt(&db.entries, |entry, decryptor| {
+        decrypt_search_cipher(entry, decryptor)
+    })?;
+    let ciphers: Vec<(rbw::db::Entry, DecryptedSearchCipher)> =
+        db.entries.iter().cloned().zip(decrypted).collect();
     let (entry, _) =
         find_entry_raw(&ciphers, &needle, username, folder, ignore_case)?;
-    let decrypted_entry = decrypt_cipher(&entry)?;
+    let decrypted_entry = decrypt_cipher_batched(&entry)?;
     Ok((entry, decrypted_entry))
 }
 
@@ -2103,15 +2095,136 @@ fn find_entry_raw(
     }
 }
 
+// decrypting an entry takes one agent round trip per field, which adds up
+// fast when looking at the whole vault (e.g. finding an entry by name). to
+// batch these into a single round trip, the per-entry decryption functions
+// go through an EntryDecryptor: a recording pass first collects every
+// cipherstring they want (their control flow only depends on the entry
+// structure, never on decrypted values, so this is exact), then the whole
+// batch is decrypted with one agent request, and a replay pass hands the
+// results back out in the same order.
+trait EntryDecryptor {
+    fn decrypt(
+        &self,
+        cipherstring: &str,
+        entry_key: Option<&str>,
+        org_id: Option<&str>,
+    ) -> anyhow::Result<String>;
+}
+
+#[derive(Default)]
+struct RecordingDecryptor(
+    std::cell::RefCell<Vec<rbw::protocol::DecryptItem>>,
+);
+
+impl EntryDecryptor for RecordingDecryptor {
+    fn decrypt(
+        &self,
+        cipherstring: &str,
+        entry_key: Option<&str>,
+        org_id: Option<&str>,
+    ) -> anyhow::Result<String> {
+        self.0.borrow_mut().push(rbw::protocol::DecryptItem {
+            cipherstring: cipherstring.to_string(),
+            entry_key: entry_key.map(std::string::ToString::to_string),
+            org_id: org_id.map(std::string::ToString::to_string),
+        });
+        Ok(String::new())
+    }
+}
+
+struct ReplayingDecryptor(
+    std::cell::RefCell<std::vec::IntoIter<Result<String, String>>>,
+);
+
+impl EntryDecryptor for ReplayingDecryptor {
+    fn decrypt(
+        &self,
+        _cipherstring: &str,
+        _entry_key: Option<&str>,
+        _org_id: Option<&str>,
+    ) -> anyhow::Result<String> {
+        self.0
+            .borrow_mut()
+            .next()
+            .ok_or_else(|| {
+                anyhow::anyhow!("agent returned too few decryption results")
+            })?
+            .map_err(|e| anyhow::anyhow!("failed to decrypt: {e}"))
+    }
+}
+
+fn record_batch<T>(
+    entries: &[rbw::db::Entry],
+    each: &impl Fn(
+        &rbw::db::Entry,
+        &dyn EntryDecryptor,
+    ) -> anyhow::Result<T>,
+) -> Vec<rbw::protocol::DecryptItem> {
+    let recorder = RecordingDecryptor::default();
+    for entry in entries {
+        // the recording decryptor never fails, and these functions have no
+        // other failure modes; anything real will surface during replay
+        let _ = each(entry, &recorder);
+    }
+    recorder.0.into_inner()
+}
+
+fn replay_batch<T>(
+    entries: &[rbw::db::Entry],
+    each: &impl Fn(
+        &rbw::db::Entry,
+        &dyn EntryDecryptor,
+    ) -> anyhow::Result<T>,
+    results: Vec<Result<String, String>>,
+) -> anyhow::Result<Vec<T>> {
+    let replayer =
+        ReplayingDecryptor(std::cell::RefCell::new(results.into_iter()));
+    let decrypted = entries
+        .iter()
+        .map(|entry| each(entry, &replayer))
+        .collect::<anyhow::Result<Vec<T>>>()?;
+    if replayer.0.borrow_mut().next().is_some() {
+        return Err(anyhow::anyhow!(
+            "agent returned too many decryption results"
+        ));
+    }
+    Ok(decrypted)
+}
+
+fn batch_decrypt<T>(
+    entries: &[rbw::db::Entry],
+    each: impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
+) -> anyhow::Result<Vec<T>> {
+    let items = record_batch(entries, &each);
+    let results = if items.is_empty() {
+        vec![]
+    } else {
+        crate::actions::decrypt_many(items)?
+    };
+    replay_batch(entries, &each, results)
+}
+
+fn decrypt_cipher_batched(
+    entry: &rbw::db::Entry,
+) -> anyhow::Result<DecryptedCipher> {
+    batch_decrypt(std::slice::from_ref(entry), |entry, decryptor| {
+        decrypt_cipher(entry, decryptor)
+    })?
+    .pop()
+    .ok_or_else(|| anyhow::anyhow!("no decryption result"))
+}
+
 fn decrypt_field(
     name: Field,
     field: Option<&str>,
     entry_key: Option<&str>,
     org_id: Option<&str>,
+    decryptor: &dyn EntryDecryptor,
 ) -> Option<String> {
     let field = field
         .as_ref()
-        .map(|field| crate::actions::decrypt(field, entry_key, org_id))
+        .map(|field| decryptor.decrypt(field, entry_key, org_id))
         .transpose();
     match field {
         Ok(field) => field,
@@ -2125,10 +2238,11 @@ fn decrypt_field(
 fn decrypt_list_cipher(
     entry: &rbw::db::Entry,
     fields: &[ListField],
+    decryptor: &dyn EntryDecryptor,
 ) -> anyhow::Result<DecryptedListCipher> {
     let id = entry.id.clone();
     let name = if fields.contains(&ListField::Name) {
-        Some(crate::actions::decrypt(
+        Some(decryptor.decrypt(
             &entry.name,
             entry.key.as_deref(),
             entry.org_id.as_deref(),
@@ -2143,6 +2257,7 @@ fn decrypt_list_cipher(
                 username.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             _ => None,
         }
@@ -2155,7 +2270,7 @@ fn decrypt_list_cipher(
         entry
             .folder
             .as_ref()
-            .map(|folder| crate::actions::decrypt(folder, None, None))
+            .map(|folder| decryptor.decrypt(folder, None, None))
             .transpose()?
     } else {
         None
@@ -2170,6 +2285,7 @@ fn decrypt_list_cipher(
                             Some(&s.uri),
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
+                            decryptor,
                         )
                     })
                     .collect(),
@@ -2202,9 +2318,10 @@ fn decrypt_list_cipher(
 
 fn decrypt_search_cipher(
     entry: &rbw::db::Entry,
+    decryptor: &dyn EntryDecryptor,
 ) -> anyhow::Result<DecryptedSearchCipher> {
     let id = entry.id.clone();
-    let name = crate::actions::decrypt(
+    let name = decryptor.decrypt(
         &entry.name,
         entry.key.as_deref(),
         entry.org_id.as_deref(),
@@ -2215,6 +2332,7 @@ fn decrypt_search_cipher(
             username.as_deref(),
             entry.key.as_deref(),
             entry.org_id.as_deref(),
+            decryptor,
         ),
         _ => None,
     };
@@ -2223,13 +2341,13 @@ fn decrypt_search_cipher(
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None, None))
+        .map(|folder| decryptor.decrypt(folder, None, None))
         .transpose()?;
     let notes = entry
         .notes
         .as_ref()
         .map(|notes| {
-            crate::actions::decrypt(
+            decryptor.decrypt(
                 notes,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2244,6 +2362,7 @@ fn decrypt_search_cipher(
                     Some(&s.uri),
                     entry.key.as_deref(),
                     entry.org_id.as_deref(),
+                    decryptor,
                 )
                 .map(|uri| (uri, s.match_type))
             })
@@ -2262,7 +2381,7 @@ fn decrypt_search_cipher(
             }
         })
         .map(|value| {
-            crate::actions::decrypt(
+            decryptor.decrypt(
                 value,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2297,13 +2416,16 @@ fn decrypt_search_cipher(
     })
 }
 
-fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
+fn decrypt_cipher(
+    entry: &rbw::db::Entry,
+    decryptor: &dyn EntryDecryptor,
+) -> anyhow::Result<DecryptedCipher> {
     // folder name should always be decrypted with the local key because
     // folders are local to a specific user's vault, not the organization
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None, None))
+        .map(|folder| decryptor.decrypt(folder, None, None))
         .transpose();
     let folder = match folder {
         Ok(folder) => folder,
@@ -2321,7 +2443,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .name
                     .as_ref()
                     .map(|name| {
-                        crate::actions::decrypt(
+                        decryptor.decrypt(
                             name,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
@@ -2332,7 +2454,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .value
                     .as_ref()
                     .map(|value| {
-                        crate::actions::decrypt(
+                        decryptor.decrypt(
                             value,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
@@ -2347,7 +2469,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .notes
         .as_ref()
         .map(|notes| {
-            crate::actions::decrypt(
+            decryptor.decrypt(
                 notes,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2367,7 +2489,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .map(|history_entry| {
             Ok(DecryptedHistoryEntry {
                 last_used_date: history_entry.last_used_date.clone(),
-                password: crate::actions::decrypt(
+                password: decryptor.decrypt(
                     &history_entry.password,
                     entry.key.as_deref(),
                     entry.org_id.as_deref(),
@@ -2388,18 +2510,21 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 username.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             password: decrypt_field(
                 Field::Password,
                 password.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             totp: decrypt_field(
                 Field::Totp,
                 totp.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             uris: uris
                 .iter()
@@ -2409,6 +2534,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                         Some(&s.uri),
                         entry.key.as_deref(),
                         entry.org_id.as_deref(),
+                        decryptor,
                     )
                     .map(|uri| DecryptedUri {
                         uri,
@@ -2430,36 +2556,42 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 cardholder_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             number: decrypt_field(
                 Field::CardNumber,
                 number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             brand: decrypt_field(
                 Field::Brand,
                 brand.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             exp_month: decrypt_field(
                 Field::ExpMonth,
                 exp_month.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             exp_year: decrypt_field(
                 Field::ExpYear,
                 exp_year.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             code: decrypt_field(
                 Field::Cvv,
                 code.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
         },
         rbw::db::EntryData::Identity {
@@ -2486,102 +2618,119 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 title.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             first_name: decrypt_field(
                 Field::FirstName,
                 first_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             middle_name: decrypt_field(
                 Field::MiddleName,
                 middle_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             last_name: decrypt_field(
                 Field::LastName,
                 last_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             address1: decrypt_field(
                 Field::Address1,
                 address1.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             address2: decrypt_field(
                 Field::Address2,
                 address2.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             address3: decrypt_field(
                 Field::Address3,
                 address3.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             city: decrypt_field(
                 Field::City,
                 city.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             state: decrypt_field(
                 Field::State,
                 state.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             postal_code: decrypt_field(
                 Field::PostalCode,
                 postal_code.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             country: decrypt_field(
                 Field::Country,
                 country.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             phone: decrypt_field(
                 Field::Phone,
                 phone.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             email: decrypt_field(
                 Field::Email,
                 email.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             ssn: decrypt_field(
                 Field::Ssn,
                 ssn.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             license_number: decrypt_field(
                 Field::License,
                 license_number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             passport_number: decrypt_field(
                 Field::Passport,
                 passport_number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             username: decrypt_field(
                 Field::Username,
                 username.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
         },
         rbw::db::EntryData::SecureNote => DecryptedData::SecureNote {},
@@ -2595,18 +2744,21 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 public_key.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             fingerprint: decrypt_field(
                 Field::Fingerprint,
                 fingerprint.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             private_key: decrypt_field(
                 Field::PrivateKey,
                 private_key.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
         },
     };
@@ -2614,7 +2766,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         folder,
-        name: crate::actions::decrypt(
+        name: decryptor.decrypt(
             &entry.name,
             entry.key.as_deref(),
             entry.org_id.as_deref(),
@@ -4122,6 +4274,93 @@ mod test {
         b: &(rbw::db::Entry, DecryptedSearchCipher),
     ) -> bool {
         a.0 == b.0 && a.1 == b.1
+    }
+
+    #[test]
+    fn test_batch_decrypt_record_replay() {
+        // the recording pass and the replay pass must request exactly the
+        // same decryptions in the same order; a replay with exactly as
+        // many results as were recorded consumes all of them, and extra
+        // results are an error
+        fn check<T>(
+            entries: &[rbw::db::Entry],
+            each: impl Fn(
+                &rbw::db::Entry,
+                &dyn EntryDecryptor,
+            ) -> anyhow::Result<T>,
+        ) -> Vec<rbw::protocol::DecryptItem> {
+            let items = record_batch(entries, &each);
+            assert!(!items.is_empty());
+            let results = vec![Ok(String::new()); items.len()];
+            replay_batch(entries, &each, results).unwrap();
+            let results = vec![Ok(String::new()); items.len() + 1];
+            assert!(replay_batch(entries, &each, results).is_err());
+            items
+        }
+
+        // an entry exercising every decryption site: login with username,
+        // password, totp, uris, custom fields (text and hidden), notes,
+        // history, folder, and an individual entry key
+        let entry = rbw::db::Entry {
+            id: uuid::Uuid::new_v4().to_string(),
+            org_id: Some("org".to_string()),
+            folder: Some("encrypted folder".to_string()),
+            folder_id: None,
+            name: "encrypted name".to_string(),
+            data: rbw::db::EntryData::Login {
+                username: Some("encrypted username".to_string()),
+                password: Some("encrypted password".to_string()),
+                totp: Some("encrypted totp".to_string()),
+                uris: vec![
+                    rbw::db::Uri {
+                        uri: "encrypted uri 1".to_string(),
+                        match_type: None,
+                    },
+                    rbw::db::Uri {
+                        uri: "encrypted uri 2".to_string(),
+                        match_type: None,
+                    },
+                ],
+            },
+            fields: vec![
+                rbw::db::Field {
+                    ty: Some(rbw::api::FieldType::Text),
+                    name: Some("encrypted field name".to_string()),
+                    value: Some("encrypted field value".to_string()),
+                    linked_id: None,
+                },
+                rbw::db::Field {
+                    ty: Some(rbw::api::FieldType::Hidden),
+                    name: Some("encrypted hidden name".to_string()),
+                    value: Some("encrypted hidden value".to_string()),
+                    linked_id: None,
+                },
+            ],
+            notes: Some("encrypted notes".to_string()),
+            history: vec![rbw::db::HistoryEntry {
+                last_used_date: "2020-01-01".to_string(),
+                password: "encrypted old password".to_string(),
+            }],
+            key: Some("entry key".to_string()),
+            master_password_reprompt: rbw::api::CipherRepromptType::None,
+        };
+        let entries = vec![entry.clone(), entry];
+
+        let search_items = check(&entries, |entry, decryptor| {
+            decrypt_search_cipher(entry, decryptor)
+        });
+        // search must never ask for hidden field values (they could
+        // trigger master password reprompt)
+        assert!(!search_items
+            .iter()
+            .any(|item| item.cipherstring == "encrypted hidden value"));
+
+        check(&entries, |entry, decryptor| {
+            decrypt_cipher(entry, decryptor)
+        });
+        check(&entries, |entry, decryptor| {
+            decrypt_list_cipher(entry, &ListField::all(), decryptor)
+        });
     }
 
     fn make_entry(

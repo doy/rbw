@@ -688,6 +688,32 @@ pub async fn decrypt(
     Ok(())
 }
 
+pub async fn decrypt_many(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    items: &[rbw::protocol::DecryptItem],
+) -> anyhow::Result<()> {
+    let mut plaintexts = Vec::with_capacity(items.len());
+    for item in items {
+        plaintexts.push(
+            decrypt_cipher(
+                state.clone(),
+                environment,
+                &item.cipherstring,
+                item.entry_key.as_deref(),
+                item.org_id.as_deref(),
+            )
+            .await
+            .map_err(|e| format!("{e:#}")),
+        );
+    }
+    sock.send(&rbw::protocol::Response::DecryptMany { plaintexts })
+        .await?;
+
+    Ok(())
+}
+
 pub async fn encrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
