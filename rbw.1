@@ -1,0 +1,234 @@
+.Dd April 16, 2026
+.Dt RBW 1
+.Os
+.Sh NAME
+.Nm rbw
+.Nd unofficial command line client for Bitwarden
+.Sh SYNOPSIS
+.Nm
+.Ar command
+.Op Ar options
+.Sh DESCRIPTION
+.Nm
+is an unofficial command line client for Bitwarden.
+It runs a background agent
+.Pq rbw-agent
+that keeps the decrypted vault in memory, so you do not need to enter
+your master password for every operation.
+The agent behaves similarly to
+.Xr ssh-agent 1
+or
+.Xr gpg-agent 1 .
+.Sh COMMANDS
+.Ss Account Management
+.Bl -tag -width Ds
+.It Cm register
+Register this device with the Bitwarden server.
+Required before the first login when using the official Bitwarden server,
+to avoid bot detection.
+Use your personal API key credentials.
+.It Cm login
+Log in to the Bitwarden server.
+.It Cm unlock
+Unlock the local Bitwarden database.
+.It Cm unlocked
+Check if the local Bitwarden database is currently unlocked.
+.It Cm lock
+Lock the password database.
+.It Cm sync
+Update the local copy of the Bitwarden database from the server.
+.It Cm purge
+Remove the local copy of the password database.
+.It Cm stop-agent
+Terminate the background agent.
+.El
+.Ss Viewing Entries
+.Bl -tag -width Ds
+.It Cm list Op Fl -fields Ar fields
+List all entries in the local Bitwarden database.
+.Fl -fields
+accepts a comma-separated list of
+.Cm id ,
+.Cm name ,
+.Cm user ,
+.Cm folder ,
+.Cm type .
+Default:
+.Cm name .
+Alias:
+.Cm ls .
+.It Cm get Ar name Op Ar user
+Display the password for the given entry.
+.Op Fl -field Ar field
+prints a specific field instead of the password.
+.Op Fl -full
+also prints the notes.
+Alias:
+.Cm show .
+.It Cm search Ar term
+Search for entries whose name, username, or URI matches
+.Ar term .
+.It Cm code Ar name Op Ar user
+Display the current TOTP authenticator code for the given entry.
+Alias:
+.Cm totp .
+.It Cm history Ar name Op Ar user
+View the password history for the given entry.
+.El
+.Ss Modifying Entries
+.Bl -tag -width Ds
+.It Cm add Ar name Op Ar user
+Add a new password entry.
+Opens
+.Ev $VISUAL
+or
+.Ev $EDITOR
+to enter the password and notes.
+The first line is saved as the password; the rest as notes.
+.It Cm generate Ar len Op Ar name Op Ar user
+Generate a new random password of length
+.Ar len .
+If
+.Ar name
+is given, saves the password to the database.
+.Op Fl -no-symbols
+generates without special characters.
+.Op Fl -only-numbers
+generates a numeric password.
+.Op Fl -nonconfusables
+avoids visually similar characters.
+.Op Fl -diceware
+generates a passphrase of
+.Ar len
+words from the EFF word list.
+Alias:
+.Cm gen .
+.It Cm edit Ar name Op Ar user
+Modify an existing entry.
+Opens
+.Ev $VISUAL
+or
+.Ev $EDITOR
+with the current password and notes.
+.It Cm remove Ar name Op Ar user
+Remove an entry from the database.
+Alias:
+.Cm rm .
+.El
+.Ss Configuration
+.Bl -tag -width Ds
+.It Cm config show
+Display all current configuration settings.
+.It Cm config set Ar key Ar value
+Set a configuration option.
+Valid keys are:
+.Bl -tag -width notifications_url -compact
+.It Cm email
+Bitwarden account email address.
+.It Cm base_url
+Base URL for a self-hosted Bitwarden server.
+.It Cm identity_url
+Identity service URL (overrides
+.Cm base_url ) .
+.It Cm ui_url
+Web vault UI URL (overrides
+.Cm base_url ) .
+.It Cm notifications_url
+Notifications service URL (overrides
+.Cm base_url ) .
+.It Cm lock_timeout
+Seconds of inactivity before the agent locks the vault.
+Default:
+.Cm 3600 .
+.It Cm sync_interval
+Seconds between automatic syncs.
+Default:
+.Cm 3600 .
+Set to
+.Cm 0
+to disable.
+.It Cm pinentry
+Pinentry program to use for password prompts.
+Default:
+.Cm pinentry .
+.It Cm client_cert_path
+Path to a PEM client certificate for mutual TLS.
+.El
+.El
+.Ss Shell Completions
+.Bl -tag -width Ds
+.It Cm gen-completions Ar shell
+Print a shell completion script to stdout.
+Supported shells:
+.Cm bash ,
+.Cm zsh ,
+.Cm fish ,
+.Cm powershell ,
+.Cm elvish ,
+.Cm nushell ,
+.Cm fig .
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev VISUAL , EDITOR
+Editor used by
+.Cm add
+and
+.Cm edit
+commands.
+.It Ev RBW_AGENT
+Path to a custom
+.Xr rbw-agent 1
+binary.
+.El
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa $XDG_CONFIG_HOME/rbw/config.json
+Configuration file.
+Defaults to
+.Pa ~/.config/rbw/config.json .
+.It Pa $XDG_DATA_HOME/rbw/
+Vault data and device identifier.
+Defaults to
+.Pa ~/.local/share/rbw/ .
+.It Pa $XDG_RUNTIME_DIR/rbw/
+Agent socket and PID file.
+.El
+.Sh EXAMPLES
+Log in and unlock the vault:
+.Dl $ rbw login
+.Dl $ rbw unlock
+.Pp
+List all entries:
+.Dl $ rbw list
+.Pp
+Get the password for an entry:
+.Dl $ rbw get github.com
+.Pp
+Get the password for a specific user:
+.Dl $ rbw get github.com myuser
+.Pp
+Add a new entry:
+.Dl $ rbw add github.com myuser
+.Pp
+Generate and store a 20-character password:
+.Dl $ rbw generate 20 github.com myuser
+.Pp
+Get a TOTP code:
+.Dl $ rbw code github.com
+.Pp
+Use a self-hosted server:
+.Dl $ rbw config set base_url https://bitwarden.example.com
+.Sh SEE ALSO
+.Xr rbw-agent 1 ,
+.Xr pinentry 1 ,
+.Xr gpg-agent 1 ,
+.Xr ssh-agent 1
+.Sh AUTHORS
+.An -nosplit
+.Nm
+was written by
+.An Jesse Luehrs Aq Mt doy@tozt.net .
+.Pp
+This manual page was written by
+.An Nadzeya Hutsko Aq Mt nadzeya@debian.org .
