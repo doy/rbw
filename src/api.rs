@@ -1557,8 +1557,28 @@ impl Client {
             .form(&connect_req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
-        let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
-        Ok(connect_res.access_token)
+
+        if res.status() == reqwest::StatusCode::OK {
+            let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
+            Ok(connect_res.access_token)
+        } else {
+            let code = res.status().as_u16();
+            match res.text() {
+                Ok(body) => match body.clone().json_with_path() {
+                    Ok(json) => {
+                        Err(classify_refresh_token_error(&json, code))
+                    }
+                    Err(e) => {
+                        log::warn!("{e}: {body}");
+                        Err(Error::RequestFailed { status: code })
+                    }
+                },
+                Err(e) => {
+                    log::warn!("failed to read response body: {e}");
+                    Err(Error::RequestFailed { status: code })
+                }
+            }
+        }
     }
 
     pub async fn exchange_refresh_token_async(
@@ -1577,9 +1597,29 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
-        let connect_res: ConnectRefreshTokenRes =
-            res.json_with_path().await?;
-        Ok(connect_res.access_token)
+
+        if res.status() == reqwest::StatusCode::OK {
+            let connect_res: ConnectRefreshTokenRes =
+                res.json_with_path().await?;
+            Ok(connect_res.access_token)
+        } else {
+            let code = res.status().as_u16();
+            match res.text().await {
+                Ok(body) => match body.clone().json_with_path() {
+                    Ok(json) => {
+                        Err(classify_refresh_token_error(&json, code))
+                    }
+                    Err(e) => {
+                        log::warn!("{e}: {body}");
+                        Err(Error::RequestFailed { status: code })
+                    }
+                },
+                Err(e) => {
+                    log::warn!("failed to read response body: {e}");
+                    Err(Error::RequestFailed { status: code })
+                }
+            }
+        }
     }
 
     fn api_url(&self, path: &str) -> String {
@@ -1765,4 +1805,102 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+fn classify_refresh_token_error(
+    error_res: &ConnectErrorRes,
+    code: u16,
+) -> Error {
+    match error_res.error.as_str() {
+        "invalid_grant" => Error::RefreshTokenInvalid,
+        "invalid_client" => Error::IncorrectApiKey,
+        _ => {
+            log::warn!(
+                "unexpected error received during token refresh: {error_res:?}"
+            );
+            Error::RequestFailed { status: code }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read as _, Write as _};
+
+    fn spawn_mock_identity(body: &'static str, status: u16) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                let n = stream.read(&mut chunk).unwrap();
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let resp = format!(
+                "HTTP/1.1 {status} X\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\r\n\
+                 {body}",
+                body.len()
+            );
+            stream.write_all(resp.as_bytes()).unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    #[test]
+    fn classify_invalid_grant() {
+        let res = ConnectErrorRes {
+            error: "invalid_grant".into(),
+            error_description: None,
+            error_model: None,
+            two_factor_providers: None,
+            sso_email_2fa_session_token: None,
+        };
+        assert!(matches!(
+            classify_refresh_token_error(&res, 400),
+            Error::RefreshTokenInvalid
+        ));
+    }
+
+    #[test]
+    fn classify_invalid_client() {
+        let res = ConnectErrorRes {
+            error: "invalid_client".into(),
+            error_description: None,
+            error_model: None,
+            two_factor_providers: None,
+            sso_email_2fa_session_token: None,
+        };
+        assert!(matches!(
+            classify_refresh_token_error(&res, 400),
+            Error::IncorrectApiKey
+        ));
+    }
+
+    #[tokio::test]
+    async fn refresh_rejects_invalid_grant() {
+        let url = spawn_mock_identity(r#"{"error":"invalid_grant"}"#, 400);
+        let client = Client::new("http://127.0.0.1", &url, "", None);
+        let res = client.exchange_refresh_token_async("bogus").await;
+        assert!(matches!(res, Err(Error::RefreshTokenInvalid)));
+    }
+
+    #[tokio::test]
+    async fn refresh_success_path() {
+        let url = spawn_mock_identity(r#"{"access_token":"new-token"}"#, 200);
+        let client = Client::new("http://127.0.0.1", &url, "", None);
+        let res = client.exchange_refresh_token_async("bogus").await;
+        assert_eq!(res.unwrap(), "new-token");
+    }
 }

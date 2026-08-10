@@ -172,6 +172,11 @@ pub enum Error {
     #[error("This device has not yet been registered with the Bitwarden server. Run `rbw register` first, and then try again.")]
     RegistrationRequired,
 
+    #[error(
+        "refresh token is invalid or has been revoked (the master password may have been changed); run `rbw purge` and then `rbw login` to re-authenticate"
+    )]
+    RefreshTokenInvalid,
+
     #[error("failed to remove db at {}", .file.display())]
     RemoveDb {
         source: std::io::Error,
