@@ -175,3 +175,4 @@ with a supported mechanism, and use other clients with you preferred
 * [rbw-menu](https://github.com/rbuchberger/rbw-menu): Tiny menu picker for rbw
 * [ulauncher-rbw](https://0xacab.org/varac-projects/ulauncher-rbw): [Ulauncher](https://ulauncher.io/) rbw extension
 * [fuzzel-rbw](https://github.com/sammhansen/fuzzel-rbw): A fuzzel frontend for Bitwarden
+* [vicinae-rbw](https://github.com/vicinaehq/extensions/tree/main/extensions/bitwarden): [Vicinae](https://www.vicinae.com/) rbw extension
