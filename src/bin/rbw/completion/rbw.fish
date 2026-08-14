@@ -52,9 +52,14 @@ end
 
 function __fish_rbw_get_completion_fields
     set -l cmd (commandline -xpc)
+    set -l token (commandline -xpt)
     set -e cmd[1] # rbw
-    if test -z "$(commandline -xpt)"
+    if test -z "$token"
         set -e cmd[-1] # -f/--field
+    else if not string match -q -- '-*' "$token"
+        # commandline -xpc excludes the token currently being completed,
+        # so feed it back to argparse as the --field value
+        set -a cmd $token
     end
 
     argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
