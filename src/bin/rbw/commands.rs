@@ -2081,6 +2081,20 @@ fn edit_field(
             *totp = new_value.as_deref().map(encrypt).transpose()?;
         }
         (Some(Field::Uris), rbw::db::EntryData::Login { uris, .. }) => {
+            let old_match =
+                if let DecryptedData::Login { uris: old, .. } =
+                    &decrypted.data
+                {
+                    old.as_ref()
+                        .map(|uris| {
+                            uris.iter()
+                                .map(|u| (u.uri.clone(), u.match_type))
+                                .collect::<std::collections::HashMap<_, _>>()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    std::collections::HashMap::new()
+                };
             *uris = new_value
                 .map(|value| {
                     value
@@ -2088,7 +2102,10 @@ fn edit_field(
                         .map(|uri| {
                             Ok(rbw::db::Uri {
                                 uri: encrypt(uri)?,
-                                match_type: None,
+                                match_type: old_match
+                                    .get(uri)
+                                    .copied()
+                                    .flatten(),
                             })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()
