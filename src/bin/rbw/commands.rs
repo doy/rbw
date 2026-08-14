@@ -1812,6 +1812,7 @@ pub fn edit(
     name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
+    field: Option<&str>,
     ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
@@ -1836,11 +1837,46 @@ pub fn edit(
         find_entry(&db, name, username, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
+    let (name, data, fields, notes, history) = if let Some(field) = field {
+        edit_field(&entry, &decrypted, field)?
+    } else {
+        edit_default(&entry, &decrypted)?
+    };
+
+    rbw::actions::edit(
+        access_token,
+        refresh_token,
+        &user_id,
+        &entry.id,
+        entry.org_id.as_deref(),
+        &name,
+        &data,
+        &fields,
+        notes.as_deref(),
+        entry.folder_id.as_deref(),
+        &history,
+        entry.key.as_deref(),
+    )?;
+
+    crate::actions::sync()?;
+    Ok(())
+}
+
+fn edit_default(
+    entry: &rbw::db::Entry,
+    decrypted: &DecryptedCipher,
+) -> anyhow::Result<(
+    String,
+    rbw::db::EntryData,
+    Vec<rbw::db::Field>,
+    Option<String>,
+    Vec<rbw::db::HistoryEntry>,
+)> {
     let (data, fields, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
             let mut contents =
                 format!("{}\n", password.as_deref().unwrap_or(""));
-            if let Some(notes) = decrypted.notes {
+            if let Some(notes) = decrypted.notes.clone() {
                 write!(contents, "\n{notes}\n").unwrap();
             }
 
@@ -1892,12 +1928,12 @@ pub fn edit(
                 uris: entry_uris.clone(),
                 totp: entry_totp.clone(),
             };
-            (data, entry.fields, notes, history)
+            (data, entry.fields.clone(), notes, history)
         }
         DecryptedData::SecureNote => {
             let data = rbw::db::EntryData::SecureNote {};
 
-            let editor_content = decrypted.notes.map_or_else(
+            let editor_content = decrypted.notes.clone().map_or_else(
                 || "\n".to_string(),
                 |notes| format!("{notes}\n"),
             );
@@ -1916,7 +1952,7 @@ pub fn edit(
                 })
                 .transpose()?;
 
-            (data, entry.fields, notes, entry.history)
+            (data, entry.fields.clone(), notes, entry.history.clone())
         }
         _ => {
             return Err(anyhow::anyhow!(
@@ -1924,25 +1960,206 @@ pub fn edit(
             ));
         }
     };
-
-    rbw::actions::edit(
-        access_token,
-        refresh_token,
-        &user_id,
-        &entry.id,
-        entry.org_id.as_deref(),
-        &entry.name,
-        &data,
-        &fields,
-        notes.as_deref(),
-        entry.folder_id.as_deref(),
-        &history,
-        entry.key.as_deref(),
-    )?;
-
-    crate::actions::sync()?;
-    Ok(())
+    Ok((entry.name.clone(), data, fields, notes, history))
 }
+
+fn edit_field(
+    entry: &rbw::db::Entry,
+    decrypted: &DecryptedCipher,
+    field: &str,
+) -> anyhow::Result<(
+    String,
+    rbw::db::EntryData,
+    Vec<rbw::db::Field>,
+    Option<String>,
+    Vec<rbw::db::HistoryEntry>,
+)> {
+    let encrypt = |plain: &str| {
+        crate::actions::encrypt(
+            plain,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )
+    };
+
+    let field_name = field.to_lowercase();
+    let parsed = field_name.parse::<Field>().ok();
+
+    let current = match (&parsed, &decrypted.data) {
+        (Some(Field::Name), _) => Some(decrypted.name.clone()),
+        (Some(Field::Notes), _) => decrypted.notes.clone(),
+        (Some(Field::Username), DecryptedData::Login { username, .. }) => {
+            username.clone()
+        }
+        (Some(Field::Password), DecryptedData::Login { password, .. }) => {
+            password.clone()
+        }
+        (Some(Field::Totp), DecryptedData::Login { totp, .. }) => {
+            totp.clone()
+        }
+        (Some(Field::Uris), DecryptedData::Login { uris, .. }) => {
+            uris.as_ref().map(|uris| {
+                uris.iter()
+                    .map(|u| u.uri.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+        }
+        (_, _) => decrypted
+            .fields
+            .iter()
+            .find(|f| {
+                f.name
+                    .as_deref()
+                    .is_some_and(|n| n.to_lowercase().contains(&field_name))
+            })
+            .and_then(|f| f.value.clone()),
+    };
+
+    let contents = rbw::edit::edit(
+        &format!("{}\n", current.as_deref().unwrap_or("")),
+        HELP_FIELD,
+    )?;
+    let new_value = parse_field_value(&contents);
+
+    let mut history = entry.history.clone();
+    let mut data = entry.data.clone();
+
+    match (&parsed, &mut data) {
+        (Some(Field::Name), _) => {
+            let name = new_value
+                .as_deref()
+                .map(encrypt)
+                .transpose()?
+                .unwrap_or_default();
+            return Ok((
+                name,
+                data,
+                entry.fields.clone(),
+                entry.notes.clone(),
+                history,
+            ));
+        }
+        (Some(Field::Notes), _) => {
+            let notes = new_value.as_deref().map(encrypt).transpose()?;
+            return Ok((
+                entry.name.clone(),
+                data,
+                entry.fields.clone(),
+                notes,
+                history,
+            ));
+        }
+        (
+            Some(Field::Password),
+            rbw::db::EntryData::Login {
+                password: entry_password,
+                ..
+            },
+        ) => {
+            if let Some(prev_password) = entry_password.clone() {
+                history.insert(
+                    0,
+                    rbw::db::HistoryEntry {
+                        last_used_date: format_rfc3339(
+                            std::time::SystemTime::now(),
+                        ),
+                        password: prev_password,
+                    },
+                );
+            }
+            *entry_password =
+                new_value.as_deref().map(encrypt).transpose()?;
+        }
+        (
+            Some(Field::Username),
+            rbw::db::EntryData::Login { username, .. },
+        ) => {
+            *username = new_value.as_deref().map(encrypt).transpose()?;
+        }
+        (Some(Field::Totp), rbw::db::EntryData::Login { totp, .. }) => {
+            *totp = new_value.as_deref().map(encrypt).transpose()?;
+        }
+        (Some(Field::Uris), rbw::db::EntryData::Login { uris, .. }) => {
+            *uris = new_value
+                .map(|value| {
+                    value
+                        .lines()
+                        .map(|uri| {
+                            Ok(rbw::db::Uri {
+                                uri: encrypt(uri)?,
+                                match_type: None,
+                            })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+        }
+        (Some(_), _) => {
+            anyhow::bail!(
+                "field '{field}' is not available for this entry type"
+            );
+        }
+        (None, _) => {
+            let mut fields = entry.fields.clone();
+            let mut matched = false;
+            for f in &mut fields {
+                if f.name
+                    .as_deref()
+                    .is_some_and(|n| n.to_lowercase().contains(&field_name))
+                {
+                    f.value =
+                        new_value.as_deref().map(encrypt).transpose()?;
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                anyhow::bail!("no field named '{field}' found on this entry");
+            }
+            return Ok((
+                entry.name.clone(),
+                data,
+                fields,
+                entry.notes.clone(),
+                history,
+            ));
+        }
+    }
+
+    Ok((
+        entry.name.clone(),
+        data,
+        entry.fields.clone(),
+        entry.notes.clone(),
+        history,
+    ))
+}
+
+fn parse_field_value(contents: &str) -> Option<String> {
+    let mut value = contents
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .fold(String::new(), |mut acc, line| {
+            acc.push_str(line);
+            acc.push('\n');
+            acc
+        });
+    while value.ends_with('\n') {
+        value.pop();
+    }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+const HELP_FIELD: &str = r"
+# The content of this file will be saved as the new field value.
+# Lines with leading # will be ignored.
+";
 
 pub fn remove(
     name: Needle,
@@ -3134,6 +3351,21 @@ mod test {
             err.to_string(),
             "custom field 'a' is given more than once"
         );
+    }
+
+    #[test]
+    fn test_parse_field_value() {
+        assert_eq!(parse_field_value("hello\n"), Some("hello".into()));
+        assert_eq!(
+            parse_field_value("line1\nline2\n"),
+            Some("line1\nline2".into())
+        );
+        assert_eq!(
+            parse_field_value("# comment\nvalue\n"),
+            Some("value".into())
+        );
+        assert_eq!(parse_field_value("\n# nothing\n"), None);
+        assert_eq!(parse_field_value(""), None);
     }
 
     #[test]
