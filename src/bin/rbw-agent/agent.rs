@@ -162,12 +162,17 @@ async fn handle_request(
             .await?;
             true
         }
-        rbw::protocol::Action::Encrypt { plaintext, org_id } => {
+        rbw::protocol::Action::Encrypt {
+            plaintext,
+            org_id,
+            entry_key,
+        } => {
             crate::actions::encrypt(
                 sock,
                 state.clone(),
                 plaintext,
                 org_id.as_deref(),
+                entry_key.as_deref(),
             )
             .await?;
             true
