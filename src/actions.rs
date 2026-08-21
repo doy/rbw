@@ -204,6 +204,7 @@ pub fn edit(
     notes: Option<&str>,
     folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
+    key: Option<&str>,
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
         edit_once(
@@ -216,6 +217,7 @@ pub fn edit(
             notes,
             folder_uuid,
             history,
+            key,
         )
     })
 }
@@ -230,6 +232,7 @@ fn edit_once(
     notes: Option<&str>,
     folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
+    key: Option<&str>,
 ) -> Result<()> {
     let (client, _) = api_client()?;
     client.edit(
@@ -242,6 +245,7 @@ fn edit_once(
         notes,
         folder_uuid,
         history,
+        key,
     )?;
     Ok(())
 }

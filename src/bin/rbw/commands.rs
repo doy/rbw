@@ -1569,26 +1569,26 @@ pub fn add(
     let mut access_token = db.access_token.as_ref().unwrap().clone();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
-    let name = crate::actions::encrypt(name, None)?;
+    let name = crate::actions::encrypt(name, None, None)?;
 
     let username = username
-        .map(|username| crate::actions::encrypt(username, None))
+        .map(|username| crate::actions::encrypt(username, None, None))
         .transpose()?;
 
     let contents = rbw::edit::edit("", HELP_PW)?;
 
     let (password, notes) = parse_editor(&contents);
     let password = password
-        .map(|password| crate::actions::encrypt(&password, None))
+        .map(|password| crate::actions::encrypt(&password, None, None))
         .transpose()?;
     let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes, None))
+        .map(|notes| crate::actions::encrypt(&notes, None, None))
         .transpose()?;
     let uris: Vec<_> = uris
         .iter()
         .map(|uri| {
             Ok(rbw::db::Uri {
-                uri: crate::actions::encrypt(&uri.0, None)?,
+                uri: crate::actions::encrypt(&uri.0, None, None)?,
                 match_type: uri.1,
             })
         })
@@ -1621,7 +1621,7 @@ pub fn add(
             let (new_access_token, id) = rbw::actions::create_folder(
                 &access_token,
                 refresh_token,
-                &crate::actions::encrypt(folder_name, None)?,
+                &crate::actions::encrypt(folder_name, None, None)?,
             )?;
             if let Some(new_access_token) = new_access_token {
                 access_token.clone_from(&new_access_token);
@@ -1674,16 +1674,16 @@ pub fn generate(
         let mut access_token = db.access_token.as_ref().unwrap().clone();
         let refresh_token = db.refresh_token.as_ref().unwrap();
 
-        let name = crate::actions::encrypt(name, None)?;
+        let name = crate::actions::encrypt(name, None, None)?;
         let username = username
-            .map(|username| crate::actions::encrypt(username, None))
+            .map(|username| crate::actions::encrypt(username, None, None))
             .transpose()?;
-        let password = crate::actions::encrypt(&password, None)?;
+        let password = crate::actions::encrypt(&password, None, None)?;
         let uris: Vec<_> = uris
             .iter()
             .map(|uri| {
                 Ok(rbw::db::Uri {
-                    uri: crate::actions::encrypt(&uri.0, None)?,
+                    uri: crate::actions::encrypt(&uri.0, None, None)?,
                     match_type: uri.1,
                 })
             })
@@ -1716,7 +1716,7 @@ pub fn generate(
                 let (new_access_token, id) = rbw::actions::create_folder(
                     &access_token,
                     refresh_token,
-                    &crate::actions::encrypt(folder_name, None)?,
+                    &crate::actions::encrypt(folder_name, None, None)?,
                 )?;
                 if let Some(new_access_token) = new_access_token {
                     access_token.clone_from(&new_access_token);
@@ -1787,13 +1787,18 @@ pub fn edit(
                 .map(|password| {
                     crate::actions::encrypt(
                         &password,
+                        entry.key.as_deref(),
                         entry.org_id.as_deref(),
                     )
                 })
                 .transpose()?;
             let notes = notes
                 .map(|notes| {
-                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
+                    crate::actions::encrypt(
+                        &notes,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    )
                 })
                 .transpose()?;
             let mut history = entry.history.clone();
@@ -1842,7 +1847,11 @@ pub fn edit(
 
             let notes = notes
                 .map(|notes| {
-                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
+                    crate::actions::encrypt(
+                        &notes,
+                        entry.key.as_deref(),
+                        entry.org_id.as_deref(),
+                    )
                 })
                 .transpose()?;
 
@@ -1866,6 +1875,7 @@ pub fn edit(
         notes.as_deref(),
         entry.folder_id.as_deref(),
         &history,
+        entry.key.as_deref(),
     )? {
         db.access_token = Some(access_token);
         save_db(&db)?;
