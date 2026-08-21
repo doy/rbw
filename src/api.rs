@@ -780,6 +780,7 @@ struct CiphersPutReq {
     secure_note: Option<CipherSecureNote>,
     #[serde(rename = "passwordHistory")]
     password_history: Vec<CiphersPutReqHistory>,
+    key: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -1328,6 +1329,7 @@ impl Client {
         notes: Option<&str>,
         folder_uuid: Option<&str>,
         history: &[crate::db::HistoryEntry],
+        key: Option<&str>,
     ) -> Result<()> {
         let mut req = CiphersPutReq {
             ty: match data {
@@ -1361,6 +1363,7 @@ impl Client {
                     password: entry.password.clone(),
                 })
                 .collect(),
+            key: key.map(std::string::ToString::to_string),
         };
         match data {
             crate::db::EntryData::Login {
