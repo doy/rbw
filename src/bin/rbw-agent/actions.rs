@@ -692,6 +692,7 @@ pub async fn encrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     plaintext: &str,
+    entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.lock().await;
@@ -700,8 +701,20 @@ pub async fn encrypt(
             "failed to find encryption keys in in-memory state"
         ));
     };
+    let entry_keys = if let Some(entry_key) = entry_key {
+        let key_cipherstring =
+            rbw::cipherstring::CipherString::new(entry_key)
+                .context("failed to parse individual item encryption key")?;
+        Some(rbw::locked::Keys::new(
+            key_cipherstring.decrypt_locked_symmetric(keys).context(
+                "failed to decrypt individual item encryption key",
+            )?,
+        ))
+    } else {
+        None
+    };
     let cipherstring = rbw::cipherstring::CipherString::encrypt_symmetric(
-        keys,
+        entry_keys.as_ref().unwrap_or(keys),
         plaintext.as_bytes(),
     )
     .context("failed to encrypt plaintext secret")?;
