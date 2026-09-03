@@ -3539,17 +3539,21 @@ fn generate_totp_at(
     let alg = totp_params.algorithm.as_str();
 
     match alg {
-        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::TOTP::new_unchecked(
-            generate_totp_algorithm_type(alg)?,
-            totp_params.digits,
-            1, // the library docs say this should be a 1
-            totp_params.period,
-            totp_params.secret,
-        )
-        .generate(time)),
-        "STEAM" => {
-            Ok(totp_rs::TOTP::new_steam(totp_params.secret).generate(time))
-        }
+        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::Builder::new()
+            .with_algorithm(generate_totp_algorithm_type(alg)?)
+            .with_digits(totp_params.digits.try_into().unwrap())
+            .with_skew(1) // the library docs say this should be a 1
+            .with_step_duration(totp_params.period)
+            .with_secret(totp_params.secret)
+            .build_noncompliant()
+            .generate(time)
+            .to_string()),
+        "STEAM" => Ok(totp_rs::Builder::new_steam()
+            .with_secret(totp_params.secret)
+            .build()
+            .unwrap()
+            .generate(time)
+            .to_string()),
         _ => Err(anyhow::anyhow!(format!(
             "{alg} is not a valid totp algorithm"
         ))),
