@@ -1,5 +1,18 @@
 use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 
+/// Increment when the client/agent JSON protocol changes, even if the
+/// crate version does not.
+///
+/// serde ignores unknown `Action` fields. A leftover 1.15.0 agent would
+/// therefore accept `Encrypt` without `entry_key`, encrypt with the
+/// user/org key, and the new CLI would PUT that ciphertext while still
+/// sending the item `key` — mixed-key corruption. `ensure_agent()`
+/// compares [`VERSION`] and restarts the agent on mismatch, so this
+/// revision is the fail-closed gate. Do not rely on bumping Cargo.toml
+/// alone: the crate-version term below collides for some triples
+/// (1.15.1 and 1.16.0 both add to `17_000_000`).
+pub const PROTOCOL_REVISION: u32 = 1;
+
 pub const VERSION: u32 = {
     const fn unwrap(res: &Result<u32, std::num::ParseIntError>) -> u32 {
         match res {
@@ -15,6 +28,7 @@ pub const VERSION: u32 = {
     unwrap(&u32::from_str_radix(major, 10)) * 1_000_000
         + unwrap(&u32::from_str_radix(minor, 10)) * 1_000_000
         + unwrap(&u32::from_str_radix(patch, 10)) * 1_000_000
+        + PROTOCOL_REVISION
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -181,6 +195,9 @@ pub enum Action {
     },
     Encrypt {
         plaintext: String,
+        // Bump PROTOCOL_REVISION when this shape changes. Unknown fields
+        // are ignored, so an old agent would encrypt without this key.
+        entry_key: Option<String>,
         org_id: Option<String>,
     },
     ClipboardStore {
@@ -198,4 +215,53 @@ pub enum Response {
     Decrypt { plaintext: String },
     Encrypt { cipherstring: String },
     Version { version: u32 },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_includes_protocol_revision() {
+        assert_eq!(VERSION % 1_000_000, PROTOCOL_REVISION);
+    }
+
+    #[test]
+    fn encrypt_action_accepts_legacy_json_without_entry_key() {
+        let action: Action = serde_json::from_str(
+            r#"{"type":"Encrypt","plaintext":"p","org_id":null}"#,
+        )
+        .unwrap();
+        match action {
+            Action::Encrypt {
+                plaintext,
+                entry_key,
+                org_id,
+            } => {
+                assert_eq!(plaintext, "p");
+                assert!(entry_key.is_none());
+                assert!(org_id.is_none());
+            }
+            _ => panic!("expected Encrypt"),
+        }
+    }
+
+    #[test]
+    fn encrypt_action_roundtrips_entry_key() {
+        let action = Action::Encrypt {
+            plaintext: "p".into(),
+            entry_key: Some("k".into()),
+            org_id: None,
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("entry_key"));
+        let back: Action = serde_json::from_str(&json).unwrap();
+        match back {
+            Action::Encrypt {
+                entry_key: Some(key),
+                ..
+            } => assert_eq!(key, "k"),
+            other => panic!("expected Encrypt with key, got {other:?}"),
+        }
+    }
 }

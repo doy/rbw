@@ -193,7 +193,7 @@ fn add_once(
     Ok(())
 }
 
-pub fn edit(
+pub fn edit_with_meta(
     access_token: &str,
     refresh_token: &str,
     id: &str,
@@ -204,6 +204,7 @@ pub fn edit(
     notes: Option<&str>,
     folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
+    meta: &crate::db::CipherWriteMeta<'_>,
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
         edit_once(
@@ -216,6 +217,7 @@ pub fn edit(
             notes,
             folder_uuid,
             history,
+            meta,
         )
     })
 }
@@ -230,9 +232,10 @@ fn edit_once(
     notes: Option<&str>,
     folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
+    meta: &crate::db::CipherWriteMeta<'_>,
 ) -> Result<()> {
     let (client, _) = api_client()?;
-    client.edit(
+    client.edit_with_meta(
         access_token,
         id,
         org_id,
@@ -242,6 +245,7 @@ fn edit_once(
         notes,
         folder_uuid,
         history,
+        meta,
     )?;
     Ok(())
 }

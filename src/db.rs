@@ -19,11 +19,52 @@ pub struct Entry {
     pub history: Vec<HistoryEntry>,
     pub key: Option<String>,
     pub master_password_reprompt: crate::api::CipherRepromptType,
+    // Official Bitwarden PUT maps omitted bool/enum/date fields to
+    // defaults (favorite=false, reprompt=None, archivedDate=null) via
+    // CipherRequestModel.ToCipherDetails(existingCipher). Persist what
+    // sync gave us so a field-only edit does not clobber them.
+    //
+    // `serde(default)` is only for reading a 1.15.0 on-disk cache.
+    // Those defaults are not server truth — `edit` syncs before
+    // resolving the selector so the first PUT after upgrade does not
+    // unfavorite/unarchive.
+    //
+    // Adding these fields is a Rust source break for downstream struct
+    // literals. JSON load stays compatible. Cipher PUTs go through
+    // `edit_with_meta`; the 1.15 `edit` signatures are gone because
+    // they omitted `key` and reset favorite/archive.
+    #[serde(default)]
+    pub favorite: bool,
+    #[serde(default)]
+    pub archived_date: Option<String>,
+    #[serde(default)]
+    pub revision_date: Option<String>,
+}
+
+/// PUT metadata copied from a post-sync `Entry`. Prefer this over
+/// scattering more positional arguments; tests can lock the mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CipherWriteMeta<'a> {
+    pub key: Option<&'a str>,
+    pub reprompt: crate::api::CipherRepromptType,
+    pub favorite: bool,
+    pub archived_date: Option<&'a str>,
+    pub last_known_revision_date: Option<&'a str>,
 }
 
 impl Entry {
     pub fn master_password_reprompt(&self) -> bool {
         self.master_password_reprompt != crate::api::CipherRepromptType::None
+    }
+
+    pub fn cipher_write_meta(&self) -> CipherWriteMeta<'_> {
+        CipherWriteMeta {
+            key: self.key.as_deref(),
+            reprompt: self.master_password_reprompt,
+            favorite: self.favorite,
+            archived_date: self.archived_date.as_deref(),
+            last_known_revision_date: self.revision_date.as_deref(),
+        }
     }
 }
 
@@ -312,5 +353,57 @@ impl Db {
             || self.iterations.is_none()
             || self.kdf.is_none()
             || self.protected_key.is_none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_entry() -> Entry {
+        Entry {
+            id: "id".into(),
+            org_id: None,
+            folder: None,
+            folder_id: None,
+            name: "enc".into(),
+            data: EntryData::SecureNote,
+            fields: vec![],
+            notes: None,
+            history: vec![],
+            key: Some("item-key".into()),
+            master_password_reprompt:
+                crate::api::CipherRepromptType::Password,
+            favorite: true,
+            archived_date: Some("2026-01-01T00:00:00Z".into()),
+            revision_date: Some("2026-02-01T00:00:00Z".into()),
+        }
+    }
+
+    #[test]
+    fn cipher_write_meta_uses_entry_values_not_defaults() {
+        let entry = sample_entry();
+        let meta = entry.cipher_write_meta();
+        assert_eq!(meta.key, Some("item-key"));
+        assert_eq!(meta.reprompt, crate::api::CipherRepromptType::Password);
+        assert!(meta.favorite);
+        assert_eq!(meta.archived_date, Some("2026-01-01T00:00:00Z"));
+        assert_eq!(
+            meta.last_known_revision_date,
+            Some("2026-02-01T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn old_cache_json_defaults_are_not_server_truth() {
+        let mut value = serde_json::to_value(sample_entry()).unwrap();
+        let obj = value.as_object_mut().unwrap();
+        obj.remove("favorite");
+        obj.remove("archived_date");
+        obj.remove("revision_date");
+        let entry: Entry = serde_json::from_value(value).unwrap();
+        assert!(!entry.favorite);
+        assert!(entry.archived_date.is_none());
+        assert!(entry.revision_date.is_none());
     }
 }

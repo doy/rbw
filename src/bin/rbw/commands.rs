@@ -1227,6 +1227,37 @@ const HELP_NOTES: &str = r"
 # Lines with leading # will be ignored.
 ";
 
+fn unique_help_markers(current: &str) -> (String, String) {
+    use rand::distr::SampleString as _;
+    loop {
+        let nonce =
+            rand::distr::Alphanumeric.sample_string(&mut rand::rng(), 16);
+        let start = format!("# --- rbw field help start {nonce} ---");
+        let end = format!("# --- rbw field help end {nonce} ---");
+        if !current.contains(&start) && !current.contains(&end) {
+            return (start, end);
+        }
+    }
+}
+
+const HELP_BODY: &str =
+    "# The content of this file will be stored as the custom field value.\n\
+     # Empty values are refused.";
+const HELP_BODY_BOOLEAN: &str =
+    "# Enter true or false (nothing else).\n# Empty values are refused.";
+
+fn help_body(boolean: bool) -> &'static str {
+    if boolean {
+        HELP_BODY_BOOLEAN
+    } else {
+        HELP_BODY
+    }
+}
+
+fn field_help(boolean: bool, start: &str, end: &str) -> String {
+    format!("\n{start}\n{}\n{end}\n", help_body(boolean))
+}
+
 pub fn config_show() -> anyhow::Result<()> {
     let config = rbw::config::Config::load()?;
     serde_json::to_writer_pretty(std::io::stdout(), &config)
@@ -1394,6 +1425,7 @@ pub fn get(
     clipboard: bool,
     ignore_case: bool,
     list_fields: bool,
+    list_custom_fields: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1404,6 +1436,15 @@ pub fn get(
         user.map_or_else(String::new, |s| format!("{s}@")),
         needle
     );
+
+    if list_custom_fields {
+        // Names only: decrypting hidden *values* would master-password
+        // reprompt, which is hostile for fish `edit --field` completion.
+        let entry = find_db_entry(&db, needle, user, folder, ignore_case)
+            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+        print_editable_custom_field_names(&entry)?;
+        return Ok(());
+    }
 
     let (_, decrypted) =
         find_entry(&db, needle, user, folder, ignore_case)
@@ -1566,29 +1607,51 @@ pub fn add(
     let mut db = load_db()?;
     // unwrap is safe here because the call to unlock above is guaranteed to
     // populate these or error
-    let mut access_token = db.access_token.as_ref().unwrap().clone();
-    let refresh_token = db.refresh_token.as_ref().unwrap();
 
-    let name = crate::actions::encrypt(name, None)?;
+    let encrypted_name = crate::actions::encrypt(name, None, None)?;
 
-    let username = username
-        .map(|username| crate::actions::encrypt(username, None))
+    let encrypted_username = username
+        .map(|username| crate::actions::encrypt(username, None, None))
         .transpose()?;
 
-    let contents = rbw::edit::edit("", HELP_PW)?;
+    let (contents, source) = rbw::edit::edit_from("", HELP_PW)?;
+    after_editor(
+        source,
+        &contents,
+        add_after_editor(
+            &mut db,
+            &encrypted_name,
+            encrypted_username,
+            uris,
+            folder,
+            &contents,
+        ),
+    )
+}
 
-    let (password, notes) = parse_editor(&contents);
+fn add_after_editor(
+    db: &mut rbw::db::Db,
+    encrypted_name: &str,
+    encrypted_username: Option<String>,
+    uris: &[(String, Option<rbw::api::UriMatchType>)],
+    folder: Option<&str>,
+    contents: &str,
+) -> anyhow::Result<()> {
+    let mut access_token = db.access_token.as_ref().unwrap().clone();
+    let refresh_token = db.refresh_token.as_ref().unwrap().clone();
+
+    let (password, notes) = parse_editor(contents);
     let password = password
-        .map(|password| crate::actions::encrypt(&password, None))
+        .map(|password| crate::actions::encrypt(&password, None, None))
         .transpose()?;
     let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes, None))
+        .map(|notes| crate::actions::encrypt(&notes, None, None))
         .transpose()?;
     let uris: Vec<_> = uris
         .iter()
         .map(|uri| {
             Ok(rbw::db::Uri {
-                uri: crate::actions::encrypt(&uri.0, None)?,
+                uri: crate::actions::encrypt(&uri.0, None, None)?,
                 match_type: uri.1,
             })
         })
@@ -1597,11 +1660,11 @@ pub fn add(
     let mut folder_id = None;
     if let Some(folder_name) = folder {
         let (new_access_token, folders) =
-            rbw::actions::list_folders(&access_token, refresh_token)?;
+            rbw::actions::list_folders(&access_token, &refresh_token)?;
         if let Some(new_access_token) = new_access_token {
             access_token.clone_from(&new_access_token);
             db.access_token = Some(new_access_token);
-            save_db(&db)?;
+            save_db(db)?;
         }
 
         let folders: Vec<(String, String)> = folders
@@ -1620,38 +1683,32 @@ pub fn add(
         if folder_id.is_none() {
             let (new_access_token, id) = rbw::actions::create_folder(
                 &access_token,
-                refresh_token,
-                &crate::actions::encrypt(folder_name, None)?,
+                &refresh_token,
+                &crate::actions::encrypt(folder_name, None, None)?,
             )?;
             if let Some(new_access_token) = new_access_token {
                 access_token.clone_from(&new_access_token);
                 db.access_token = Some(new_access_token);
-                save_db(&db)?;
+                save_db(db)?;
             }
             folder_id = Some(id);
         }
     }
 
-    if let (Some(access_token), ()) = rbw::actions::add(
+    let (new_token, ()) = rbw::actions::add(
         &access_token,
-        refresh_token,
-        &name,
+        &refresh_token,
+        encrypted_name,
         &rbw::db::EntryData::Login {
-            username,
+            username: encrypted_username,
             password,
             uris,
             totp: None,
         },
         notes.as_deref(),
         folder_id.as_deref(),
-    )? {
-        db.access_token = Some(access_token);
-        save_db(&db)?;
-    }
-
-    crate::actions::sync()?;
-
-    Ok(())
+    )?;
+    after_server_write(db, new_token)
 }
 
 pub fn generate(
@@ -1674,16 +1731,16 @@ pub fn generate(
         let mut access_token = db.access_token.as_ref().unwrap().clone();
         let refresh_token = db.refresh_token.as_ref().unwrap();
 
-        let name = crate::actions::encrypt(name, None)?;
+        let name = crate::actions::encrypt(name, None, None)?;
         let username = username
-            .map(|username| crate::actions::encrypt(username, None))
+            .map(|username| crate::actions::encrypt(username, None, None))
             .transpose()?;
-        let password = crate::actions::encrypt(&password, None)?;
+        let password = crate::actions::encrypt(&password, None, None)?;
         let uris: Vec<_> = uris
             .iter()
             .map(|uri| {
                 Ok(rbw::db::Uri {
-                    uri: crate::actions::encrypt(&uri.0, None)?,
+                    uri: crate::actions::encrypt(&uri.0, None, None)?,
                     match_type: uri.1,
                 })
             })
@@ -1716,7 +1773,7 @@ pub fn generate(
                 let (new_access_token, id) = rbw::actions::create_folder(
                     &access_token,
                     refresh_token,
-                    &crate::actions::encrypt(folder_name, None)?,
+                    &crate::actions::encrypt(folder_name, None, None)?,
                 )?;
                 if let Some(new_access_token) = new_access_token {
                     access_token.clone_from(&new_access_token);
@@ -1727,7 +1784,7 @@ pub fn generate(
             }
         }
 
-        if let (Some(access_token), ()) = rbw::actions::add(
+        let (new_token, ()) = rbw::actions::add(
             &access_token,
             refresh_token,
             &name,
@@ -1739,12 +1796,8 @@ pub fn generate(
             },
             None,
             folder_id.as_deref(),
-        )? {
-            db.access_token = Some(access_token);
-            save_db(&db)?;
-        }
-
-        crate::actions::sync()?;
+        )?;
+        after_server_write(&mut db, new_token)?;
     }
 
     Ok(())
@@ -1755,12 +1808,9 @@ pub fn edit(
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
+    field: Option<&str>,
 ) -> anyhow::Result<()> {
     unlock()?;
-
-    let mut db = load_db()?;
-    let access_token = db.access_token.as_ref().unwrap();
-    let refresh_token = db.refresh_token.as_ref().unwrap();
 
     let desc = format!(
         "{}{}",
@@ -1768,11 +1818,25 @@ pub fn edit(
         name
     );
 
-    let (entry, decrypted) =
-        find_entry(&db, name, username, folder, ignore_case)
-            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    // Resolve the selector against a fresh vault. Finding by name/URI in
+    // the old cache and then refreshing *that ID* would edit the wrong
+    // cipher if the name had been moved to another item.
+    crate::actions::sync()?;
+    let mut db = load_db()?;
+    let entry = find_db_entry(&db, name, username, folder, ignore_case)
+        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
-    let (data, fields, notes, history) = match &decrypted.data {
+    if let Some(field_name) = field {
+        // Decrypt only the target field. Full decrypt_cipher would pinentry
+        // once per hidden value, and encrypt_field_on_entry used to do it
+        // a second time.
+        edit_custom_field(&mut db, &entry, field_name)?;
+        return Ok(());
+    }
+
+    let decrypted = decrypt_cipher(&entry)?;
+
+    match &decrypted.data {
         DecryptedData::Login { password, .. } => {
             let mut contents =
                 format!("{}\n", password.as_deref().unwrap_or(""));
@@ -1780,99 +1844,603 @@ pub fn edit(
                 write!(contents, "\n{notes}\n").unwrap();
             }
 
-            let contents = rbw::edit::edit(&contents, HELP_PW)?;
-
-            let (password, notes) = parse_editor(&contents);
-            let password = password
-                .map(|password| {
-                    crate::actions::encrypt(
-                        &password,
-                        entry.org_id.as_deref(),
-                    )
-                })
-                .transpose()?;
-            let notes = notes
-                .map(|notes| {
-                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
-                })
-                .transpose()?;
-            let mut history = entry.history.clone();
-            let rbw::db::EntryData::Login {
-                username: entry_username,
-                password: entry_password,
-                uris: entry_uris,
-                totp: entry_totp,
-            } = &entry.data
-            else {
-                unreachable!();
-            };
-
-            if let Some(prev_password) = entry_password.clone() {
-                let new_history_entry = rbw::db::HistoryEntry {
-                    last_used_date: format!(
-                        "{}",
-                        humantime::format_rfc3339(
-                            std::time::SystemTime::now()
-                        )
-                    ),
-                    password: prev_password,
-                };
-                history.insert(0, new_history_entry);
-            }
-
-            let data = rbw::db::EntryData::Login {
-                username: entry_username.clone(),
-                password,
-                uris: entry_uris.clone(),
-                totp: entry_totp.clone(),
-            };
-            (data, entry.fields, notes, history)
+            let (contents, source) =
+                rbw::edit::edit_from(&contents, HELP_PW)?;
+            after_editor(
+                source,
+                &contents,
+                put_login_edit(&mut db, &entry, &contents),
+            )
         }
         DecryptedData::SecureNote => {
-            let data = rbw::db::EntryData::SecureNote {};
-
             let editor_content = decrypted.notes.map_or_else(
                 || "\n".to_string(),
                 |notes| format!("{notes}\n"),
             );
-            let contents = rbw::edit::edit(&editor_content, HELP_NOTES)?;
-
-            // prepend blank line to be parsed as pw by `parse_editor`
-            let (_, notes) = parse_editor(&format!("\n{contents}\n"));
-
-            let notes = notes
-                .map(|notes| {
-                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
-                })
-                .transpose()?;
-
-            (data, entry.fields, notes, entry.history)
+            let (contents, source) =
+                rbw::edit::edit_from(&editor_content, HELP_NOTES)?;
+            after_editor(
+                source,
+                &contents,
+                put_note_edit(&mut db, &entry, &contents),
+            )
         }
-        _ => {
-            return Err(anyhow::anyhow!(
-                "modifications are only supported for login and note entries"
-            ));
-        }
+        _ => Err(anyhow::anyhow!(
+            "modifications are only supported for login and note entries"
+        )),
+    }
+}
+
+fn is_revision_conflict(err: &anyhow::Error) -> bool {
+    matches!(
+        err.downcast_ref::<rbw::error::Error>(),
+        Some(rbw::error::Error::CipherRevisionConflict)
+    )
+}
+
+fn put_login_edit(
+    db: &mut rbw::db::Db,
+    entry: &rbw::db::Entry,
+    contents: &str,
+) -> anyhow::Result<()> {
+    let (password, notes) = parse_editor(contents);
+    let password = password
+        .map(|password| {
+            crate::actions::encrypt(
+                &password,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        })
+        .transpose()?;
+    let notes = notes
+        .map(|notes| {
+            crate::actions::encrypt(
+                &notes,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        })
+        .transpose()?;
+    let mut history = entry.history.clone();
+    let rbw::db::EntryData::Login {
+        username: entry_username,
+        password: entry_password,
+        uris: entry_uris,
+        totp: entry_totp,
+    } = &entry.data
+    else {
+        unreachable!();
     };
 
-    if let (Some(access_token), ()) = rbw::actions::edit(
+    if let Some(prev_password) = entry_password.clone() {
+        let new_history_entry = rbw::db::HistoryEntry {
+            last_used_date: format!(
+                "{}",
+                humantime::format_rfc3339(std::time::SystemTime::now())
+            ),
+            password: prev_password,
+        };
+        history.insert(0, new_history_entry);
+    }
+
+    let data = rbw::db::EntryData::Login {
+        username: entry_username.clone(),
+        password,
+        uris: entry_uris.clone(),
+        totp: entry_totp.clone(),
+    };
+    put_cipher(db, entry, &data, &entry.fields, notes.as_deref(), &history)
+}
+
+fn put_note_edit(
+    db: &mut rbw::db::Db,
+    entry: &rbw::db::Entry,
+    contents: &str,
+) -> anyhow::Result<()> {
+    // prepend blank line to be parsed as pw by `parse_editor`
+    let (_, notes) = parse_editor(&format!("\n{contents}\n"));
+    let notes = notes
+        .map(|notes| {
+            crate::actions::encrypt(
+                &notes,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        })
+        .transpose()?;
+    put_cipher(
+        db,
+        entry,
+        &rbw::db::EntryData::SecureNote {},
+        &entry.fields,
+        notes.as_deref(),
+        &entry.history,
+    )
+}
+
+fn persist_unsaved_after_edit(source: rbw::edit::Source) -> bool {
+    // Piped stdin never touched disk; writing unsaved-edits/ would
+    // change that. Interactive editor buffers live in a tempfile that
+    // disappears when this process returns, so those are worth keeping.
+    source == rbw::edit::Source::Editor
+}
+
+fn persist_unsaved_edit(buf: &str) -> anyhow::Result<std::path::PathBuf> {
+    persist_unsaved_edit_in(&rbw::dirs::unsaved_edit_dir(), buf)
+}
+
+fn persist_unsaved_edit_in(
+    dir: &std::path::Path,
+    buf: &str,
+) -> anyhow::Result<std::path::PathBuf> {
+    use std::io::Write as _;
+    rbw::dirs::create_dir_all_with_permissions(dir, 0o700)
+        .with_context(|| format!("failed to create {}", dir.display()))?;
+    let path = dir.join(format!(
+        "unsaved-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.mode(0o600);
+    }
+    let mut file = opts
+        .open(&path)
+        .with_context(|| format!("failed to create {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .context("failed to chmod unsaved-edit file")?;
+    }
+    file.write_all(buf.as_bytes())
+        .context("failed to write unsaved-edit file")?;
+    Ok(path)
+}
+
+fn err_with_unsaved(err: anyhow::Error, plaintext: &str) -> anyhow::Error {
+    match persist_unsaved_edit(plaintext) {
+        Ok(path) => err.context(format!(
+            "plaintext you just typed is in {} — delete that file after recovering",
+            path.display()
+        )),
+        Err(stash_err) => err.context(stash_err),
+    }
+}
+
+fn after_editor<T>(
+    source: rbw::edit::Source,
+    plaintext: &str,
+    result: anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    result.map_err(|err| {
+        // Server write already landed. Do not stash, and do not tell
+        // a pipe caller to regenerate the value.
+        if is_local_cache_refresh_failed(&err) {
+            err
+        } else if persist_unsaved_after_edit(source) {
+            err_with_unsaved(err, plaintext)
+        } else {
+            err.context(
+                "the piped value was not written to disk; \
+                 re-run the producing command",
+            )
+        }
+    })
+}
+
+#[derive(Debug)]
+struct LocalCacheRefreshFailed;
+
+impl std::fmt::Display for LocalCacheRefreshFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "saved on the server, but local cache refresh failed; \
+             run `rbw sync` and do not retry the write",
+        )
+    }
+}
+
+impl std::error::Error for LocalCacheRefreshFailed {}
+
+/// Persist local state after `add` / `edit_with_meta` already returned
+/// Ok. `new_token` is that Ok value's optional refreshed access token,
+/// so the call site has to have completed the server write first.
+/// Token save, vault sync, and db reload are exit 2 on failure.
+fn after_server_write(
+    db: &mut rbw::db::Db,
+    new_token: Option<String>,
+) -> anyhow::Result<()> {
+    if let Some(new_token) = new_token {
+        db.access_token = Some(new_token);
+        save_db(db).context(LocalCacheRefreshFailed)?;
+    }
+    crate::actions::sync().context(LocalCacheRefreshFailed)?;
+    *db = load_db().context(LocalCacheRefreshFailed)?;
+    Ok(())
+}
+
+fn is_local_cache_refresh_failed(err: &anyhow::Error) -> bool {
+    // anyhow::Error::is sees a `.context(LocalCacheRefreshFailed)`
+    // wrapper; `chain()` downcast does not, because the concrete
+    // type is anyhow's private context object.
+    err.is::<LocalCacheRefreshFailed>()
+}
+
+pub fn exit_status(err: &anyhow::Error) -> i32 {
+    if is_local_cache_refresh_failed(err) {
+        2
+    } else {
+        1
+    }
+}
+
+fn put_cipher(
+    db: &mut rbw::db::Db,
+    entry: &rbw::db::Entry,
+    data: &rbw::db::EntryData,
+    fields: &[rbw::db::Field],
+    notes: Option<&str>,
+    history: &[rbw::db::HistoryEntry],
+) -> anyhow::Result<()> {
+    let meta = entry.cipher_write_meta();
+    let access_token = db.access_token.as_ref().unwrap();
+    let refresh_token = db.refresh_token.as_ref().unwrap();
+    let (new_token, ()) = rbw::actions::edit_with_meta(
         access_token,
         refresh_token,
         &entry.id,
         entry.org_id.as_deref(),
         &entry.name,
-        &data,
-        &fields,
-        notes.as_deref(),
+        data,
+        fields,
+        notes,
         entry.folder_id.as_deref(),
-        &history,
-    )? {
-        db.access_token = Some(access_token);
-        save_db(&db)?;
+        history,
+        &meta,
+    )?;
+    // Agent rebuilds the master-password-reprompt ciphertext set only
+    // during sync, and only after the new vault is on disk. Any local
+    // failure after the PUT (token save, sync, reload) is exit 2: the
+    // server write landed; callers must not retry it.
+    after_server_write(db, new_token)
+}
+
+fn find_custom_field_index(
+    fields: &[DecryptedField],
+    name: &str,
+) -> anyhow::Result<usize> {
+    let exact: Vec<usize> = fields
+        .iter()
+        .enumerate()
+        .filter_map(|(i, field)| {
+            field.name.as_deref().filter(|n| *n == name).map(|_| i)
+        })
+        .collect();
+    match exact.len() {
+        1 => return Ok(exact[0]),
+        n if n > 1 => {
+            anyhow::bail!("multiple custom fields named '{name}'")
+        }
+        _ => {}
     }
 
-    crate::actions::sync()?;
+    let lower = name.to_lowercase();
+    let case_insensitive: Vec<usize> = fields
+        .iter()
+        .enumerate()
+        .filter_map(|(i, field)| {
+            field
+                .name
+                .as_deref()
+                .filter(|n| n.to_lowercase() == lower)
+                .map(|_| i)
+        })
+        .collect();
+    match case_insensitive.len() {
+        1 => Ok(case_insensitive[0]),
+        0 => anyhow::bail!("no custom field named '{name}'"),
+        _ => anyhow::bail!("multiple custom fields matching '{name}'"),
+    }
+}
+
+fn strip_trailing_newlines(s: &str) -> String {
+    s.trim_end_matches(['\n', '\r']).to_string()
+}
+
+fn marker_span_start(raw: &str, marker_at: usize) -> usize {
+    if marker_at >= 2
+        && raw.as_bytes()[marker_at - 2] == b'\r'
+        && raw.as_bytes()[marker_at - 1] == b'\n'
+    {
+        marker_at - 2
+    } else if marker_at >= 1 && raw.as_bytes()[marker_at - 1] == b'\n' {
+        marker_at - 1
+    } else {
+        marker_at
+    }
+}
+
+fn strip_help_block(
+    raw: &str,
+    start: &str,
+    end: &str,
+) -> anyhow::Result<String> {
+    // Per-edit random markers: a user value may already contain a
+    // previous help fence. find() would then delete from that fence to
+    // the appended END and silently truncate. The nonce is chosen not
+    // to appear in the current value.
+    let start_at = raw.find(start);
+    let end_at = raw.find(end);
+    let combined = match (start_at, end_at) {
+        (Some(s), Some(e)) if e > s => {
+            let from = marker_span_start(raw, s);
+            let to = e + end.len();
+            format!("{}{}", &raw[..from], &raw[to..])
+        }
+        (None, None) => raw.to_string(),
+        _ => anyhow::bail!(
+            "unbalanced help markers; leave the rbw help block intact \
+             or remove it entirely"
+        ),
+    };
+    if combined.contains(start)
+        || combined.contains(end)
+        || contains_help_body(&combined)
+    {
+        anyhow::bail!(
+            "editor output still contains the help text; \
+             remove it or leave the help block intact"
+        );
+    }
+    Ok(strip_trailing_newlines(&combined))
+}
+
+fn contains_help_body(text: &str) -> bool {
+    help_body(false)
+        .lines()
+        .chain(help_body(true).lines())
+        .filter(|line| !line.is_empty())
+        .any(|help_line| {
+            text.lines()
+                .any(|line| line.trim_end_matches('\r') == help_line)
+        })
+}
+
+fn read_custom_field_value(
+    current: &str,
+    ty: Option<rbw::api::FieldType>,
+) -> anyhow::Result<(String, rbw::edit::Source)> {
+    let (start, end) = unique_help_markers(current);
+    let help =
+        field_help(ty == Some(rbw::api::FieldType::Boolean), &start, &end);
+    let mut current = current.to_string();
+    let mut attempts = 0_u8;
+    loop {
+        let (raw, source) = rbw::edit::edit_from(&current, &help)?;
+        let value = match source {
+            rbw::edit::Source::Pipe => strip_trailing_newlines(&raw),
+            rbw::edit::Source::Editor => {
+                match strip_help_block(&raw, &start, &end) {
+                    Ok(value) => value,
+                    Err(e) => return Err(err_with_unsaved(e, &raw)),
+                }
+            }
+        };
+        if value.is_empty() {
+            anyhow::bail!("refusing to set an empty custom field value");
+        }
+        match validate_boolean_field(ty, &value) {
+            Ok(()) => return Ok((value, source)),
+            Err(e) if source == rbw::edit::Source::Editor => {
+                // Non-interactive $EDITOR that echoes the file (true,
+                // /bin/true) would loop forever if the stored value is
+                // already invalid.
+                attempts += 1;
+                if value == current || attempts >= 3 {
+                    return Err(err_with_unsaved(e, &value));
+                }
+                eprintln!("{e}; edit again");
+                current = value;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn validate_boolean_field(
+    ty: Option<rbw::api::FieldType>,
+    value: &str,
+) -> anyhow::Result<()> {
+    if ty == Some(rbw::api::FieldType::Boolean)
+        && value != "true"
+        && value != "false"
+    {
+        anyhow::bail!("boolean custom fields must be true or false");
+    }
     Ok(())
+}
+
+fn edit_custom_field(
+    db: &mut rbw::db::Db,
+    entry: &rbw::db::Entry,
+    field_name: &str,
+) -> anyhow::Result<()> {
+    // Client::edit_with_meta has no SSH key PUT payload (unreachable!).
+    // Login, Secure Note, Card, and Identity all have typed PUT bodies.
+    if matches!(entry.data, rbw::db::EntryData::SshKey { .. }) {
+        anyhow::bail!(
+            "custom field edits are not supported for SSH key entries"
+        );
+    }
+
+    let (idx, ty) = named_custom_field(entry, field_name)?;
+    if ty == Some(rbw::api::FieldType::Linked) {
+        anyhow::bail!("linked custom fields cannot be edited as values");
+    }
+
+    let current = decrypt_custom_field_value(entry, idx)?;
+    let (new_value, source) = read_custom_field_value(&current, ty)?;
+    let original_ct = entry.fields[idx].value.clone();
+    after_editor(
+        source,
+        &new_value,
+        put_field_plaintext(
+            db,
+            entry,
+            field_name,
+            &new_value,
+            original_ct.as_deref(),
+            &current,
+        ),
+    )
+}
+
+fn named_custom_field(
+    entry: &rbw::db::Entry,
+    field_name: &str,
+) -> anyhow::Result<(usize, Option<rbw::api::FieldType>)> {
+    let mut decrypted_names = Vec::with_capacity(entry.fields.len());
+    for field in &entry.fields {
+        let name = field
+            .name
+            .as_ref()
+            .map(|name| {
+                crate::actions::decrypt(
+                    name,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )
+            })
+            .transpose()?;
+        decrypted_names.push(DecryptedField {
+            name,
+            value: None,
+            ty: field.ty,
+        });
+    }
+    let idx = find_custom_field_index(&decrypted_names, field_name)?;
+    Ok((idx, entry.fields[idx].ty))
+}
+
+fn decrypt_custom_field_value(
+    entry: &rbw::db::Entry,
+    idx: usize,
+) -> anyhow::Result<String> {
+    entry.fields[idx]
+        .value
+        .as_ref()
+        .map(|value| {
+            crate::actions::decrypt(
+                value,
+                entry.key.as_deref(),
+                entry.org_id.as_deref(),
+            )
+        })
+        .transpose()
+        .map(std::option::Option::unwrap_or_default)
+}
+
+/// True when a concurrent save changed this field's plaintext.
+///
+/// Ciphertext inequality is not enough. Official Bitwarden clients
+/// encrypt `CipherView` from scratch on every save
+/// (`FieldView::encrypt_composite` always encrypts name+value). AES-CBC
+/// uses a random IV, so a notes-only edit rotates this field's
+/// ciphertext while leaving the value alone. rbw itself leaves
+/// untouched fields' ciphertext unchanged, so equal ciphertext is a
+/// decrypt-free fast path.
+fn target_field_plaintext_changed(
+    original_ciphertext: Option<&str>,
+    original_plaintext: &str,
+    server_ciphertext: Option<&str>,
+    server_plaintext: &str,
+) -> bool {
+    original_ciphertext != server_ciphertext
+        && original_plaintext != server_plaintext
+}
+
+fn put_field_plaintext(
+    db: &mut rbw::db::Db,
+    entry: &rbw::db::Entry,
+    field_name: &str,
+    plaintext: &str,
+    original_ciphertext: Option<&str>,
+    original_plaintext: &str,
+) -> anyhow::Result<()> {
+    let (data, fields, notes, history) =
+        encrypt_named_field(entry, field_name, plaintext)?;
+    match put_cipher(db, entry, &data, &fields, notes.as_deref(), &history) {
+        Ok(()) => Ok(()),
+        Err(err) if is_revision_conflict(&err) => {
+            // PUT did not land. A failed rebase sync is still exit 1.
+            crate::actions::sync()?;
+            *db = load_db()?;
+            let entry = db
+                .entries
+                .iter()
+                .find(|item| item.id == entry.id)
+                .cloned()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("entry disappeared after conflict sync")
+                })?;
+            let (idx, ty) = named_custom_field(&entry, field_name)?;
+            let server_ct = entry.fields[idx].value.as_deref();
+            if original_ciphertext != server_ct {
+                let server_pt = decrypt_custom_field_value(&entry, idx)?;
+                if target_field_plaintext_changed(
+                    original_ciphertext,
+                    original_plaintext,
+                    server_ct,
+                    &server_pt,
+                ) {
+                    return Err(err.context(
+                        "the same custom field was changed on the server",
+                    ));
+                }
+            }
+            validate_boolean_field(ty, plaintext)?;
+            let (data, fields, notes, history) =
+                encrypt_named_field(&entry, field_name, plaintext)?;
+            put_cipher(db, &entry, &data, &fields, notes.as_deref(), &history)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn encrypt_named_field(
+    entry: &rbw::db::Entry,
+    field_name: &str,
+    plaintext: &str,
+) -> anyhow::Result<(
+    rbw::db::EntryData,
+    Vec<rbw::db::Field>,
+    Option<String>,
+    Vec<rbw::db::HistoryEntry>,
+)> {
+    let (idx, ty) = named_custom_field(entry, field_name)?;
+    if ty == Some(rbw::api::FieldType::Linked) {
+        anyhow::bail!("linked custom fields cannot be edited as values");
+    }
+    let encrypted = crate::actions::encrypt(
+        plaintext,
+        entry.key.as_deref(),
+        entry.org_id.as_deref(),
+    )?;
+    let mut fields = entry.fields.clone();
+    fields[idx].value = Some(encrypted);
+    Ok((
+        entry.data.clone(),
+        fields,
+        entry.notes.clone(),
+        entry.history.clone(),
+    ))
 }
 
 pub fn remove(
@@ -1944,8 +2512,19 @@ pub fn purge() -> anyhow::Result<()> {
     stop_agent()?;
 
     remove_db()?;
+    remove_unsaved_edits()?;
 
     Ok(())
+}
+
+fn remove_unsaved_edits() -> anyhow::Result<()> {
+    let dir = rbw::dirs::unsaved_edit_dir();
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e)
+            .with_context(|| format!("failed to remove {}", dir.display())),
+    }
 }
 
 pub fn stop_agent() -> anyhow::Result<()> {
@@ -2012,15 +2591,27 @@ fn version_or_quit() -> anyhow::Result<u32> {
 
 fn find_entry(
     db: &rbw::db::Db,
-    mut needle: Needle,
+    needle: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
 ) -> anyhow::Result<(rbw::db::Entry, DecryptedCipher)> {
+    let entry = find_db_entry(db, needle, username, folder, ignore_case)?;
+    let decrypted_entry = decrypt_cipher(&entry)?;
+    Ok((entry, decrypted_entry))
+}
+
+fn find_db_entry(
+    db: &rbw::db::Db,
+    mut needle: Needle,
+    username: Option<&str>,
+    folder: Option<&str>,
+    ignore_case: bool,
+) -> anyhow::Result<rbw::db::Entry> {
     if let Needle::Uuid(uuid, s) = needle {
         for cipher in &db.entries {
             if uuid::Uuid::parse_str(&cipher.id) == Ok(uuid) {
-                return Ok((cipher.clone(), decrypt_cipher(cipher)?));
+                return Ok(cipher.clone());
             }
         }
         needle = Needle::Name(s);
@@ -2036,8 +2627,30 @@ fn find_entry(
         .collect::<anyhow::Result<_>>()?;
     let (entry, _) =
         find_entry_raw(&ciphers, &needle, username, folder, ignore_case)?;
-    let decrypted_entry = decrypt_cipher(&entry)?;
-    Ok((entry, decrypted_entry))
+    Ok(entry)
+}
+
+fn print_editable_custom_field_names(
+    entry: &rbw::db::Entry,
+) -> anyhow::Result<()> {
+    if matches!(entry.data, rbw::db::EntryData::SshKey { .. }) {
+        anyhow::bail!("SSH key entries have no editable custom fields");
+    }
+    for field in &entry.fields {
+        if field.ty == Some(rbw::api::FieldType::Linked) {
+            continue;
+        }
+        let Some(name) = &field.name else {
+            continue;
+        };
+        let name = crate::actions::decrypt(
+            name,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )?;
+        println!("{name}");
+    }
+    Ok(())
 }
 
 fn find_entry_raw(
@@ -4157,6 +4770,9 @@ mod test {
                 history: vec![],
                 key: None,
                 master_password_reprompt: rbw::api::CipherRepromptType::None,
+                favorite: false,
+                archived_date: None,
+                revision_date: None,
             },
             DecryptedSearchCipher {
                 id: id.to_string(),
@@ -4174,5 +4790,231 @@ mod test {
                 notes: None,
             },
         )
+    }
+
+    fn custom_field(name: &str) -> DecryptedField {
+        DecryptedField {
+            name: Some(name.to_string()),
+            value: Some("v".to_string()),
+            ty: Some(rbw::api::FieldType::Hidden),
+        }
+    }
+
+    #[test]
+    fn test_find_custom_field_index() {
+        let fields = vec![
+            custom_field("GITHUB_CONTENT_TOKEN"),
+            custom_field("GITHUB_ISSUE_TOKEN"),
+        ];
+        assert_eq!(
+            find_custom_field_index(&fields, "GITHUB_CONTENT_TOKEN").unwrap(),
+            0
+        );
+        assert_eq!(
+            find_custom_field_index(&fields, "github_issue_token").unwrap(),
+            1
+        );
+        assert!(find_custom_field_index(&fields, "missing").is_err());
+    }
+
+    #[test]
+    fn test_find_custom_field_index_duplicates() {
+        let fields = vec![custom_field("FOO"), custom_field("FOO")];
+        assert!(find_custom_field_index(&fields, "FOO").is_err());
+        let fields = vec![custom_field("FOO"), custom_field("foo")];
+        assert_eq!(find_custom_field_index(&fields, "FOO").unwrap(), 0);
+        assert_eq!(find_custom_field_index(&fields, "foo").unwrap(), 1);
+        assert!(find_custom_field_index(&fields, "FoO").is_err());
+    }
+
+    #[test]
+    fn test_strip_trailing_newlines() {
+        assert_eq!(strip_trailing_newlines("abc\n"), "abc");
+        assert_eq!(strip_trailing_newlines("abc\r\n"), "abc");
+        assert_eq!(strip_trailing_newlines("abc"), "abc");
+        assert_eq!(strip_trailing_newlines("a\nbc\n"), "a\nbc");
+    }
+
+    #[test]
+    fn test_strip_help_block() {
+        let start = "# --- rbw field help start TESTNONCE ---";
+        let end = "# --- rbw field help end TESTNONCE ---";
+        let help = field_help(false, start, end);
+        let contents = format!("value\n#keep{help}");
+        assert_eq!(
+            strip_help_block(&contents, start, end).unwrap(),
+            "value\n#keep"
+        );
+
+        let crlf = format!("value\r\n#keep{}", help.replace('\n', "\r\n"));
+        assert_eq!(
+            strip_help_block(&crlf, start, end).unwrap(),
+            "value\r\n#keep"
+        );
+
+        let after = format!("value{help}# mine\n");
+        assert_eq!(
+            strip_help_block(&after, start, end).unwrap(),
+            "value\n# mine"
+        );
+
+        assert_eq!(strip_help_block(&help, start, end).unwrap(), "");
+        assert_eq!(
+            strip_help_block("just-piped\n", start, end).unwrap(),
+            "just-piped"
+        );
+
+        let crlf_value = format!("a\r\nb{help}");
+        assert_eq!(
+            strip_help_block(&crlf_value, start, end).unwrap(),
+            "a\r\nb"
+        );
+
+        let stale = "# --- rbw field help start OLDNONCE ---";
+        let with_stale = format!("keep {stale} keep{help}");
+        assert_eq!(
+            strip_help_block(&with_stale, start, end).unwrap(),
+            format!("keep {stale} keep")
+        );
+
+        assert!(
+            strip_help_block(&format!("value\n{end}\n"), start, end).is_err()
+        );
+        assert!(strip_help_block(&format!("value\n{start}\n"), start, end)
+            .is_err());
+        let end_before_start = format!("value\n{end}\n{start}\n");
+        assert!(strip_help_block(&end_before_start, start, end).is_err());
+        let leftover_body = format!("value\n{HELP_BODY}\n");
+        assert!(strip_help_block(&leftover_body, start, end).is_err());
+    }
+
+    #[test]
+    fn test_unique_help_markers_avoid_existing_fence() {
+        let stale_start = "# --- rbw field help start OLDNONCE ---";
+        let stale_end = "# --- rbw field help end OLDNONCE ---";
+        let current = format!("keep {stale_start} {stale_end} keep");
+        let (start, end) = unique_help_markers(&current);
+        assert_ne!(start, stale_start);
+        assert_ne!(end, stale_end);
+        assert!(!current.contains(&start));
+        assert!(!current.contains(&end));
+    }
+
+    #[test]
+    fn test_validate_boolean_field() {
+        assert!(validate_boolean_field(
+            Some(rbw::api::FieldType::Hidden),
+            "any"
+        )
+        .is_ok());
+        assert!(validate_boolean_field(
+            Some(rbw::api::FieldType::Boolean),
+            "true"
+        )
+        .is_ok());
+        assert!(validate_boolean_field(
+            Some(rbw::api::FieldType::Boolean),
+            "false"
+        )
+        .is_ok());
+        assert!(validate_boolean_field(
+            Some(rbw::api::FieldType::Boolean),
+            "yes"
+        )
+        .is_err());
+        // Linked is rejected before read/validate, not here.
+        assert!(validate_boolean_field(
+            Some(rbw::api::FieldType::Linked),
+            "anything"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn test_target_field_plaintext_changed() {
+        let old_ct = Some("2.aaa");
+        let new_ct = Some("2.bbb");
+        assert!(!target_field_plaintext_changed(
+            old_ct, "token", old_ct, "token"
+        ));
+        // Official client re-encrypted the field in place.
+        assert!(!target_field_plaintext_changed(
+            old_ct, "token", new_ct, "token"
+        ));
+        assert!(target_field_plaintext_changed(
+            old_ct, "token", new_ct, "other"
+        ));
+        assert!(!target_field_plaintext_changed(None, "", None, ""));
+        assert!(target_field_plaintext_changed(None, "", new_ct, "other"));
+    }
+
+    #[test]
+    fn test_persist_unsaved_after_edit_skips_pipe() {
+        assert!(!persist_unsaved_after_edit(rbw::edit::Source::Pipe));
+        assert!(persist_unsaved_after_edit(rbw::edit::Source::Editor));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_persist_unsaved_edit_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path =
+            persist_unsaved_edit_in(dir.path(), "secret-value").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret-value");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(dir.path()).unwrap().permissions().mode()
+                & 0o777,
+            0o700
+        );
+    }
+
+    #[test]
+    fn test_after_editor_pipe_does_not_mention_stash() {
+        let err = after_editor::<()>(
+            rbw::edit::Source::Pipe,
+            "piped-secret",
+            Err(anyhow::anyhow!("put failed")),
+        )
+        .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("put failed"));
+        assert!(msg.contains("the piped value was not written to disk"));
+        assert!(!msg.contains("plaintext you just typed"));
+    }
+
+    #[test]
+    fn test_after_editor_does_not_stash_after_server_save() {
+        let err = anyhow::anyhow!("network").context(LocalCacheRefreshFailed);
+        let err = after_editor::<()>(
+            rbw::edit::Source::Editor,
+            "typed-secret",
+            Err(err),
+        )
+        .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("do not retry the write"));
+        assert!(!msg.contains("plaintext you just typed"));
+        assert_eq!(exit_status(&err), 2);
+        assert_eq!(exit_status(&anyhow::anyhow!("put failed")), 1);
+    }
+
+    #[test]
+    fn test_after_editor_pipe_does_not_rerun_after_server_save() {
+        let err = anyhow::anyhow!("network").context(LocalCacheRefreshFailed);
+        let err = after_editor::<()>(
+            rbw::edit::Source::Pipe,
+            "piped-secret",
+            Err(err),
+        )
+        .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("do not retry the write"));
+        assert!(!msg.contains("the piped value was not written to disk"));
+        assert_eq!(exit_status(&err), 2);
     }
 }

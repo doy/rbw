@@ -75,6 +75,12 @@ pub enum Error {
     InvalidCipherString { reason: String },
 
     #[error(
+        "cipher was changed on the server since this snapshot; \
+         run rbw sync and retry"
+    )]
+    CipherRevisionConflict,
+
+    #[error(
         "invalid value for ${var}: {}",
         .editor.to_string_lossy()
     )]

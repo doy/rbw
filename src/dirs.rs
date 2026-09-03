@@ -10,7 +10,7 @@ pub fn make_all() -> Result<()> {
     Ok(())
 }
 
-fn create_dir_all_with_permissions(
+pub fn create_dir_all_with_permissions(
     path: &std::path::Path,
     mode: u32,
 ) -> Result<()> {
@@ -69,6 +69,12 @@ pub fn socket_file() -> std::path::PathBuf {
 
 pub fn ssh_agent_socket_file() -> std::path::PathBuf {
     runtime_dir().join("ssh-agent-socket")
+}
+
+/// Directory for editor buffers kept after a failed cipher PUT.
+/// Under the rbw runtime dir (not a shared world-readable $TMPDIR).
+pub fn unsaved_edit_dir() -> std::path::PathBuf {
+    runtime_dir().join("unsaved-edits")
 }
 
 fn config_dir() -> std::path::PathBuf {

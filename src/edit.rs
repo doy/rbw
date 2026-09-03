@@ -4,12 +4,31 @@ use std::io::{Read as _, Write as _};
 
 use is_terminal::IsTerminal as _;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Source {
+    Pipe,
+    Editor,
+}
+
+pub fn stdin_is_pipe() -> bool {
+    !std::io::stdin().is_terminal()
+}
+
+/// Read an edited buffer from a pipe or `$VISUAL`/`$EDITOR`.
+///
+/// Drops whether the value came from a pipe. Prefer [`edit_from`] when
+/// the caller must treat those sources differently (for example to
+/// avoid writing piped secrets to disk).
 pub fn edit(contents: &str, help: &str) -> Result<String> {
-    if !std::io::stdin().is_terminal() {
+    Ok(edit_from(contents, help)?.0)
+}
+
+pub fn edit_from(contents: &str, help: &str) -> Result<(String, Source)> {
+    if stdin_is_pipe() {
         // directly read from piped content
         return match std::io::read_to_string(std::io::stdin()) {
             Err(e) => Err(Error::FailedToReadFromStdin { err: e }),
-            Ok(res) => Ok(res),
+            Ok(res) => Ok((res, Source::Pipe)),
         };
     }
 
@@ -87,7 +106,7 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
     fh.read_to_string(&mut contents).unwrap();
     drop(fh);
 
-    Ok(contents)
+    Ok((contents, Source::Editor))
 }
 
 fn contains_shell_metacharacters(cmd: &std::ffi::OsStr) -> bool {

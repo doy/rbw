@@ -2,7 +2,7 @@ function __fish_rbw_get_completion_name
     set -l cmd (commandline -xpc)
     set -e cmd[1] # rbw
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields list-custom-fields -- $cmd
     set -e argv[1] # get
 
     set -l candidates (command rbw list --fields name,folder,user)
@@ -57,7 +57,7 @@ function __fish_rbw_get_completion_fields
         set -e cmd[-1] # -f/--field
     end
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields list-custom-fields -- $cmd
     set -e argv[1] # get
 
     if test (count $argv) -gt 0
@@ -65,12 +65,44 @@ function __fish_rbw_get_completion_fields
     end
 end
 
+function __fish_rbw_edit_completion_fields
+    set -l cmd (commandline -xpc)
+    set -e cmd[1] # rbw
+    if test -z "$(commandline -xpt)"
+        set -e cmd[-1] # -f/--field
+    end
+
+    argparse -i folder= f/field= i/ignorecase h/help -- $cmd
+    set -e argv[1] # edit
+
+    if test (count $argv) -eq 0
+        return
+    end
+    set -l get_args
+    if set -q _flag_folder
+        set -a get_args --folder $_flag_folder
+    end
+    if set -q _flag_ignorecase
+        set -a get_args --ignorecase
+    end
+    set -a get_args $argv[1]
+    if test (count $argv) -gt 1
+        set -a get_args $argv[2]
+    end
+    command rbw get $get_args --list-custom-fields 2>/dev/null
+end
+
 complete -f -c rbw -n '__fish_seen_subcommand_from get edit' -a '(__fish_rbw_get_completion_name)'
+complete -f -c rbw -n '__fish_seen_subcommand_from edit' -s f -l field -r -d 'Custom field to edit' -a '(__fish_rbw_edit_completion_fields)'
+complete -f -c rbw -n '__fish_seen_subcommand_from edit' -l folder -r -d 'Folder name to search in' -a '(command rbw list --fields folder)'
+complete -f -c rbw -n '__fish_seen_subcommand_from edit' -s i -l ignorecase -d 'Ignore case'
+complete -f -c rbw -n '__fish_seen_subcommand_from edit' -s h -l help -d 'Print help'
 
 # Complete options for `rbw get`
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -s i -l ignorecase -d 'Ignore case'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -s f -l field -r -d 'Field to get' -a '(__fish_rbw_get_completion_fields)'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -s l -l list-fields -r -d 'List fields in this entry'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -l list-custom-fields -d 'List custom fields in this entry'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -l folder -r -d 'Folder name to search in' -a '(command rbw list --fields folder)'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -l full -d 'Display the notes in addition to the password'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -l raw -d 'Display output as JSON'

@@ -428,6 +428,12 @@ struct SyncResCipher {
     key: Option<String>,
     #[serde(rename = "Reprompt", alias = "reprompt")]
     reprompt: CipherRepromptType,
+    #[serde(default, rename = "Favorite", alias = "favorite")]
+    favorite: bool,
+    #[serde(default, rename = "ArchivedDate", alias = "archivedDate")]
+    archived_date: Option<String>,
+    #[serde(default, rename = "RevisionDate", alias = "revisionDate")]
+    revision_date: Option<String>,
 }
 
 impl SyncResCipher {
@@ -551,6 +557,9 @@ impl SyncResCipher {
             history,
             key: self.key.clone(),
             master_password_reprompt: self.reprompt,
+            favorite: self.favorite,
+            archived_date: self.archived_date.clone(),
+            revision_date: self.revision_date.clone(),
         })
     }
 }
@@ -780,6 +789,21 @@ struct CiphersPutReq {
     secure_note: Option<CipherSecureNote>,
     #[serde(rename = "passwordHistory")]
     password_history: Vec<CiphersPutReqHistory>,
+    key: Option<String>,
+    // Non-optional on the official server; omitting them resets the
+    // live cipher (see CipherRequestModel.ToCipherDetails).
+    reprompt: CipherRepromptType,
+    favorite: bool,
+    #[serde(rename = "archivedDate")]
+    archived_date: Option<String>,
+    // Official server only conflict-checks when this is present. An
+    // omitted value allows a stale full PUT to overwrite a password or
+    // notes another client just saved.
+    #[serde(
+        rename = "lastKnownRevisionDate",
+        skip_serializing_if = "Option::is_none"
+    )]
+    last_known_revision_date: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -1317,7 +1341,7 @@ impl Client {
         }
     }
 
-    pub fn edit(
+    pub fn edit_with_meta(
         &self,
         access_token: &str,
         id: &str,
@@ -1328,6 +1352,7 @@ impl Client {
         notes: Option<&str>,
         folder_uuid: Option<&str>,
         history: &[crate::db::HistoryEntry],
+        meta: &crate::db::CipherWriteMeta<'_>,
     ) -> Result<()> {
         let mut req = CiphersPutReq {
             ty: match data {
@@ -1361,6 +1386,15 @@ impl Client {
                     password: entry.password.clone(),
                 })
                 .collect(),
+            key: meta.key.map(std::string::ToString::to_string),
+            reprompt: meta.reprompt,
+            favorite: meta.favorite,
+            archived_date: meta
+                .archived_date
+                .map(std::string::ToString::to_string),
+            last_known_revision_date: meta
+                .last_known_revision_date
+                .map(std::string::ToString::to_string),
         };
         match data {
             crate::db::EntryData::Login {
@@ -1456,15 +1490,12 @@ impl Client {
             .json(&req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
-        match res.status() {
-            reqwest::StatusCode::OK => Ok(()),
-            reqwest::StatusCode::UNAUTHORIZED => {
-                Err(Error::RequestUnauthorized)
-            }
-            _ => Err(Error::RequestFailed {
-                status: res.status().as_u16(),
-            }),
+        let status = res.status();
+        if status == reqwest::StatusCode::OK {
+            return Ok(());
         }
+        let body = res.text().unwrap_or_default();
+        Err(cipher_write_error(status, &body))
     }
 
     pub fn remove(&self, access_token: &str, id: &str) -> Result<()> {
@@ -1765,4 +1796,60 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+fn cipher_write_error(status: reqwest::StatusCode, body: &str) -> Error {
+    // Official Bitwarden throws BadRequestException ("out of date") → 400.
+    // Vaultwarden uses err!("... out of date.") → also 400. Some forks
+    // might still use 409. Matching the body is what surfaces
+    // CipherRevisionConflict; status 409 is kept as a belt.
+    if status == reqwest::StatusCode::CONFLICT
+        || is_stale_cipher_message(body)
+    {
+        Error::CipherRevisionConflict
+    } else if status == reqwest::StatusCode::UNAUTHORIZED {
+        Error::RequestUnauthorized
+    } else {
+        Error::RequestFailed {
+            status: status.as_u16(),
+        }
+    }
+}
+
+fn is_stale_cipher_message(body: &str) -> bool {
+    body.to_ascii_lowercase().contains("out of date")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn revision_conflict_from_official_and_vaultwarden_bodies() {
+        assert!(matches!(
+            cipher_write_error(
+                reqwest::StatusCode::BAD_REQUEST,
+                "The item cannot be saved because it is out of date. Please reload and try again.",
+            ),
+            Error::CipherRevisionConflict
+        ));
+        assert!(matches!(
+            cipher_write_error(
+                reqwest::StatusCode::BAD_REQUEST,
+                r#"{"message":"The client copy of this cipher is out of date."}"#,
+            ),
+            Error::CipherRevisionConflict
+        ));
+        assert!(matches!(
+            cipher_write_error(reqwest::StatusCode::CONFLICT, ""),
+            Error::CipherRevisionConflict
+        ));
+        assert!(matches!(
+            cipher_write_error(
+                reqwest::StatusCode::BAD_REQUEST,
+                "Name is required",
+            ),
+            Error::RequestFailed { status: 400 }
+        ));
+    }
 }
