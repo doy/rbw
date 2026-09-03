@@ -527,7 +527,6 @@ pub async fn sync(
     ) = rbw::actions::sync(&access_token, &refresh_token)
         .await
         .context("failed to sync database from server")?;
-    state.lock().await.set_master_password_reprompt(&entries);
     if let Some(access_token) = access_token {
         db.access_token = Some(access_token);
     }
@@ -535,7 +534,19 @@ pub async fn sync(
     db.protected_private_key = Some(protected_private_key);
     db.protected_org_keys = protected_org_keys;
     db.entries = entries;
-    save_db(&db).await?;
+    // Disk first, then the in-memory ciphertext set, under the same
+    // lock. The reverse order (or updating memory before a failed
+    // save) leaves the set matching the server while the on-disk
+    // cache still has the previous vault: decrypting an old hidden
+    // value would miss the set and skip master-password reprompt.
+    // Holding the lock across the save closes the window where a
+    // concurrent decrypt would see new disk bytes against the old
+    // set (the original skip-prompt bug this sync exists to fix).
+    {
+        let mut state = state.lock().await;
+        save_db(&db).await?;
+        state.set_master_password_reprompt(&db.entries);
+    }
 
     if let Err(e) = subscribe_to_notifications(state.clone()).await {
         eprintln!("failed to subscribe to notifications: {e}");
@@ -692,6 +703,7 @@ pub async fn encrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     plaintext: &str,
+    entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.lock().await;
@@ -700,8 +712,20 @@ pub async fn encrypt(
             "failed to find encryption keys in in-memory state"
         ));
     };
+    let entry_keys = if let Some(entry_key) = entry_key {
+        let key_cipherstring =
+            rbw::cipherstring::CipherString::new(entry_key)
+                .context("failed to parse individual item encryption key")?;
+        Some(rbw::locked::Keys::new(
+            key_cipherstring.decrypt_locked_symmetric(keys).context(
+                "failed to decrypt individual item encryption key",
+            )?,
+        ))
+    } else {
+        None
+    };
     let cipherstring = rbw::cipherstring::CipherString::encrypt_symmetric(
-        keys,
+        entry_keys.as_ref().unwrap_or(keys),
         plaintext.as_bytes(),
     )
     .context("failed to encrypt plaintext secret")?;

@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+## Changed
+
+* `db::Entry` now includes `favorite`, `archived_date`, and
+  `revision_date` so cipher PUTs can round-trip those values.
+  This is a Rust source break for struct literals and exhaustive
+  matches; JSON cache load stays compatible via `serde(default)`.
+* `actions::edit` and `Client::edit` are removed. They omitted item
+  `key` and wrote `favorite=false` / `archivedDate=null`, which could
+  mix-key-corrupt keyed items and unfavorite/unarchive others. Use
+  `edit_with_meta`.
+
+## Fixed
+
+* `rbw edit` encrypts with the entry's individual item key when present
+  and preserves `key` on the cipher PUT, so keyed items are not corrupted
+  (#364, #368).
+* Cipher PUT now sends `reprompt`, `favorite`, `archivedDate`, and
+  `lastKnownRevisionDate`. `rbw edit` syncs before resolving the
+  name/URI selector, and again after a successful PUT so the agent
+  rebuilds its master-password-reprompt set. The agent writes the
+  vault to disk before replacing that in-memory set; a refresh
+  failure after a successful PUT is an error (`rbw sync`), not a
+  silent success. After the server write, any local follow-up failure
+  (token save, cache refresh, reload) makes `rbw add`, `rbw edit`, and
+  `rbw generate` exit 2 (not 1) and tells you not to retry the write.
+  Stale-cipher responses (HTTP 400 "out of date" or 409) map to a
+  conflict error.
+* A rejected interactive editor (`rbw add`, `rbw edit`) keeps the
+  plaintext in `$RBW runtime/unsaved-edits/` (directory mode 0700,
+  files 0600, `O_EXCL`) until you delete it. Piped stdin is not written
+  to disk. `rbw purge` removes that directory.
+
 ## [1.15.0] - 2025-12-31
 
 ## Added

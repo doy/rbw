@@ -123,12 +123,19 @@ out by running `rbw purge`, and you can explicitly lock the database by running
 `rbw help` can be used to get more information about the available
 functionality.
 
-Run `rbw get <name>` to get your passwords. If you also want to get the username
-or the note associated, you can use the flag `--full`. You can also use the flag
-`--field={field}` to get whatever default or custom field you want. The `--raw`
-flag will show the output as JSON. In addition to matching against the name,
-you can pass a UUID as the name to search for the entry with that id, or a
-URL to search for an entry with a matching website entry.
+Run `rbw get <name>` to get your passwords. If you also want to get the
+username or the note associated, you can use the flag `--full`. You can
+also use the flag `--field={field}` to get whatever default or custom
+field you want. The `--raw` flag will show the output as JSON. `rbw edit`
+syncs the vault before opening the editor, so it needs network access.
+If an interactive editor save fails before the server write, the typed
+buffer is kept under the rbw runtime `unsaved-edits/` directory; delete
+it after recovering, or run `rbw purge`. Piped stdin is never written
+there. If the server write succeeded but the local cache could not be
+refreshed, the command exits 2 — run `rbw sync` and do not retry the
+write. In addition to matching against the name, you can pass a UUID as
+the name to search for the entry with that id, or a URL to search for an
+entry with a matching website entry.
 
 *Note to users of the official Bitwarden server (at bitwarden.com)*: The
 official server has a tendency to detect command line traffic as bot traffic

@@ -1,6 +1,5 @@
 use std::io::Write as _;
 
-use anyhow::Context as _;
 use clap::{CommandFactory as _, Parser as _};
 
 mod actions;
@@ -226,7 +225,8 @@ enum Opt {
     #[command(about = "Lock the password database")]
     Lock,
 
-    #[command(about = "Remove the local copy of the password database")]
+    #[command(about = "Remove the local copy of the password database, \
+            including unsaved editor buffers")]
     Purge,
 
     #[command(name = "stop-agent", about = "Terminate the background agent")]
@@ -515,11 +515,11 @@ fn main() {
             }
             Ok(())
         }
-    }
-    .with_context(|| format!("rbw {subcommand_name}"));
+    };
 
     if let Err(e) = res {
-        eprintln!("{e:#}");
-        std::process::exit(1);
+        let code = commands::exit_status(&e);
+        eprintln!("{:#}", e.context(format!("rbw {subcommand_name}")));
+        std::process::exit(code);
     }
 }
