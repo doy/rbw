@@ -78,7 +78,7 @@ tokio-tungstenite = { version = "0.28", features = [
     "url",
 ] }
 tokio = { version = "1.48.0", features = ["full"] }
-totp-rs = { version = "5.7.0", features = ["steam"] }
+totp-rs = { version = "6", features = ["steam"] }
 url = "2.5.7"
 urlencoding = "2.1.3"
 uuid = { version = "1.19.0", features = ["v4"] }
