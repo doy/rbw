@@ -1269,6 +1269,18 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
+        "touch_id_unlock" => {
+            let enabled = value
+                .parse()
+                .context("failed to parse value for touch_id_unlock")?;
+            #[cfg(not(target_os = "macos"))]
+            if enabled {
+                return Err(anyhow::anyhow!(
+                    "touch_id_unlock is only supported on macOS"
+                ));
+            }
+            config.touch_id_unlock = enabled;
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1298,6 +1310,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        "touch_id_unlock" => config.touch_id_unlock = false,
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;

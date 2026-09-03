@@ -11,6 +11,13 @@ pub struct State {
     pub notifications_handler: crate::notifications::Handler,
     pub master_password_reprompt: std::collections::HashSet<[u8; 32]>,
     pub master_password_reprompt_initialized: bool,
+    pub unlock_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
+    #[cfg(target_os = "macos")]
+    // Configuration changes stop the agent, so this startup snapshot avoids
+    // rereading config on every successful password unlock.
+    pub touch_id_unlock: bool,
+    #[cfg(target_os = "macos")]
+    pub biometric_unlock: Option<std::sync::Arc<crate::biometric::Session>>,
 
     // this is stored here specifically for the use of the ssh agent, because
     // requests made to the ssh agent don't include an environment, and so we
@@ -47,6 +54,14 @@ impl State {
         self.priv_key = None;
         self.org_keys = None;
         self.timeout.clear();
+    }
+
+    pub fn clear_all(&mut self) {
+        self.clear();
+        #[cfg(target_os = "macos")]
+        {
+            self.biometric_unlock = None;
+        }
     }
 
     pub fn set_sync_timeout(&self) {

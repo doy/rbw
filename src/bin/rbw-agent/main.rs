@@ -2,6 +2,8 @@ use anyhow::Context as _;
 
 mod actions;
 mod agent;
+#[cfg(target_os = "macos")]
+mod biometric;
 mod daemon;
 mod debugger;
 mod notifications;
@@ -41,6 +43,11 @@ async fn tokio_main(
             notifications_handler,
             master_password_reprompt: std::collections::HashSet::new(),
             master_password_reprompt_initialized: false,
+            unlock_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+            #[cfg(target_os = "macos")]
+            touch_id_unlock: config.touch_id_unlock,
+            #[cfg(target_os = "macos")]
+            biometric_unlock: None,
             last_environment: rbw::protocol::Environment::default(),
             #[cfg(feature = "clipboard")]
             clipboard: arboard::Clipboard::new()
@@ -61,6 +68,17 @@ async fn tokio_main(
 }
 
 fn real_main() -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if std::env::args().nth(1).as_deref()
+        == Some(crate::biometric::HELPER_ARGUMENT)
+    {
+        // Do not acknowledge the helper or accept vault key material until
+        // both debugger attachment and core dumps have been disabled.
+        debugger::disable_tracing()
+            .context("failed to secure biometric helper")?;
+        return crate::biometric::helper_main();
+    }
+
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info"),
     )
