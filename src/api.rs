@@ -1738,6 +1738,7 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
+        #[allow(clippy::collapsible_match)]
         "" => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
