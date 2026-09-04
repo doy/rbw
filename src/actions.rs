@@ -112,21 +112,17 @@ pub fn unlock<S: std::hash::BuildHasher>(
 
     let protected_private_key =
         crate::cipherstring::CipherString::new(protected_private_key)?;
-    let private_key =
-        match protected_private_key.decrypt_locked_symmetric(&key) {
-            Ok(private_key) => crate::locked::PrivateKey::new(private_key),
-            Err(e) => return Err(e),
-        };
+    let private_key = crate::locked::PrivateKey::new(
+        protected_private_key.decrypt_locked_symmetric(&key)?,
+    );
 
     let mut org_keys = std::collections::HashMap::new();
     for (org_id, protected_org_key) in protected_org_keys {
         let protected_org_key =
             crate::cipherstring::CipherString::new(protected_org_key)?;
-        let org_key =
-            match protected_org_key.decrypt_locked_asymmetric(&private_key) {
-                Ok(org_key) => crate::locked::Keys::new(org_key),
-                Err(e) => return Err(e),
-            };
+        let org_key = crate::locked::Keys::new(
+            protected_org_key.decrypt_locked_asymmetric(&private_key)?,
+        );
         org_keys.insert(org_id.clone(), org_key);
     }
 
