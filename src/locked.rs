@@ -6,8 +6,10 @@ static REGION_LOCK_WORKS: std::sync::OnceLock<bool> =
     std::sync::OnceLock::new();
 
 pub struct Vec {
-    data: Box<arrayvec::ArrayVec<u8, LEN>>,
+    // Fields are dropped in declaration order after `Vec::drop`. Keep the
+    // guard first so it unlocks the allocation before `data` is deallocated.
     _lock: Option<region::LockGuard>,
+    data: Box<arrayvec::ArrayVec<u8, LEN>>,
 }
 
 impl Default for Vec {
@@ -31,7 +33,7 @@ impl Default for Vec {
                 }
             },
         };
-        Self { data, _lock: lock }
+        Self { _lock: lock, data }
     }
 }
 
@@ -109,6 +111,10 @@ impl Keys {
     pub fn mac_key(&self) -> &[u8] {
         &self.keys.data()[32..64]
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.keys.data()[0..64]
+    }
 }
 
 #[derive(Clone)]
@@ -161,5 +167,22 @@ impl ApiKey {
 
     pub fn client_secret(&self) -> &[u8] {
         self.client_secret.password()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_as_bytes_excludes_trailing_buffer_data() {
+        let mut data = Vec::new();
+        data.extend(0_u8..80);
+        let keys = Keys::new(data);
+
+        assert_eq!(
+            keys.as_bytes(),
+            &(0_u8..64).collect::<std::vec::Vec<_>>()
+        );
     }
 }

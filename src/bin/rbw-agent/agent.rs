@@ -27,6 +27,7 @@ impl Agent {
         pub enum Event {
             Request(std::io::Result<tokio::net::UnixStream>),
             Timeout(()),
+            Logout(()),
             Sync(()),
         }
 
@@ -42,7 +43,7 @@ impl Agent {
                 notifications,
             )
             .map(|message| match message {
-                crate::notifications::Message::Logout => Event::Timeout(()),
+                crate::notifications::Message::Logout => Event::Logout(()),
                 crate::notifications::Message::Sync => Event::Sync(()),
             })
             .boxed();
@@ -85,6 +86,9 @@ impl Agent {
                 }
                 Event::Timeout(()) => {
                     self.state.lock().await.clear();
+                }
+                Event::Logout(()) => {
+                    self.state.lock().await.clear_all();
                 }
                 Event::Sync(()) => {
                     let state = self.state.clone();

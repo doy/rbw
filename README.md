@@ -87,15 +87,18 @@ configuration options:
 * `notifications_url`: The URL of the Bitwarden notifications server to use.
   If unset, will use the `/notifications` path on the configured `base_url`,
   or `https://notifications.bitwarden.com/` if no `base_url` is set.
-* `lock_timeout`: The number of seconds to keep the master keys in memory for
-  before requiring the password to be entered again. Defaults to `3600` (one
-  hour).
+* `lock_timeout`: The number of seconds to keep the master keys in memory before
+  requiring the database to be unlocked again. Defaults to `3600` (one hour).
 * `sync_interval`: `rbw` will automatically sync the database from the server
   at an interval of this many seconds, while the agent is running. Setting
   this value to `0` disables this behavior. Defaults to `3600` (one hour).
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `touch_id_unlock`: On macOS, allow Touch ID to unlock the database again
+  after the master password has unlocked it once in the current agent process.
+  The Secure Enclave key and wrapped vault key are kept only in memory and are
+  discarded when the agent exits. Defaults to `false`.
 
 ### Profiles
 
@@ -122,6 +125,29 @@ out by running `rbw purge`, and you can explicitly lock the database by running
 
 `rbw help` can be used to get more information about the available
 functionality.
+
+### Touch ID
+
+On macOS, `rbw` can use Touch ID to unlock the database again after it has been
+unlocked once with the master password in the current agent process. Enable it
+with:
+
+```sh
+rbw config set touch_id_unlock true
+```
+
+The first unlock after enabling this setting, rebooting, or running `rbw
+stop-agent` still requires the master password. During that agent process,
+automatic timeout and `rbw lock` discard the decrypted vault keys but allow the
+next unlock to use Touch ID. `rbw purge`, a logout notification from the server,
+or a change to the account's protected vault key also discards the Touch ID
+session.
+
+The private key is generated in the Secure Enclave and is not exportable. Both
+it and the wrapped vault key exist only for the lifetime of `rbw-agent`; no
+master password or additional vault key material is written to disk. Entries
+configured to require master password reprompt continue to require the master
+password.
 
 Run `rbw get <name>` to get your passwords. If you also want to get the username
 or the note associated, you can use the flag `--full`. You can also use the flag
