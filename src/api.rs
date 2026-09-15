@@ -1632,6 +1632,12 @@ impl Client {
             .form(&connect_req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
+        if !res.status().is_success() {
+            return Err(classify_refresh_error_res(
+                res.status().as_u16(),
+                res.text(),
+            ));
+        }
         let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
         Ok((connect_res.access_token, connect_res.refresh_token))
     }
@@ -1652,6 +1658,10 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
+        if !res.status().is_success() {
+            let code = res.status().as_u16();
+            return Err(classify_refresh_error_res(code, res.text().await));
+        }
         let connect_res: ConnectRefreshTokenRes =
             res.json_with_path().await?;
         Ok((connect_res.access_token, connect_res.refresh_token))
@@ -1780,6 +1790,34 @@ fn sso_query_code(
     }
 
     Ok(sso_code.clone())
+}
+
+/// Classify a failed response from the `refresh_token` grant.
+///
+/// `invalid_grant` is unambiguous here in a way it is not during login: no
+/// password or second factor is involved, so the only thing the server can be
+/// rejecting is the refresh token itself. It will never become valid again, so
+/// callers should stop retrying and require a fresh login.
+fn classify_refresh_error_res(
+    code: u16,
+    body: std::result::Result<String, reqwest::Error>,
+) -> Error {
+    let Ok(body) = body else {
+        return Error::RequestFailed { status: code };
+    };
+    match body.clone().json_with_path::<ConnectErrorRes>() {
+        Ok(json) => {
+            if json.error == "invalid_grant" {
+                Error::RefreshTokenInvalid
+            } else {
+                classify_login_error(&json, code)
+            }
+        }
+        Err(e) => {
+            log::warn!("{e}: {body}");
+            Error::RequestFailed { status: code }
+        }
+    }
 }
 
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
