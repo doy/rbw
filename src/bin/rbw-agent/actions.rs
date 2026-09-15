@@ -522,14 +522,42 @@ pub async fn sync(
         return Err(anyhow::anyhow!("failed to find refresh token in db"));
     };
     let (
-        access_token,
+        tokens,
         (protected_key, protected_private_key, protected_org_keys, entries),
-    ) = rbw::actions::sync(&access_token, &refresh_token)
-        .await
-        .context("failed to sync database from server")?;
+    ) = match rbw::actions::sync(&access_token, &refresh_token).await {
+        Ok(res) => res,
+        // The server will never accept this refresh token again, so retrying
+        // on the sync interval only repeats the same rejection forever. Drop
+        // the tokens instead: that makes db.needs_login() true, so the next
+        // command the user runs goes through the ordinary login flow, and the
+        // syncs in between fail locally without touching the network.
+        Err(rbw::error::Error::RefreshTokenInvalid) => {
+            // Re-read rather than trusting the copy loaded above: a concurrent
+            // sync may have rotated the token while this request was in
+            // flight, in which case the server is rejecting a token that has
+            // already been superseded and the stored replacement is valid.
+            // Only clear if what we sent is still what is stored.
+            let mut current = load_db().await?;
+            if current.refresh_token.as_deref()
+                == Some(refresh_token.as_str())
+            {
+                current.access_token = None;
+                current.refresh_token = None;
+                save_db(&current).await?;
+            }
+            return Err(rbw::error::Error::RefreshTokenInvalid)
+                .context("failed to sync database from server");
+        }
+        Err(e) => {
+            return Err(e).context("failed to sync database from server")
+        }
+    };
     state.lock().await.set_master_password_reprompt(&entries);
-    if let Some(access_token) = access_token {
-        db.access_token = Some(access_token);
+    if let Some(tokens) = tokens {
+        db.access_token = Some(tokens.access_token);
+        if let Some(refresh_token) = tokens.refresh_token {
+            db.refresh_token = Some(refresh_token);
+        }
     }
     db.protected_key = Some(protected_key);
     db.protected_private_key = Some(protected_private_key);
