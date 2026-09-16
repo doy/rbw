@@ -10,6 +10,8 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 pub struct Entry {
     pub id: String,
     pub org_id: Option<String>,
+    #[serde(default)]
+    pub collection_ids: Vec<String>,
     pub folder: Option<String>,
     pub folder_id: Option<String>,
     pub name: String,
@@ -175,6 +177,25 @@ pub struct HistoryEntry {
     pub password: String,
 }
 
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct Org {
+    pub id: String,
+    // organization names are plaintext in the sync response
+    pub name: String,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct Collection {
+    pub id: String,
+    pub org_id: String,
+    // collection names are encrypted with the organization key
+    pub name: String,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct Db {
     pub access_token: Option<String>,
@@ -187,6 +208,10 @@ pub struct Db {
     pub protected_key: Option<String>,
     pub protected_private_key: Option<String>,
     pub protected_org_keys: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub organizations: Vec<Org>,
+    #[serde(default)]
+    pub collections: Vec<Collection>,
 
     pub entries: Vec<Entry>,
 }
@@ -312,5 +337,85 @@ impl Db {
             || self.iterations.is_none()
             || self.kdf.is_none()
             || self.protected_key.is_none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // db files written before organizations/collections support must still
+    // deserialize
+    #[test]
+    fn test_deserialize_old_format() {
+        let json = r#"{
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "kdf": null,
+            "iterations": 600000,
+            "memory": null,
+            "parallelism": null,
+            "protected_key": "protected-key",
+            "protected_private_key": "protected-private-key",
+            "protected_org_keys": {
+                "org-id": "protected-org-key"
+            },
+            "entries": [{
+                "id": "entry-id",
+                "org_id": "org-id",
+                "folder": null,
+                "folder_id": null,
+                "name": "encrypted-name",
+                "data": {
+                    "Login": {
+                        "username": null,
+                        "password": null,
+                        "totp": null,
+                        "uris": []
+                    }
+                },
+                "fields": [],
+                "notes": null,
+                "history": [],
+                "key": null,
+                "master_password_reprompt": 0
+            }]
+        }"#;
+        let db: Db = serde_json::from_str(json).unwrap();
+        assert!(db.organizations.is_empty());
+        assert!(db.collections.is_empty());
+        assert_eq!(db.entries.len(), 1);
+        assert!(db.entries[0].collection_ids.is_empty());
+    }
+
+    #[test]
+    fn test_roundtrip_organizations_and_collections() {
+        let mut db = Db::new();
+        db.organizations = vec![Org {
+            id: "org-id".to_string(),
+            name: "org-name".to_string(),
+        }];
+        db.collections = vec![Collection {
+            id: "collection-id".to_string(),
+            org_id: "org-id".to_string(),
+            name: "encrypted-collection-name".to_string(),
+        }];
+        let json = serde_json::to_string(&db).unwrap();
+        let db: Db = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            db.organizations,
+            vec![Org {
+                id: "org-id".to_string(),
+                name: "org-name".to_string(),
+            }]
+        );
+        assert_eq!(
+            db.collections,
+            vec![Collection {
+                id: "collection-id".to_string(),
+                org_id: "org-id".to_string(),
+                name: "encrypted-collection-name".to_string(),
+            }]
+        );
     }
 }

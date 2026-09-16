@@ -15,6 +15,10 @@ struct FindArgs {
     user: Option<String>,
     #[arg(long, help = "Folder name to search in")]
     folder: Option<String>,
+    #[arg(long, help = "Organization name to search in")]
+    org: Option<String>,
+    #[arg(long, help = "Collection name to search in")]
+    collection: Option<String>,
     #[arg(short, long, help = "Ignore case")]
     ignorecase: bool,
 }
@@ -59,7 +63,8 @@ enum Opt {
         #[arg(
             long,
             help = "Fields to display. \
-                Available options are id, name, user, folder, type. \
+                Available options are id, name, user, folder, org, \
+                collection, type. \
                 Multiple fields will be separated by tabs.",
             default_value = "name",
             use_value_delimiter = true
@@ -93,7 +98,8 @@ enum Opt {
         #[arg(
             long,
             help = "Fields to display. \
-                Available options are id, name, user, folder. \
+                Available options are id, name, user, folder, org, \
+                collection. \
                 Multiple fields will be separated by tabs.",
             default_value = "name",
             use_value_delimiter = true
@@ -101,6 +107,10 @@ enum Opt {
         fields: Vec<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
+        #[arg(long, help = "Organization name to search in")]
+        org: Option<String>,
+        #[arg(long, help = "Collection name to search in")]
+        collection: Option<String>,
         #[structopt(long, help = "Display output as JSON")]
         raw: bool,
     },
@@ -139,6 +149,21 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(
+            long,
+            help = "Organization for the password entry \
+                (requires --collection)",
+            requires = "collection"
+        )]
+        org: Option<String>,
+        #[arg(
+            long,
+            help = "Collection for the password entry \
+                (requires --org, may be given multiple times)",
+            number_of_values = 1,
+            requires = "org"
+        )]
+        collection: Vec<String>,
     },
 
     #[command(
@@ -169,6 +194,21 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(
+            long,
+            help = "Organization for the password entry \
+                (requires --collection)",
+            requires = "collection"
+        )]
+        org: Option<String>,
+        #[arg(
+            long,
+            help = "Collection for the password entry \
+                (requires --org, may be given multiple times)",
+            number_of_values = 1,
+            requires = "org"
+        )]
+        collection: Vec<String>,
         #[arg(
             long = "no-symbols",
             help = "Generate a password with no special characters"
@@ -209,6 +249,15 @@ enum Opt {
     Edit {
         #[command(flatten)]
         find_args: FindArgs,
+        #[arg(
+            long,
+            help = "Set the collections the entry belongs to, replacing \
+                its current collections, without editing its contents \
+                (only valid for entries in an organization, may be given \
+                multiple times)",
+            number_of_values = 1
+        )]
+        set_collection: Vec<String>,
     },
 
     #[command(about = "Remove a given entry", visible_alias = "rm")]
@@ -350,6 +399,8 @@ fn main() {
             find_args.needle.clone(),
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
+            find_args.org.as_deref(),
+            find_args.collection.as_deref(),
             field.as_deref(),
             full,
             raw,
@@ -364,8 +415,17 @@ fn main() {
             term,
             fields,
             folder,
+            org,
+            collection,
             raw,
-        } => commands::search(&term, &fields, folder.as_deref(), raw),
+        } => commands::search(
+            &term,
+            &fields,
+            folder.as_deref(),
+            org.as_deref(),
+            collection.as_deref(),
+            raw,
+        ),
         Opt::Code {
             find_args,
             #[cfg(feature = "clipboard")]
@@ -374,6 +434,8 @@ fn main() {
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
+            find_args.org.as_deref(),
+            find_args.collection.as_deref(),
             #[cfg(feature = "clipboard")]
             clipboard,
             #[cfg(not(feature = "clipboard"))]
@@ -385,6 +447,8 @@ fn main() {
             user,
             uri,
             folder,
+            org,
+            collection,
         } => commands::add(
             &name,
             user.as_deref(),
@@ -394,6 +458,8 @@ fn main() {
                 .map(|uri| (uri.clone(), None))
                 .collect::<Vec<_>>(),
             folder.as_deref(),
+            org.as_deref(),
+            &collection,
         ),
         Opt::Generate {
             len,
@@ -401,6 +467,8 @@ fn main() {
             user,
             uri,
             folder,
+            org,
+            collection,
             no_symbols,
             only_numbers,
             nonconfusables,
@@ -426,26 +494,38 @@ fn main() {
                     .map(|uri| (uri.clone(), None))
                     .collect::<Vec<_>>(),
                 folder.as_deref(),
+                org.as_deref(),
+                &collection,
                 len,
                 ty,
             )
         }
-        Opt::Edit { find_args } => commands::edit(
+        Opt::Edit {
+            find_args,
+            set_collection,
+        } => commands::edit(
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
+            find_args.org.as_deref(),
+            find_args.collection.as_deref(),
+            &set_collection,
             find_args.ignorecase,
         ),
         Opt::Remove { find_args } => commands::remove(
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
+            find_args.org.as_deref(),
+            find_args.collection.as_deref(),
             find_args.ignorecase,
         ),
         Opt::History { find_args } => commands::history(
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
+            find_args.org.as_deref(),
+            find_args.collection.as_deref(),
             find_args.ignorecase,
         ),
         Opt::Lock => commands::lock(),
@@ -521,5 +601,59 @@ fn main() {
     if let Err(e) = res {
         eprintln!("{e:#}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cli() {
+        Opt::command().debug_assert();
+    }
+
+    // creating an entry in an organization requires a collection, and a
+    // collection is meaningless without an organization
+    #[test]
+    fn test_org_and_collection_require_each_other() {
+        for args in [
+            &["rbw", "add", "name", "--org", "org"][..],
+            &["rbw", "add", "name", "--collection", "collection"][..],
+            &["rbw", "generate", "12", "name", "--org", "org"][..],
+            &[
+                "rbw",
+                "generate",
+                "12",
+                "name",
+                "--collection",
+                "collection",
+            ][..],
+        ] {
+            assert!(Opt::try_parse_from(args).is_err(), "{args:?}");
+        }
+        for args in [
+            &[
+                "rbw",
+                "add",
+                "name",
+                "--org",
+                "org",
+                "--collection",
+                "collection",
+            ][..],
+            &[
+                "rbw",
+                "generate",
+                "12",
+                "name",
+                "--org",
+                "org",
+                "--collection",
+                "collection",
+            ][..],
+        ] {
+            assert!(Opt::try_parse_from(args).is_ok(), "{args:?}");
+        }
     }
 }

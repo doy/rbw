@@ -2,7 +2,7 @@ function __fish_rbw_get_completion_name
     set -l cmd (commandline -xpc)
     set -e cmd[1] # rbw
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    argparse -i folder= org= collection= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
     set -e argv[1] # get
 
     set -l candidates (command rbw list --fields name,folder,user)
@@ -57,7 +57,7 @@ function __fish_rbw_get_completion_fields
         set -e cmd[-1] # -f/--field
     end
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    argparse -i folder= org= collection= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
     set -e argv[1] # get
 
     if test (count $argv) -gt 0
@@ -72,6 +72,8 @@ complete -f -c rbw -n '__fish_seen_subcommand_from get' -s i -l ignorecase -d 'I
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -s f -l field -r -d 'Field to get' -a '(__fish_rbw_get_completion_fields)'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -s l -l list-fields -r -d 'List fields in this entry'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -l folder -r -d 'Folder name to search in' -a '(command rbw list --fields folder)'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -l org -r -d 'Organization name to search in' -a '(command rbw list --fields org)'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -l collection -r -d 'Collection name to search in' -a '(command rbw list --fields collection | string split ,)'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -l full -d 'Display the notes in addition to the password'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -l raw -d 'Display output as JSON'
 complete -f -c rbw -n '__fish_seen_subcommand_from get' -s c -l clipboard -d 'Copy result to clipboard'

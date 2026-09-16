@@ -112,21 +112,17 @@ pub fn unlock<S: std::hash::BuildHasher>(
 
     let protected_private_key =
         crate::cipherstring::CipherString::new(protected_private_key)?;
-    let private_key =
-        match protected_private_key.decrypt_locked_symmetric(&key) {
-            Ok(private_key) => crate::locked::PrivateKey::new(private_key),
-            Err(e) => return Err(e),
-        };
+    let private_key = crate::locked::PrivateKey::new(
+        protected_private_key.decrypt_locked_symmetric(&key)?,
+    );
 
     let mut org_keys = std::collections::HashMap::new();
     for (org_id, protected_org_key) in protected_org_keys {
         let protected_org_key =
             crate::cipherstring::CipherString::new(protected_org_key)?;
-        let org_key =
-            match protected_org_key.decrypt_locked_asymmetric(&private_key) {
-                Ok(org_key) => crate::locked::Keys::new(org_key),
-                Err(e) => return Err(e),
-            };
+        let org_key = crate::locked::Keys::new(
+            protected_org_key.decrypt_locked_asymmetric(&private_key)?,
+        );
         org_keys.insert(org_id.clone(), org_key);
     }
 
@@ -136,15 +132,7 @@ pub fn unlock<S: std::hash::BuildHasher>(
 pub async fn sync(
     access_token: &str,
     refresh_token: &str,
-) -> Result<(
-    Option<String>,
-    (
-        String,
-        String,
-        std::collections::HashMap<String, String>,
-        Vec<crate::db::Entry>,
-    ),
-)> {
+) -> Result<(Option<String>, crate::api::SyncData)> {
     with_exchange_refresh_token_async(
         access_token,
         refresh_token,
@@ -156,18 +144,12 @@ pub async fn sync(
     .await
 }
 
-async fn sync_once(
-    access_token: &str,
-) -> Result<(
-    String,
-    String,
-    std::collections::HashMap<String, String>,
-    Vec<crate::db::Entry>,
-)> {
+async fn sync_once(access_token: &str) -> Result<crate::api::SyncData> {
     let (client, _) = api_client_async().await?;
     client.sync(access_token).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn add(
     access_token: &str,
     refresh_token: &str,
@@ -175,21 +157,42 @@ pub fn add(
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
+    org_id: Option<&str>,
+    collection_ids: &[String],
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, name, data, notes, folder_id)
+        add_once(
+            access_token,
+            name,
+            data,
+            notes,
+            folder_id,
+            org_id,
+            collection_ids,
+        )
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_once(
     access_token: &str,
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
+    org_id: Option<&str>,
+    collection_ids: &[String],
 ) -> Result<()> {
     let (client, _) = api_client()?;
-    client.add(access_token, name, data, notes, folder_id)?;
+    client.add(
+        access_token,
+        name,
+        data,
+        notes,
+        folder_id,
+        org_id,
+        collection_ids,
+    )?;
     Ok(())
 }
 
@@ -243,6 +246,27 @@ fn edit_once(
         folder_uuid,
         history,
     )?;
+    Ok(())
+}
+
+pub fn set_collections(
+    access_token: &str,
+    refresh_token: &str,
+    id: &str,
+    collection_ids: &[String],
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        set_collections_once(access_token, id, collection_ids)
+    })
+}
+
+fn set_collections_once(
+    access_token: &str,
+    id: &str,
+    collection_ids: &[String],
+) -> Result<()> {
+    let (client, _) = api_client()?;
+    client.set_collections(access_token, id, collection_ids)?;
     Ok(())
 }
 

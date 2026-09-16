@@ -7,7 +7,7 @@ _rbw_wrapper() {
       cur="${(Q)words[i]}"
 
       case "$cur" in
-        --folder|-f|--field)
+        --folder|--org|--collection|-f|--field)
           (( i++ ))
           ;;
         -*)
@@ -60,7 +60,7 @@ _rbw_wrapper() {
     fi
 
     if [[ "$cur" == -* ]] && [[ "$cur" != "--folder="* ]]; then
-      res=$'-f\n--field\n--full\n--raw\n--clipboard\n-i\n--ignorecase\n-h\n--help\n'"$res"
+      res=$'-f\n--field\n--full\n--raw\n--clipboard\n-i\n--ignorecase\n-h\n--help\n--org\n--collection\n'"$res"
       if [ -z "$folder" ]; then
         res=$'--folder\n'"$res"
       fi

@@ -130,6 +130,23 @@ flag will show the output as JSON. In addition to matching against the name,
 you can pass a UUID as the name to search for the entry with that id, or a
 URL to search for an entry with a matching website entry.
 
+### Organizations and collections
+
+Entries shared with you through an organization are part of your vault, and
+`rbw list --fields name,org,collection` will show which organization and
+collections each entry belongs to. When multiple entries share a name, you
+can disambiguate with `--org <name>` or `--collection <name>` on `rbw get`
+(as well as `code`, `edit`, `remove`, `history`, and `search`).
+
+`rbw add` and `rbw generate` can create entries directly in an organization
+with `--org <name> --collection <name>` (an organization entry must be
+placed in at least one collection, and `--collection` may be given multiple
+times). `rbw edit --set-collection <name>` replaces the set of collections
+an existing organization entry belongs to without editing its contents,
+which allows moving entries between collections of the same organization. Moving entries into or out of
+an organization is not currently supported, and neither is creating or
+managing the collections themselves.
+
 *Note to users of the official Bitwarden server (at bitwarden.com)*: The
 official server has a tendency to detect command line traffic as bot traffic
 (see [this issue](https://github.com/bitwarden/cli/issues/383) for details). In

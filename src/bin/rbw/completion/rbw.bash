@@ -5,7 +5,7 @@ _rbw_wrapper() {
   if [[ "${COMP_WORDS[1]}" == "get" ]] && [[ $COMP_CWORD -gt 1 ]]; then
     for (( i=2; i < COMP_CWORD; i++ )); do
       case "${COMP_WORDS[i]}" in
-        --folder|-f|--field)
+        --folder|--org|--collection|-f|--field)
           (( i++ ))
           if [ "${COMP_WORDS[i]}" == "=" ]; then
             (( i++ ))
@@ -70,7 +70,7 @@ _rbw_wrapper() {
     fi
 
     if [[ "$cur" == -* ]]; then
-      res="-f --field --full --raw --clipboard -i --ignorecase -h --help $res"
+      res="-f --field --full --raw --clipboard -i --ignorecase -h --help --org --collection $res"
       if [ -z "$folder" ]; then
         res="--folder $res"
       fi
