@@ -139,6 +139,13 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["user", "uri"],
+            help = "Create a secure note instead of a login; the editor \
+                    contents (or stdin) are stored as the note"
+        )]
+        secure_note: bool,
     },
 
     #[command(
@@ -385,6 +392,7 @@ fn main() {
             user,
             uri,
             folder,
+            secure_note,
         } => commands::add(
             &name,
             user.as_deref(),
@@ -394,6 +402,7 @@ fn main() {
                 .map(|uri| (uri.clone(), None))
                 .collect::<Vec<_>>(),
             folder.as_deref(),
+            secure_note,
         ),
         Opt::Generate {
             len,
