@@ -1560,6 +1560,7 @@ pub fn add(
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
+    secure_note: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1575,9 +1576,14 @@ pub fn add(
         .map(|username| crate::actions::encrypt(username, None))
         .transpose()?;
 
-    let contents = rbw::edit::edit("", HELP_PW)?;
-
-    let (password, notes) = parse_editor(&contents);
+    let (password, notes) = if secure_note {
+        let contents = rbw::edit::edit("", HELP_NOTES)?;
+        // prepend blank line to be parsed as pw by `parse_editor`
+        let (_, notes) = parse_editor(&format!("\n{contents}\n"));
+        (None, notes)
+    } else {
+        parse_editor(&rbw::edit::edit("", HELP_PW)?)
+    };
     let password = password
         .map(|password| crate::actions::encrypt(&password, None))
         .transpose()?;
@@ -1632,16 +1638,22 @@ pub fn add(
         }
     }
 
-    if let (Some(access_token), ()) = rbw::actions::add(
-        &access_token,
-        refresh_token,
-        &name,
-        &rbw::db::EntryData::Login {
+    let data = if secure_note {
+        rbw::db::EntryData::SecureNote
+    } else {
+        rbw::db::EntryData::Login {
             username,
             password,
             uris,
             totp: None,
-        },
+        }
+    };
+
+    if let (Some(access_token), ()) = rbw::actions::add(
+        &access_token,
+        refresh_token,
+        &name,
+        &data,
         notes.as_deref(),
         folder_id.as_deref(),
     )? {

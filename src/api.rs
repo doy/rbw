@@ -737,7 +737,11 @@ struct CipherField {
 // this is just a name and some notes, both of which are already on the cipher
 // object
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct CipherSecureNote {}
+struct CipherSecureNote {
+    // the only secure note type is "generic" (0)
+    #[serde(rename = "type")]
+    ty: Option<u32>,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct SyncResPasswordHistory {
@@ -747,10 +751,20 @@ struct SyncResPasswordHistory {
     password: Option<String>,
 }
 
+fn cipher_type(data: &crate::db::EntryData) -> u32 {
+    match data {
+        crate::db::EntryData::Login { .. } => 1,
+        crate::db::EntryData::SecureNote => 2,
+        crate::db::EntryData::Card { .. } => 3,
+        crate::db::EntryData::Identity { .. } => 4,
+        crate::db::EntryData::SshKey { .. } => unreachable!(),
+    }
+}
+
 #[derive(serde::Serialize, Debug)]
 struct CiphersPostReq {
     #[serde(rename = "type")]
-    ty: u32, // XXX what are the valid types?
+    ty: u32,
     #[serde(rename = "folderId")]
     folder_id: Option<String>,
     name: String,
@@ -765,7 +779,7 @@ struct CiphersPostReq {
 #[derive(serde::Serialize, Debug)]
 struct CiphersPutReq {
     #[serde(rename = "type")]
-    ty: u32, // XXX what are the valid types?
+    ty: u32,
     #[serde(rename = "folderId")]
     folder_id: Option<String>,
     #[serde(rename = "organizationId")]
@@ -1203,7 +1217,7 @@ impl Client {
         folder_id: Option<&str>,
     ) -> Result<()> {
         let mut req = CiphersPostReq {
-            ty: 1,
+            ty: cipher_type(data),
             folder_id: folder_id.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
@@ -1295,7 +1309,7 @@ impl Client {
                 });
             }
             crate::db::EntryData::SecureNote => {
-                req.secure_note = Some(CipherSecureNote {});
+                req.secure_note = Some(CipherSecureNote { ty: Some(0) });
             }
             crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
@@ -1330,13 +1344,7 @@ impl Client {
         history: &[crate::db::HistoryEntry],
     ) -> Result<()> {
         let mut req = CiphersPutReq {
-            ty: match data {
-                crate::db::EntryData::Login { .. } => 1,
-                crate::db::EntryData::SecureNote => 2,
-                crate::db::EntryData::Card { .. } => 3,
-                crate::db::EntryData::Identity { .. } => 4,
-                crate::db::EntryData::SshKey { .. } => unreachable!(),
-            },
+            ty: cipher_type(data),
             folder_id: folder_uuid.map(std::string::ToString::to_string),
             organization_id: org_id.map(std::string::ToString::to_string),
             name: name.to_string(),
@@ -1445,7 +1453,7 @@ impl Client {
                 });
             }
             crate::db::EntryData::SecureNote => {
-                req.secure_note = Some(CipherSecureNote {});
+                req.secure_note = Some(CipherSecureNote { ty: Some(0) });
             }
             crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
@@ -1765,4 +1773,34 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cipher_type() {
+        let login = crate::db::EntryData::Login {
+            username: None,
+            password: None,
+            totp: None,
+            uris: vec![],
+        };
+        assert_eq!(cipher_type(&login), 1);
+        assert_eq!(cipher_type(&crate::db::EntryData::SecureNote), 2);
+    }
+
+    #[test]
+    fn test_secure_note_serialization() {
+        assert_eq!(
+            serde_json::to_value(CipherSecureNote { ty: Some(0) }).unwrap(),
+            serde_json::json!({ "type": 0 })
+        );
+        let note: CipherSecureNote = serde_json::from_str("{}").unwrap();
+        assert_eq!(note.ty, None);
+        let note: CipherSecureNote =
+            serde_json::from_str(r#"{"type": null}"#).unwrap();
+        assert_eq!(note.ty, None);
+    }
 }
