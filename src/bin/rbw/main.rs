@@ -240,6 +240,12 @@ enum Opt {
             help = "Edit a single field (e.g. username, name, notes, totp, or a custom field name)"
         )]
         field: Option<String>,
+        #[arg(
+            long,
+            requires = "field",
+            help = "Create the custom field (as a hidden field) if it doesn't exist"
+        )]
+        create: bool,
     },
 
     #[command(about = "Remove a given entry", visible_alias = "rm")]
@@ -482,11 +488,16 @@ fn main() {
                 ty,
             )
         }
-        Opt::Edit { find_args, field } => commands::edit(
+        Opt::Edit {
+            find_args,
+            field,
+            create,
+        } => commands::edit(
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             field.as_deref(),
+            create,
             find_args.ignorecase,
         ),
         Opt::Remove { find_args } => commands::remove(

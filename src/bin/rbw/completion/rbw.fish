@@ -84,6 +84,7 @@ complete -f -c rbw -n '__fish_seen_subcommand_from get' -s h -l help -d 'Print h
 
 # Complete options for `rbw edit`
 complete -f -c rbw -n '__fish_seen_subcommand_from edit' -s f -l field -r -d 'Field to edit' -a '(__fish_rbw_get_completion_fields)'
+complete -f -c rbw -n '__fish_seen_subcommand_from edit' -l create -d 'Create the custom field if it does not exist'
 complete -f -c rbw -n '__fish_seen_subcommand_from edit' -l folder -r -d 'Folder name to search in' -a '(command rbw list --fields folder)'
 complete -f -c rbw -n '__fish_seen_subcommand_from edit' -s i -l ignorecase -d 'Ignore case'
 complete -f -c rbw -n '__fish_seen_subcommand_from edit' -s h -l help -d 'Print help'

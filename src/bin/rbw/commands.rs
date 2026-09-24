@@ -1,4 +1,8 @@
-use std::{fmt::Write as _, io::Write as _, os::unix::ffi::OsStrExt as _};
+use std::{
+    fmt::Write as _,
+    io::{IsTerminal as _, Write as _},
+    os::unix::ffi::OsStrExt as _,
+};
 
 use anyhow::Context as _;
 
@@ -1813,6 +1817,7 @@ pub fn edit(
     username: Option<&str>,
     folder: Option<&str>,
     field: Option<&str>,
+    create: bool,
     ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
@@ -1838,7 +1843,7 @@ pub fn edit(
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     let (name, data, fields, notes, history) = if let Some(field) = field {
-        edit_field(&entry, &decrypted, field)?
+        edit_field(&entry, &decrypted, field, create)?
     } else {
         edit_default(&entry, &decrypted)?
     };
@@ -1963,10 +1968,99 @@ fn edit_default(
     Ok((entry.name.clone(), data, fields, notes, history))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FieldTarget {
+    Builtin(Field),
+    Custom,
+}
+
+fn field_target(field: &str, data: &DecryptedData) -> FieldTarget {
+    match (field.parse::<Field>().ok(), data) {
+        (Some(f @ (Field::Name | Field::Notes)), _)
+        | (
+            Some(
+                f @ (Field::Username
+                | Field::Password
+                | Field::Totp
+                | Field::Uris),
+            ),
+            DecryptedData::Login { .. },
+        ) => FieldTarget::Builtin(f),
+        _ => FieldTarget::Custom,
+    }
+}
+
+fn find_custom_field(
+    names: &[Option<&str>],
+    field: &str,
+) -> anyhow::Result<Option<usize>> {
+    let named = || {
+        names
+            .iter()
+            .enumerate()
+            .filter_map(|(i, name)| name.map(|name| (i, name)))
+    };
+    let lower = field.to_lowercase();
+    let levels: [Vec<(usize, &str)>; 3] = [
+        named().filter(|(_, name)| *name == field).collect(),
+        named()
+            .filter(|(_, name)| name.to_lowercase() == lower)
+            .collect(),
+        named()
+            .filter(|(_, name)| name.to_lowercase().contains(&lower))
+            .collect(),
+    ];
+    for matches in levels {
+        match matches.as_slice() {
+            [] => {}
+            [(i, _)] => return Ok(Some(*i)),
+            _ => {
+                let candidates = matches
+                    .iter()
+                    .map(|(_, name)| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "field '{field}' is ambiguous, it matches {candidates}; \
+                     use the exact field name"
+                );
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn read_field_value(current: Option<&str>) -> anyhow::Result<Option<String>> {
+    if std::io::stdin().is_terminal() {
+        let contents = rbw::edit::edit(
+            &format!("{}\n", current.unwrap_or("")),
+            HELP_FIELD,
+        )?;
+        Ok(parse_field_value(&contents))
+    } else {
+        // taken verbatim on purpose, not run through the editor parser
+        let input = std::io::read_to_string(std::io::stdin())
+            .context("failed to read field value from stdin")?;
+        Ok(parse_piped_field_value(&input))
+    }
+}
+
+fn parse_piped_field_value(input: &str) -> Option<String> {
+    let value = input
+        .strip_suffix('\n')
+        .map_or(input, |v| v.strip_suffix('\r').unwrap_or(v));
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
 fn edit_field(
     entry: &rbw::db::Entry,
     decrypted: &DecryptedCipher,
     field: &str,
+    create: bool,
 ) -> anyhow::Result<(
     String,
     rbw::db::EntryData,
@@ -1982,22 +2076,67 @@ fn edit_field(
         )
     };
 
-    let field_name = field.to_lowercase();
-    let parsed = field_name.parse::<Field>().ok();
+    let parsed = match field_target(field, &decrypted.data) {
+        FieldTarget::Builtin(parsed) => parsed,
+        FieldTarget::Custom => {
+            // match decrypted names; indices line up with entry.fields
+            let names: Vec<Option<&str>> =
+                decrypted.fields.iter().map(|f| f.name.as_deref()).collect();
+            let idx = find_custom_field(&names, field)?;
+            if idx.is_none() && !create {
+                if field.parse::<Field>().is_ok() {
+                    anyhow::bail!(
+                        "field '{field}' can't be edited on this entry type \
+                         and no custom field with that name exists \
+                         (use --create to add one)"
+                    );
+                }
+                anyhow::bail!(
+                    "no field named '{field}' found on this entry \
+                     (use --create to add it)"
+                );
+            }
 
-    let current = match (&parsed, &decrypted.data) {
-        (Some(Field::Name), _) => Some(decrypted.name.clone()),
-        (Some(Field::Notes), _) => decrypted.notes.clone(),
-        (Some(Field::Username), DecryptedData::Login { username, .. }) => {
+            let current =
+                idx.and_then(|i| decrypted.fields[i].value.as_deref());
+            let new_value = read_field_value(current)?;
+            let value = new_value.as_deref().map(encrypt).transpose()?;
+
+            let mut fields = entry.fields.clone();
+            if let Some(i) = idx {
+                fields[i].value = value;
+            } else {
+                if value.is_none() {
+                    anyhow::bail!("refusing to create field '{field}' with an empty value");
+                }
+                fields.push(rbw::db::Field {
+                    ty: Some(rbw::api::FieldType::Hidden),
+                    name: Some(encrypt(field)?),
+                    value,
+                    linked_id: None,
+                });
+            }
+            return Ok((
+                entry.name.clone(),
+                entry.data.clone(),
+                fields,
+                entry.notes.clone(),
+                entry.history.clone(),
+            ));
+        }
+    };
+
+    let current = match (parsed, &decrypted.data) {
+        (Field::Name, _) => Some(decrypted.name.clone()),
+        (Field::Notes, _) => decrypted.notes.clone(),
+        (Field::Username, DecryptedData::Login { username, .. }) => {
             username.clone()
         }
-        (Some(Field::Password), DecryptedData::Login { password, .. }) => {
+        (Field::Password, DecryptedData::Login { password, .. }) => {
             password.clone()
         }
-        (Some(Field::Totp), DecryptedData::Login { totp, .. }) => {
-            totp.clone()
-        }
-        (Some(Field::Uris), DecryptedData::Login { uris, .. }) => {
+        (Field::Totp, DecryptedData::Login { totp, .. }) => totp.clone(),
+        (Field::Uris, DecryptedData::Login { uris, .. }) => {
             uris.as_ref().map(|uris| {
                 uris.iter()
                     .map(|u| u.uri.clone())
@@ -2005,28 +2144,16 @@ fn edit_field(
                     .join("\n")
             })
         }
-        (_, _) => decrypted
-            .fields
-            .iter()
-            .find(|f| {
-                f.name
-                    .as_deref()
-                    .is_some_and(|n| n.to_lowercase().contains(&field_name))
-            })
-            .and_then(|f| f.value.clone()),
+        _ => unreachable!("field_target only returns editable built-ins"),
     };
 
-    let contents = rbw::edit::edit(
-        &format!("{}\n", current.as_deref().unwrap_or("")),
-        HELP_FIELD,
-    )?;
-    let new_value = parse_field_value(&contents);
+    let new_value = read_field_value(current.as_deref())?;
 
     let mut history = entry.history.clone();
     let mut data = entry.data.clone();
 
-    match (&parsed, &mut data) {
-        (Some(Field::Name), _) => {
+    match (parsed, &mut data) {
+        (Field::Name, _) => {
             let name = new_value
                 .as_deref()
                 .map(encrypt)
@@ -2040,7 +2167,7 @@ fn edit_field(
                 history,
             ));
         }
-        (Some(Field::Notes), _) => {
+        (Field::Notes, _) => {
             let notes = new_value.as_deref().map(encrypt).transpose()?;
             return Ok((
                 entry.name.clone(),
@@ -2051,7 +2178,7 @@ fn edit_field(
             ));
         }
         (
-            Some(Field::Password),
+            Field::Password,
             rbw::db::EntryData::Login {
                 password: entry_password,
                 ..
@@ -2071,16 +2198,13 @@ fn edit_field(
             *entry_password =
                 new_value.as_deref().map(encrypt).transpose()?;
         }
-        (
-            Some(Field::Username),
-            rbw::db::EntryData::Login { username, .. },
-        ) => {
+        (Field::Username, rbw::db::EntryData::Login { username, .. }) => {
             *username = new_value.as_deref().map(encrypt).transpose()?;
         }
-        (Some(Field::Totp), rbw::db::EntryData::Login { totp, .. }) => {
+        (Field::Totp, rbw::db::EntryData::Login { totp, .. }) => {
             *totp = new_value.as_deref().map(encrypt).transpose()?;
         }
-        (Some(Field::Uris), rbw::db::EntryData::Login { uris, .. }) => {
+        (Field::Uris, rbw::db::EntryData::Login { uris, .. }) => {
             let old_match =
                 if let DecryptedData::Login { uris: old, .. } =
                     &decrypted.data
@@ -2113,36 +2237,7 @@ fn edit_field(
                 .transpose()?
                 .unwrap_or_default();
         }
-        (Some(_), _) => {
-            anyhow::bail!(
-                "field '{field}' is not available for this entry type"
-            );
-        }
-        (None, _) => {
-            let mut fields = entry.fields.clone();
-            let mut matched = false;
-            for f in &mut fields {
-                if f.name
-                    .as_deref()
-                    .is_some_and(|n| n.to_lowercase().contains(&field_name))
-                {
-                    f.value =
-                        new_value.as_deref().map(encrypt).transpose()?;
-                    matched = true;
-                    break;
-                }
-            }
-            if !matched {
-                anyhow::bail!("no field named '{field}' found on this entry");
-            }
-            return Ok((
-                entry.name.clone(),
-                data,
-                fields,
-                entry.notes.clone(),
-                history,
-            ));
-        }
+        _ => unreachable!("field_target only returns editable built-ins"),
     }
 
     Ok((
@@ -3368,6 +3463,79 @@ mod test {
             err.to_string(),
             "custom field 'a' is given more than once"
         );
+    }
+
+    #[test]
+    fn test_parse_piped_field_value() {
+        assert_eq!(
+            parse_piped_field_value("s3cr3t\n"),
+            Some("s3cr3t".into())
+        );
+        assert_eq!(
+            parse_piped_field_value("s3cr3t\r\n"),
+            Some("s3cr3t".into())
+        );
+        assert_eq!(parse_piped_field_value("s3cr3t"), Some("s3cr3t".into()));
+        assert_eq!(parse_piped_field_value("#abc\n"), Some("#abc".into()));
+        assert_eq!(
+            parse_piped_field_value("line1\n# line2\n"),
+            Some("line1\n# line2".into())
+        );
+        assert_eq!(parse_piped_field_value("a\n\n"), Some("a\n".into()));
+        assert_eq!(parse_piped_field_value("\n"), None);
+        assert_eq!(parse_piped_field_value(""), None);
+    }
+
+    #[test]
+    fn test_find_custom_field() {
+        let names = [
+            Some("DB_PASSWORD_RO"),
+            Some("DB_PASSWORD"),
+            None,
+            Some("api_key"),
+            Some("Token"),
+            Some("token"),
+        ];
+        assert_eq!(
+            find_custom_field(&names, "DB_PASSWORD").unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            find_custom_field(&names, "DB_PASSWORD_RO").unwrap(),
+            Some(0)
+        );
+        assert_eq!(find_custom_field(&names, "API_KEY").unwrap(), Some(3));
+        assert_eq!(find_custom_field(&names, "token").unwrap(), Some(5));
+        assert!(find_custom_field(&names, "TOKEN").is_err());
+        assert_eq!(find_custom_field(&names, "api").unwrap(), Some(3));
+        assert!(find_custom_field(&names, "db_pass").is_err());
+        assert_eq!(find_custom_field(&names, "missing").unwrap(), None);
+    }
+
+    #[test]
+    fn test_field_target() {
+        let login = DecryptedData::Login {
+            username: None,
+            password: None,
+            totp: None,
+            uris: None,
+        };
+        let note = DecryptedData::SecureNote;
+        assert_eq!(
+            field_target("password", &login),
+            FieldTarget::Builtin(Field::Password)
+        );
+        assert_eq!(
+            field_target("notes", &note),
+            FieldTarget::Builtin(Field::Notes)
+        );
+        assert_eq!(
+            field_target("name", &note),
+            FieldTarget::Builtin(Field::Name)
+        );
+        assert_eq!(field_target("PASSWORD", &note), FieldTarget::Custom);
+        assert_eq!(field_target("email", &login), FieldTarget::Custom);
+        assert_eq!(field_target("DB_PASSWORD", &login), FieldTarget::Custom);
     }
 
     #[test]
