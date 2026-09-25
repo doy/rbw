@@ -135,7 +135,7 @@ enum Opt {
     )]
     Add {
         #[arg(
-            help = "Name of the password entry (optional if using --raw or --yaml)"
+            help = "Name of the entry (optional if using --raw, --yaml, or --ssh-key)"
         )]
         name: Option<String>,
         #[arg(help = "Username for the password entry")]
@@ -146,8 +146,14 @@ enum Opt {
             number_of_values = 1
         )]
         uri: Vec<String>,
-        #[arg(long, help = "Folder for the password entry")]
+        #[arg(long, help = "Folder for the entry")]
         folder: Option<String>,
+        #[arg(
+            long = "ssh-key",
+            conflicts_with_all = ["user", "uri"],
+            help = "Path to an OpenSSH private key file to add as an SSH key entry (or '-' for stdin)"
+        )]
+        ssh_key: Option<std::path::PathBuf>,
         #[arg(
             long,
             conflicts_with = "yaml",
@@ -461,6 +467,7 @@ fn main() {
             user,
             uri,
             folder,
+            ssh_key,
             raw,
             yaml,
         } => commands::add(
@@ -472,6 +479,7 @@ fn main() {
                 .map(|uri| (uri.clone(), None))
                 .collect::<Vec<_>>(),
             folder.as_deref(),
+            ssh_key.as_deref(),
             raw,
             yaml,
         ),

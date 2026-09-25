@@ -70,6 +70,7 @@ sha1 = "0.10.6"
 sha2 = "0.10.9"
 signature = "2.2.0"
 ssh-agent-lib = "0.5.1"
+ssh-key = { version = "0.6.7", features = ["encryption"] }
 tempfile = "3.24.0"
 terminal_size = "0.4.3"
 textwrap = "0.16.2"

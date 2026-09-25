@@ -1923,19 +1923,179 @@ fn get_or_create_folder(
     Ok(Some(id))
 }
 
+#[derive(Debug)]
+struct ParsedSshKey {
+    default_name: Option<String>,
+    private_key: zeroize::Zeroizing<String>,
+    public_key: String,
+    fingerprint: String,
+}
+
+fn parse_ssh_private_key_str<F>(
+    raw: &str,
+    path_hint: Option<&std::path::Path>,
+    mut get_passphrase: F,
+) -> anyhow::Result<ParsedSshKey>
+where
+    F: FnMut(Option<&str>) -> anyhow::Result<zeroize::Zeroizing<Vec<u8>>>,
+{
+    let mut priv_key = match ssh_agent_lib::ssh_key::PrivateKey::from_openssh(
+        raw,
+    ) {
+        Ok(k) => k,
+        Err(e) => {
+            if ssh_agent_lib::ssh_key::PublicKey::from_openssh(raw).is_ok() {
+                anyhow::bail!(
+                    "expected an OpenSSH private key, but found a public key (pass the private key file, not the .pub file)"
+                );
+            }
+            return Err(
+                anyhow::Error::new(e).context("failed to parse OpenSSH private key")
+            );
+        }
+    };
+
+    if priv_key.is_encrypted() {
+        for i in 1_u8..=3 {
+            let err = if i > 1 {
+                Some(format!("Incorrect passphrase (attempt {i}/3)"))
+            } else {
+                None
+            };
+            let passphrase = get_passphrase(err.as_deref())?;
+            match priv_key.decrypt(passphrase.as_slice()) {
+                Ok(decrypted) => {
+                    priv_key = decrypted;
+                    break;
+                }
+                Err(e) => {
+                    if i == 3 {
+                        return Err(anyhow::Error::new(e)
+                            .context("failed to decrypt SSH private key"));
+                    }
+                }
+            }
+        }
+    }
+
+    if !matches!(
+        priv_key.algorithm(),
+        ssh_agent_lib::ssh_key::Algorithm::Ed25519
+            | ssh_agent_lib::ssh_key::Algorithm::Rsa { .. }
+    ) {
+        log::warn!(
+            "SSH key algorithm '{}' is not currently supported by rbw-agent's SSH agent for signing, but will still be stored in Bitwarden.",
+            priv_key.algorithm()
+        );
+    }
+
+    let comment = priv_key.comment().trim();
+    let default_name = if comment.is_empty() {
+        path_hint
+            .filter(|p| *p != std::path::Path::new("-"))
+            .and_then(std::path::Path::file_name)
+            .and_then(std::ffi::OsStr::to_str)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    } else {
+        Some(comment.to_string())
+    };
+
+    let public_key = priv_key
+        .public_key()
+        .to_openssh()
+        .context("failed to format SSH public key")?;
+    let fingerprint = priv_key
+        .fingerprint(ssh_agent_lib::ssh_key::HashAlg::Sha256)
+        .to_string();
+    let openssh_priv = priv_key
+        .to_openssh(ssh_agent_lib::ssh_key::LineEnding::LF)
+        .context("failed to format unencrypted OpenSSH private key")?;
+
+    Ok(ParsedSshKey {
+        default_name,
+        private_key: zeroize::Zeroizing::new((*openssh_priv).clone()),
+        public_key,
+        fingerprint,
+    })
+}
+
+fn load_ssh_key(path: &std::path::Path) -> anyhow::Result<ParsedSshKey> {
+    let raw = if path == std::path::Path::new("-") {
+        zeroize::Zeroizing::new(
+            std::io::read_to_string(std::io::stdin())
+                .context("failed to read SSH key from stdin")?,
+        )
+    } else {
+        zeroize::Zeroizing::new(std::fs::read_to_string(path).with_context(
+            || format!("failed to read SSH key file '{}'", path.display()),
+        )?)
+    };
+
+    parse_ssh_private_key_str(&raw, Some(path), |err| {
+        let pinentry = rbw::config::Config::load()
+            .map_or_else(|_| rbw::config::default_pinentry(), |c| c.pinentry);
+        let environment = crate::actions::get_environment();
+        let desc = format!(
+            "Enter passphrase to decrypt SSH key '{}'",
+            path.display()
+        );
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("failed to initialize async runtime for pinentry")?;
+        let pw = rt
+            .block_on(rbw::pinentry::getpin(
+                &pinentry,
+                "SSH Key Passphrase",
+                &desc,
+                err,
+                &environment,
+                true,
+            ))
+            .context("failed to read SSH key passphrase from pinentry")?;
+        Ok(zeroize::Zeroizing::new(pw.password().to_vec()))
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn add(
     name: Option<&str>,
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
+    ssh_key: Option<&std::path::Path>,
     raw: bool,
     yaml: bool,
 ) -> anyhow::Result<()> {
     use is_terminal::IsTerminal as _;
 
-    if !raw && !yaml && name.is_none() {
-        anyhow::bail!("Name is required unless using --raw or --yaml");
+    if !raw && !yaml && ssh_key.is_none() && name.is_none() {
+        anyhow::bail!(
+            "Name is required unless using --raw, --yaml, or --ssh-key"
+        );
+    }
+
+    if (raw || yaml)
+        && ssh_key == Some(std::path::Path::new("-"))
+        && !std::io::stdin().is_terminal()
+    {
+        anyhow::bail!(
+            "Cannot read both --ssh-key and --raw/--yaml input from stdin"
+        );
+    }
+
+    let parsed_ssh = ssh_key.map(load_ssh_key).transpose()?;
+    let resolved_name = name.map(String::from).or_else(|| {
+        parsed_ssh
+            .as_ref()
+            .and_then(|s| s.default_name.clone())
+    });
+
+    if !raw && !yaml && resolved_name.is_none() {
+        anyhow::bail!(
+            "Name is required when SSH key has no comment and is read from stdin"
+        );
     }
 
     unlock()?;
@@ -1947,12 +2107,8 @@ pub fn add(
     let refresh_token = db.refresh_token.as_ref().unwrap().clone();
 
     if raw || yaml {
-        let template = DecryptedCipher {
-            id: String::new(),
-            organization_id: None,
-            folder: folder.map(String::from),
-            name: name.unwrap_or("").to_string(),
-            data: DecryptedData::Login {
+        let data = parsed_ssh.as_ref().map_or_else(
+            || DecryptedData::Login {
                 username: username.map(String::from),
                 password: None,
                 totp: None,
@@ -1969,6 +2125,19 @@ pub fn add(
                     )
                 },
             },
+            |ssh| DecryptedData::SshKey {
+                public_key: Some(ssh.public_key.clone()),
+                fingerprint: Some(ssh.fingerprint.clone()),
+                private_key: Some((*ssh.private_key).clone()),
+            },
+        );
+
+        let template = DecryptedCipher {
+            id: String::new(),
+            organization_id: None,
+            folder: folder.map(String::from),
+            name: resolved_name.as_deref().unwrap_or("").to_string(),
+            data,
             fields: Vec::new(),
             notes: None,
             history: Vec::new(),
@@ -1999,7 +2168,7 @@ pub fn add(
         };
 
         if !std::io::stdin().is_terminal() {
-            if let Some(name) = name {
+            if let Some(name) = resolved_name.as_deref() {
                 decrypted.name = name.to_string();
             }
             if let Some(folder) = folder {
@@ -2055,6 +2224,45 @@ pub fn add(
             enc_notes.as_deref(),
             folder_id.as_deref(),
             &enc_history,
+        )? {
+            db.access_token = Some(access_token);
+            save_db(&db)?;
+        }
+    } else if let Some(ssh) = parsed_ssh {
+        let name = resolved_name.unwrap();
+        let enc_name = crate::actions::encrypt(&name, None, None)?;
+        let enc_private_key =
+            crate::actions::encrypt(&ssh.private_key, None, None)?;
+        let enc_public_key =
+            crate::actions::encrypt(&ssh.public_key, None, None)?;
+        let enc_fingerprint =
+            crate::actions::encrypt(&ssh.fingerprint, None, None)?;
+
+        let folder_id = if let Some(folder_name) = folder {
+            get_or_create_folder(
+                &mut access_token,
+                &refresh_token,
+                &mut db,
+                folder_name,
+            )?
+        } else {
+            None
+        };
+
+        if let (Some(access_token), ()) = rbw::actions::add(
+            &access_token,
+            &refresh_token,
+            None,
+            &enc_name,
+            &rbw::db::EntryData::SshKey {
+                private_key: Some(enc_private_key),
+                public_key: Some(enc_public_key),
+                fingerprint: Some(enc_fingerprint),
+            },
+            &[],
+            None,
+            folder_id.as_deref(),
+            &[],
         )? {
             db.access_token = Some(access_token);
             save_db(&db)?;
@@ -3691,6 +3899,93 @@ mod test {
         }"#;
         let cipher: DecryptedCipher = serde_json::from_str(card_json).unwrap();
         assert!(matches!(cipher.data, DecryptedData::Card { .. }));
+    }
+
+    #[test]
+    fn test_parse_ssh_private_key() {
+        use ssh_agent_lib::ssh_key::{LineEnding, PrivateKey};
+
+        let mut rng = rand_8::rngs::OsRng;
+        let keypair =
+            ssh_agent_lib::ssh_key::private::Ed25519Keypair::random(&mut rng);
+        let priv_with_comment = PrivateKey::new(
+            ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(
+                keypair.clone(),
+            ),
+            "alice@example.com",
+        )
+        .unwrap();
+        let openssh_str =
+            priv_with_comment.to_openssh(LineEnding::LF).unwrap();
+
+        // 1. Key comment takes priority over filename for default_name
+        let parsed = parse_ssh_private_key_str(
+            &openssh_str,
+            Some(std::path::Path::new("/home/alice/.ssh/id_ed25519")),
+            |_| unreachable!(),
+        )
+        .unwrap();
+        assert_eq!(parsed.default_name.as_deref(), Some("alice@example.com"));
+        assert!(parsed.public_key.starts_with("ssh-ed25519 "));
+        assert!(parsed.fingerprint.starts_with("SHA256:"));
+
+        // 2. Empty comment falls back to filename
+        let priv_no_comment = PrivateKey::new(
+            ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(keypair),
+            "",
+        )
+        .unwrap();
+        let openssh_no_comment =
+            priv_no_comment.to_openssh(LineEnding::LF).unwrap();
+        let parsed_no_comment = parse_ssh_private_key_str(
+            &openssh_no_comment,
+            Some(std::path::Path::new("/home/alice/.ssh/id_ed25519")),
+            |_| unreachable!(),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed_no_comment.default_name.as_deref(),
+            Some("id_ed25519")
+        );
+
+        // 3. Passphrase-encrypted key decrypts (with retry on wrong passphrase) and outputs unencrypted OpenSSH key
+        let encrypted_priv =
+            priv_with_comment.encrypt(&mut rng, b"correct-horse").unwrap();
+        let encrypted_openssh =
+            encrypted_priv.to_openssh(LineEnding::LF).unwrap();
+        let mut attempts = 0;
+        let parsed_enc = parse_ssh_private_key_str(
+            &encrypted_openssh,
+            None,
+            |err| {
+                attempts += 1;
+                if attempts == 1 {
+                    assert!(err.is_none());
+                    Ok(zeroize::Zeroizing::new(b"wrong-pass".to_vec()))
+                } else {
+                    assert!(err.unwrap().contains("attempt 2/3"));
+                    Ok(zeroize::Zeroizing::new(b"correct-horse".to_vec()))
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(attempts, 2);
+        let reparsed =
+            PrivateKey::from_openssh(&*parsed_enc.private_key).unwrap();
+        assert!(!reparsed.is_encrypted());
+        assert_eq!(parsed_enc.public_key, parsed.public_key);
+        assert_eq!(parsed_enc.fingerprint, parsed.fingerprint);
+
+        // 4. Passing a public key file produces a clear error
+        let pub_err = parse_ssh_private_key_str(
+            &parsed.public_key,
+            Some(std::path::Path::new("id_ed25519.pub")),
+            |_| unreachable!(),
+        )
+        .unwrap_err();
+        assert!(pub_err
+            .to_string()
+            .contains("expected an OpenSSH private key, but found a public key"));
     }
 
     #[test]
