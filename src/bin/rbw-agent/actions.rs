@@ -143,9 +143,14 @@ pub async fn login(
                 }
                 Err(rbw::error::Error::TwoFactorRequired {
                     providers,
+                    #[cfg(feature = "fido2")]
+                    webauthn,
                     sso_email_2fa_session_token,
+                    ..
                 }) => {
                     let supported_types = vec![
+                        #[cfg(feature = "fido2")]
+                        rbw::api::TwoFactorProviderType::WebAuthn,
                         rbw::api::TwoFactorProviderType::Authenticator,
                         rbw::api::TwoFactorProviderType::Yubikey,
                         rbw::api::TwoFactorProviderType::Email,
@@ -174,13 +179,32 @@ pub async fn login(
                                 memory,
                                 parallelism,
                                 protected_key,
-                            ) = two_factor(
-                                environment,
-                                &email,
-                                password.clone(),
-                                provider,
-                            )
-                            .await?;
+                            ) = match provider {
+                                #[cfg(feature = "fido2")]
+                                rbw::api::TwoFactorProviderType::WebAuthn => {
+                                    let challenge = webauthn.as_ref().context("server did not provide a WebAuthn challenge")?;
+                                    let config = rbw::config::Config::load()?;
+                                    let token =
+                                        crate::webauthn::authenticate(
+                                            sock,
+                                            environment,
+                                            &config,
+                                            challenge.clone(),
+                                        )
+                                        .await?;
+                                    rbw::actions::login(&email, password.clone(), Some(&token), Some(provider)).await
+                                        .context("FIDO authentication failed; run login again for a new challenge")?
+                                }
+                                _ => {
+                                    two_factor(
+                                        environment,
+                                        &email,
+                                        password.clone(),
+                                        provider,
+                                    )
+                                    .await?
+                                }
+                            };
                             login_success(
                                 state.clone(),
                                 access_token,
@@ -197,6 +221,13 @@ pub async fn login(
                             .await?;
                             break 'attempts;
                         }
+                    }
+                    if !cfg!(feature = "fido2")
+                        && providers.contains(
+                            &rbw::api::TwoFactorProviderType::WebAuthn,
+                        )
+                    {
+                        anyhow::bail!("FIDO 2FA requires rbw to be built with --features fido2");
                     }
                     return Err(anyhow::anyhow!(
                         "unsupported two factor methods: {providers:?}"

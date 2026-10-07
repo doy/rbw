@@ -9,6 +9,8 @@ mod sock;
 mod ssh_agent;
 mod state;
 mod timeout;
+#[cfg(feature = "fido2")]
+mod webauthn;
 
 async fn tokio_main(
     startup_ack: Option<crate::daemon::StartupAck>,

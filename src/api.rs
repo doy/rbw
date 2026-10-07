@@ -349,11 +349,29 @@ struct ConnectErrorRes {
     error_model: Option<ConnectErrorResErrorModel>,
     #[serde(rename = "TwoFactorProviders", alias = "twoFactorProviders")]
     two_factor_providers: Option<Vec<TwoFactorProviderType>>,
+    #[serde(rename = "TwoFactorProviders2", alias = "twoFactorProviders2")]
+    two_factor_providers2:
+        Option<std::collections::HashMap<String, serde_json::Value>>,
     #[serde(
         rename = "SsoEmail2faSessionToken",
         alias = "ssoEmail2faSessionToken"
     )]
     sso_email_2fa_session_token: Option<String>,
+}
+
+impl ConnectErrorRes {
+    fn provider_types(&self) -> Option<Vec<TwoFactorProviderType>> {
+        if let Some(providers) = &self.two_factor_providers {
+            return Some(providers.clone());
+        }
+        let metadata = self.two_factor_providers2.as_ref()?;
+        let mut providers: Vec<_> = metadata
+            .keys()
+            .filter_map(|provider| provider.parse().ok())
+            .collect();
+        providers.sort_by_key(|provider| *provider as u32);
+        Some(providers)
+    }
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -1719,11 +1737,16 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                 }
             }
             Some("Two factor required.") => {
-                if let Some(providers) =
-                    error_res.two_factor_providers.as_ref()
-                {
+                let providers = error_res.provider_types();
+                if let Some(providers) = providers {
                     return Error::TwoFactorRequired {
-                        providers: providers.clone(),
+                        providers,
+                        webauthn: error_res
+                            .two_factor_providers2
+                            .as_ref()
+                            .and_then(|providers| providers.get("7"))
+                            .filter(|value| !value.is_null())
+                            .cloned(),
                         sso_email_2fa_session_token: error_res
                             .sso_email_2fa_session_token
                             .clone(),
@@ -1738,23 +1761,19 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
-        "" => {
+        "" if error_desc.is_none() || error_desc == Some("") => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_desc.is_none() || error_desc == Some("") {
-                if let Some(error_model) = error_res.error_model.as_ref() {
-                    let message = error_model.message.as_str().to_string();
-                    match message.as_str() {
-                        "Username or password is incorrect. Try again"
-                        | "TOTP code is not a number" => {
+            if let Some(error_model) = error_res.error_model.as_ref() {
+                let message = error_model.message.as_str().to_string();
+                match message.as_str() {
+                    "Username or password is incorrect. Try again"
+                    | "TOTP code is not a number" => {
+                        return Error::IncorrectPassword { message };
+                    }
+                    s => {
+                        if s.starts_with("Invalid TOTP code! Server time: ") {
                             return Error::IncorrectPassword { message };
-                        }
-                        s => {
-                            if s.starts_with(
-                                "Invalid TOTP code! Server time: ",
-                            ) {
-                                return Error::IncorrectPassword { message };
-                            }
                         }
                     }
                 }
@@ -1765,4 +1784,95 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+#[cfg(test)]
+mod two_factor_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn preserves_vaultwarden_webauthn_challenge() {
+        let challenge = json!({"challenge": "AQID", "rpId": "vault.example.com", "allowCredentials": []});
+        let response: ConnectErrorRes = serde_json::from_value(json!({
+            "error": "invalid_grant",
+            "error_description": "Two factor required.",
+            "TwoFactorProviders": ["7", "0"],
+            "TwoFactorProviders2": {"7": challenge, "0": null},
+            "SsoEmail2faSessionToken": "sso-session",
+        }))
+        .unwrap();
+        let Error::TwoFactorRequired {
+            providers,
+            webauthn,
+            sso_email_2fa_session_token,
+        } = classify_login_error(&response, 400)
+        else {
+            panic!("expected two-factor challenge");
+        };
+        assert_eq!(
+            providers,
+            [
+                TwoFactorProviderType::WebAuthn,
+                TwoFactorProviderType::Authenticator
+            ]
+        );
+        assert_eq!(webauthn, Some(challenge));
+        assert_eq!(
+            sso_email_2fa_session_token.as_deref(),
+            Some("sso-session")
+        );
+    }
+
+    #[test]
+    fn supports_camel_case_metadata_without_legacy_provider_list() {
+        let response: ConnectErrorRes = serde_json::from_value(json!({
+            "error": "invalid_grant",
+            "error_description": "Two factor required.",
+            "twoFactorProviders2": {"7": {"challenge": "AQID"}, "0": null, "99": null},
+        })).unwrap();
+        let Error::TwoFactorRequired {
+            providers,
+            webauthn,
+            ..
+        } = classify_login_error(&response, 400)
+        else {
+            panic!("expected two-factor challenge");
+        };
+        assert_eq!(
+            providers,
+            [
+                TwoFactorProviderType::Authenticator,
+                TwoFactorProviderType::WebAuthn
+            ]
+        );
+        assert!(webauthn.is_some());
+    }
+
+    #[test]
+    fn retains_legacy_otp_login_without_metadata() {
+        let response: ConnectErrorRes = serde_json::from_value(json!({
+            "error": "invalid_grant",
+            "error_description": "Two factor required.",
+            "TwoFactorProviders": [0, 1, 3],
+        }))
+        .unwrap();
+        let Error::TwoFactorRequired {
+            providers,
+            webauthn,
+            ..
+        } = classify_login_error(&response, 400)
+        else {
+            panic!("expected two-factor challenge");
+        };
+        assert_eq!(
+            providers,
+            [
+                TwoFactorProviderType::Authenticator,
+                TwoFactorProviderType::Email,
+                TwoFactorProviderType::Yubikey
+            ]
+        );
+        assert!(webauthn.is_none());
+    }
 }

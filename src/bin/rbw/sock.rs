@@ -32,10 +32,34 @@ impl Sock {
     pub fn recv(&mut self) -> anyhow::Result<rbw::protocol::Response> {
         let Self(sock) = self;
         let mut buf = std::io::BufReader::new(sock);
-        let mut line = String::new();
-        buf.read_line(&mut line)
-            .context("failed to read message from agent")?;
-        serde_json::from_str(&line)
-            .context("failed to parse message from agent")
+        loop {
+            let mut line = String::new();
+            buf.read_line(&mut line)
+                .context("failed to read message from agent")?;
+            let response = serde_json::from_str(&line)
+                .context("failed to parse message from agent")?;
+            if let rbw::protocol::Response::Progress { message } = response {
+                eprintln!("{message}");
+            } else {
+                return Ok(response);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receives_final_response_after_buffered_progress_messages() {
+        let (client, mut agent) =
+            std::os::unix::net::UnixStream::pair().unwrap();
+        agent.write_all(b"{\"type\":\"Progress\",\"message\":\"Touch security key\"}\n{\"type\":\"Progress\",\"message\":\"Waiting\"}\n{\"type\":\"Ack\"}\n").unwrap();
+        drop(agent);
+        assert!(matches!(
+            Sock(client).recv().unwrap(),
+            rbw::protocol::Response::Ack
+        ));
     }
 }

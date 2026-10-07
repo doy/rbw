@@ -232,6 +232,7 @@ pub enum Error {
     #[error("two factor required")]
     TwoFactorRequired {
         providers: Vec<crate::api::TwoFactorProviderType>,
+        webauthn: Option<serde_json::Value>,
         sso_email_2fa_session_token: Option<String>,
     },
 
