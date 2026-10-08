@@ -146,6 +146,22 @@ enum Opt {
                     contents (or stdin) are stored as the note"
         )]
         secure_note: bool,
+        #[arg(
+            long,
+            value_name = "NAME=VALUE",
+            value_parser = parse_field,
+            help = "Add a text custom field (may be repeated)",
+            number_of_values = 1
+        )]
+        field: Vec<(String, String)>,
+        #[arg(
+            long,
+            value_name = "NAME=VALUE",
+            value_parser = parse_field,
+            help = "Add a hidden custom field (may be repeated)",
+            number_of_values = 1
+        )]
+        hidden_field: Vec<(String, String)>,
     },
 
     #[command(
@@ -314,6 +330,13 @@ impl Config {
     }
 }
 
+fn parse_field(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .filter(|(name, _)| !name.is_empty())
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .ok_or_else(|| format!("expected NAME=VALUE, got '{s}'"))
+}
+
 fn main() {
     let opt = Opt::parse();
 
@@ -393,6 +416,8 @@ fn main() {
             uri,
             folder,
             secure_note,
+            field,
+            hidden_field,
         } => commands::add(
             &name,
             user.as_deref(),
@@ -403,6 +428,13 @@ fn main() {
                 .collect::<Vec<_>>(),
             folder.as_deref(),
             secure_note,
+            &field
+                .into_iter()
+                .map(|(name, value)| (name, value, rbw::api::FieldType::Text))
+                .chain(hidden_field.into_iter().map(|(name, value)| {
+                    (name, value, rbw::api::FieldType::Hidden)
+                }))
+                .collect::<Vec<_>>(),
         ),
         Opt::Generate {
             len,

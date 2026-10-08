@@ -805,6 +805,7 @@ struct CiphersPostReq {
     secure_note: Option<CipherSecureNote>,
     #[serde(rename = "encryptedFor")]
     encrypted_for: String,
+    fields: Vec<CipherField>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -1283,6 +1284,7 @@ impl Client {
         user_id: &str,
         name: &str,
         data: &crate::db::EntryData,
+        fields: &[crate::db::Field],
         notes: Option<&str>,
         folder_id: Option<&str>,
     ) -> Result<()> {
@@ -1296,6 +1298,15 @@ impl Client {
             identity: None,
             secure_note: None,
             encrypted_for: user_id.to_string(),
+            fields: fields
+                .iter()
+                .map(|field| CipherField {
+                    ty: field.ty,
+                    name: field.name.clone(),
+                    value: field.value.clone(),
+                    linked_id: field.linked_id,
+                })
+                .collect(),
         };
         match data {
             crate::db::EntryData::Login {

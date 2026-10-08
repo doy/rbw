@@ -1590,6 +1590,7 @@ pub fn add(
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
     secure_note: bool,
+    fields: &[(String, String, rbw::api::FieldType)],
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1635,6 +1636,18 @@ pub fn add(
         })
         .collect::<anyhow::Result<_>>()?;
 
+    let fields: Vec<_> = fields
+        .iter()
+        .map(|(field_name, value, ty)| {
+            Ok(rbw::db::Field {
+                ty: Some(*ty),
+                name: Some(crate::actions::encrypt(field_name, None, None)?),
+                value: Some(crate::actions::encrypt(value, None, None)?),
+                linked_id: None,
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
+
     let mut folder_id = None;
     if let Some(folder_name) = folder {
         let (tokens, folders) =
@@ -1676,6 +1689,7 @@ pub fn add(
         &user_id,
         &name,
         &data,
+        &fields,
         notes.as_deref(),
         folder_id.as_deref(),
     )?;
@@ -1762,6 +1776,7 @@ pub fn generate(
                 uris,
                 totp: None,
             },
+            &[],
             None,
             folder_id.as_deref(),
         )?;
