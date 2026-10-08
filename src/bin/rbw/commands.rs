@@ -1560,6 +1560,7 @@ pub fn add(
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
+    fields: &[(String, String, rbw::api::FieldType)],
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1590,6 +1591,18 @@ pub fn add(
             Ok(rbw::db::Uri {
                 uri: crate::actions::encrypt(&uri.0, None)?,
                 match_type: uri.1,
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
+
+    let fields: Vec<_> = fields
+        .iter()
+        .map(|(field_name, value, ty)| {
+            Ok(rbw::db::Field {
+                ty: Some(*ty),
+                name: Some(crate::actions::encrypt(field_name, None)?),
+                value: Some(crate::actions::encrypt(value, None)?),
+                linked_id: None,
             })
         })
         .collect::<anyhow::Result<_>>()?;
@@ -1642,6 +1655,7 @@ pub fn add(
             uris,
             totp: None,
         },
+        &fields,
         notes.as_deref(),
         folder_id.as_deref(),
     )? {
@@ -1737,6 +1751,7 @@ pub fn generate(
                 uris,
                 totp: None,
             },
+            &[],
             None,
             folder_id.as_deref(),
         )? {
