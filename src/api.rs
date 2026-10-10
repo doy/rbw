@@ -557,6 +557,8 @@ impl SyncResCipher {
 
 #[derive(serde::Deserialize, Debug)]
 struct SyncResProfile {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
     #[serde(rename = "Key", alias = "key")]
     key: String,
     #[serde(rename = "PrivateKey", alias = "privateKey")]
@@ -760,6 +762,8 @@ struct CiphersPostReq {
     identity: Option<CipherIdentity>,
     #[serde(rename = "secureNote")]
     secure_note: Option<CipherSecureNote>,
+    #[serde(rename = "encryptedFor")]
+    encrypted_for: String,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -781,6 +785,8 @@ struct CiphersPutReq {
     #[serde(rename = "passwordHistory")]
     password_history: Vec<CiphersPutReqHistory>,
     key: Option<String>,
+    #[serde(rename = "encryptedFor")]
+    encrypted_for: String,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -1154,6 +1160,7 @@ impl Client {
         String,
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
+        String,
     )> {
         let client = self.reqwest_client().await?;
         let res = client
@@ -1184,6 +1191,7 @@ impl Client {
                     sync_res.profile.private_key,
                     org_keys,
                     ciphers,
+                    sync_res.profile.id,
                 ))
             }
             reqwest::StatusCode::UNAUTHORIZED => {
@@ -1198,6 +1206,7 @@ impl Client {
     pub fn add(
         &self,
         access_token: &str,
+        user_id: &str,
         name: &str,
         data: &crate::db::EntryData,
         notes: Option<&str>,
@@ -1212,6 +1221,7 @@ impl Client {
             card: None,
             identity: None,
             secure_note: None,
+            encrypted_for: user_id.to_string(),
         };
         match data {
             crate::db::EntryData::Login {
@@ -1321,6 +1331,7 @@ impl Client {
     pub fn edit(
         &self,
         access_token: &str,
+        user_id: &str,
         id: &str,
         org_id: Option<&str>,
         name: &str,
@@ -1364,6 +1375,7 @@ impl Client {
                 })
                 .collect(),
             key: key.map(std::string::ToString::to_string),
+            encrypted_for: user_id.to_string(),
         };
         match data {
             crate::db::EntryData::Login {
