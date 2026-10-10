@@ -143,6 +143,7 @@ pub async fn sync(
         String,
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
+        String,
     ),
 )> {
     with_exchange_refresh_token_async(
@@ -163,6 +164,7 @@ async fn sync_once(
     String,
     std::collections::HashMap<String, String>,
     Vec<crate::db::Entry>,
+    String,
 )> {
     let (client, _) = api_client_async().await?;
     client.sync(access_token).await
@@ -171,31 +173,34 @@ async fn sync_once(
 pub fn add(
     access_token: &str,
     refresh_token: &str,
+    user_id: &str,
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, name, data, notes, folder_id)
+        add_once(access_token, user_id, name, data, notes, folder_id)
     })
 }
 
 fn add_once(
     access_token: &str,
+    user_id: &str,
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
 ) -> Result<()> {
     let (client, _) = api_client()?;
-    client.add(access_token, name, data, notes, folder_id)?;
+    client.add(access_token, user_id, name, data, notes, folder_id)?;
     Ok(())
 }
 
 pub fn edit(
     access_token: &str,
     refresh_token: &str,
+    user_id: &str,
     id: &str,
     org_id: Option<&str>,
     name: &str,
@@ -208,6 +213,7 @@ pub fn edit(
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
         edit_once(
             access_token,
+            user_id,
             id,
             org_id,
             name,
@@ -222,6 +228,7 @@ pub fn edit(
 
 fn edit_once(
     access_token: &str,
+    user_id: &str,
     id: &str,
     org_id: Option<&str>,
     name: &str,
@@ -234,6 +241,7 @@ fn edit_once(
     let (client, _) = api_client()?;
     client.edit(
         access_token,
+        user_id,
         id,
         org_id,
         name,
