@@ -2950,9 +2950,10 @@ fn encrypt_value_with(
 // place to match what the API expects. Mirrors `bw encode`. The `ctx` tracks
 // which part of the schema we are in, because "secret" depends on location:
 //   top            name, notes encrypted; containers recursed
-//   container      login/card/identity: string leaves encrypted (except
-//                  match/linkedId/type); uris recurse
-//   ssh            only privateKey encrypted; publicKey/keyFingerprint plain
+//   container      login/card/identity/sshKey: string leaves encrypted
+//                  (except match/linkedId/type), uris recurse. Everything in
+//                  sshKey is stored as a cipherstring, matching what
+//                  Bitwarden CLI's `bw encode` produces.
 //   fields         only each entry's value encrypted; name is a plain label
 //   history        only each entry's password encrypted; date is plain
 #[allow(clippy::match_same_arms)] // arms group by schema location, not value
@@ -2967,10 +2968,9 @@ fn encode_json(
             for (key, val) in map {
                 let (child_ctx, is_secret) = match (ctx, key.as_str()) {
                     ("top", "name" | "notes") => ("top", true),
-                    ("top", "login" | "card" | "identity") => {
+                    ("top", "login" | "card" | "identity" | "sshKey") => {
                         ("container", false)
                     }
-                    ("top", "sshKey") => ("ssh", false),
                     ("top", "fields") => ("fields", false),
                     ("top", "passwordHistory") => ("history", false),
                     ("container", "uris") => ("container", false),
@@ -2978,8 +2978,6 @@ fn encode_json(
                         ("container", false)
                     }
                     ("container", _) => ("container", true),
-                    ("ssh", "privateKey") => ("ssh", true),
-                    ("ssh", _) => ("ssh", false),
                     ("fields", "value") => ("fields", true),
                     ("fields", _) => ("fields", false),
                     ("history", "password") => ("history", true),
@@ -3128,8 +3126,8 @@ mod test {
         assert_eq!(out["type"], 5);
         assert_eq!(out["reprompt"], 0);
         assert_eq!(out["login"]["uris"][0]["match"], serde_json::Value::Null);
-        assert_eq!(out["sshKey"]["publicKey"], "ssh-ed25519 AAAA pub");
-        assert_eq!(out["sshKey"]["keyFingerprint"], "SHA256:abc");
+        assert_eq!(out["sshKey"]["publicKey"], "enc(ssh-ed25519 AAAA pub)");
+        assert_eq!(out["sshKey"]["keyFingerprint"], "enc(SHA256:abc)");
         assert_eq!(out["fields"][0]["name"], "label");
         assert_eq!(out["fields"][0]["type"], 1);
     }
