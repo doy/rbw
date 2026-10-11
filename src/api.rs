@@ -760,6 +760,8 @@ struct CiphersPostReq {
     identity: Option<CipherIdentity>,
     #[serde(rename = "secureNote")]
     secure_note: Option<CipherSecureNote>,
+    #[serde(rename = "sshKey", skip_serializing_if = "Option::is_none")]
+    ssh_key: Option<CipherSshKey>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -778,6 +780,8 @@ struct CiphersPutReq {
     fields: Vec<CipherField>,
     #[serde(rename = "secureNote")]
     secure_note: Option<CipherSecureNote>,
+    #[serde(rename = "sshKey", skip_serializing_if = "Option::is_none")]
+    ssh_key: Option<CipherSshKey>,
     #[serde(rename = "passwordHistory")]
     password_history: Vec<CiphersPutReqHistory>,
 }
@@ -1211,6 +1215,7 @@ impl Client {
             card: None,
             identity: None,
             secure_note: None,
+            ssh_key: None,
         };
         match data {
             crate::db::EntryData::Login {
@@ -1246,6 +1251,7 @@ impl Client {
                 exp_year,
                 code,
             } => {
+                req.ty = 3;
                 req.card = Some(CipherCard {
                     cardholder_name: cardholder_name.clone(),
                     number: number.clone(),
@@ -1274,6 +1280,7 @@ impl Client {
                 passport_number,
                 username,
             } => {
+                req.ty = 4;
                 req.identity = Some(CipherIdentity {
                     title: title.clone(),
                     first_name: first_name.clone(),
@@ -1295,9 +1302,21 @@ impl Client {
                 });
             }
             crate::db::EntryData::SecureNote => {
+                req.ty = 2;
                 req.secure_note = Some(CipherSecureNote {});
             }
-            crate::db::EntryData::SshKey { .. } => unreachable!(),
+            crate::db::EntryData::SshKey {
+                private_key,
+                public_key,
+                fingerprint,
+            } => {
+                req.ty = 5;
+                req.ssh_key = Some(CipherSshKey {
+                    private_key: private_key.clone(),
+                    public_key: public_key.clone(),
+                    fingerprint: fingerprint.clone(),
+                });
+            }
         }
         let client = reqwest::blocking::Client::new();
         let res = client
@@ -1335,7 +1354,7 @@ impl Client {
                 crate::db::EntryData::SecureNote => 2,
                 crate::db::EntryData::Card { .. } => 3,
                 crate::db::EntryData::Identity { .. } => 4,
-                crate::db::EntryData::SshKey { .. } => unreachable!(),
+                crate::db::EntryData::SshKey { .. } => 5,
             },
             folder_id: folder_uuid.map(std::string::ToString::to_string),
             organization_id: org_id.map(std::string::ToString::to_string),
@@ -1345,6 +1364,7 @@ impl Client {
             card: None,
             identity: None,
             secure_note: None,
+            ssh_key: None,
             fields: fields
                 .iter()
                 .map(|field| CipherField {
@@ -1447,7 +1467,17 @@ impl Client {
             crate::db::EntryData::SecureNote => {
                 req.secure_note = Some(CipherSecureNote {});
             }
-            crate::db::EntryData::SshKey { .. } => unreachable!(),
+            crate::db::EntryData::SshKey {
+                private_key,
+                public_key,
+                fingerprint,
+            } => {
+                req.ssh_key = Some(CipherSshKey {
+                    private_key: private_key.clone(),
+                    public_key: public_key.clone(),
+                    fingerprint: fingerprint.clone(),
+                });
+            }
         }
         let client = reqwest::blocking::Client::new();
         let res = client
@@ -1472,6 +1502,56 @@ impl Client {
         let res = client
             .delete(self.api_url(&format!("/ciphers/{id}")))
             .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    // Escape hatch: post/put a caller-built (already-encrypted) cipher
+    // request body verbatim, like `bw create|edit item` accepts encoded
+    // JSON. Field values must already be cipherstrings.
+    pub fn create_raw(
+        &self,
+        access_token: &str,
+        body: &serde_json::Value,
+    ) -> Result<()> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .post(self.api_url("/ciphers"))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(body)
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(()),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
+    pub fn edit_raw(
+        &self,
+        access_token: &str,
+        id: &str,
+        body: &serde_json::Value,
+    ) -> Result<()> {
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .put(self.api_url(&format!("/ciphers/{id}")))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .json(body)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
         match res.status() {

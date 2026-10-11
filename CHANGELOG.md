@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+## Added
+
+* Added support for creating and editing ssh key entries directly:
+  `rbw add --private-key`/`--public-key` and `rbw edit --private-key`/
+  `--public-key` (file path or `-` for stdin).
+* Added arbitrary-cipher escape hatch commands mirroring the official CLI:
+  `rbw encode` (encrypt the secret fields of a cipher JSON body on stdin),
+  `rbw create-raw` and `rbw edit-raw` (POST/PUT an already-encoded body).
+
 ## [1.15.0] - 2025-12-31
 
 ## Added

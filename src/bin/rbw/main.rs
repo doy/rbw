@@ -139,6 +139,18 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(
+            long,
+            help = "SSH private key: file path, or - for stdin. \
+                Creates an SSH key item instead of a login."
+        )]
+        private_key: Option<String>,
+        #[arg(
+            long,
+            help = "SSH public key: file path, or - for stdin. \
+                Creates an SSH key item instead of a login."
+        )]
+        public_key: Option<String>,
     },
 
     #[command(
@@ -209,6 +221,44 @@ enum Opt {
     Edit {
         #[command(flatten)]
         find_args: FindArgs,
+        #[arg(
+            long,
+            help = "New SSH private key: file path, or - for stdin. \
+                Only valid for SSH key entries."
+        )]
+        private_key: Option<String>,
+        #[arg(
+            long,
+            help = "New SSH public key: file path, or - for stdin. \
+                Only valid for SSH key entries."
+        )]
+        public_key: Option<String>,
+    },
+
+    #[command(
+        about = "Encrypt the secret fields of a cipher JSON body on stdin",
+        long_about = "Encrypt the secret fields of a cipher JSON body on stdin.\n\n\
+            Reads a Bitwarden cipher object, encrypts the secret string \
+            fields (login/card/identity/sshKey plus name/notes/value/password), \
+            and writes the encoded body to stdout. Feed the result to \
+            `rbw create-raw` or `rbw edit-raw`."
+    )]
+    Encode,
+
+    #[command(
+        about = "Create an entry from an already-encoded cipher JSON body on stdin",
+        long_about = "Create an entry from an already-encoded cipher JSON body on stdin.\n\n\
+            Escape hatch for entry types rbw does not model directly. \
+            Use `rbw encode` to produce the body."
+    )]
+    CreateRaw,
+
+    #[command(
+        about = "Replace an entry from an already-encoded cipher JSON body on stdin"
+    )]
+    EditRaw {
+        #[command(flatten)]
+        find_args: FindArgs,
     },
 
     #[command(about = "Remove a given entry", visible_alias = "rm")]
@@ -257,6 +307,9 @@ impl Opt {
             Self::Add { .. } => "add".to_string(),
             Self::Generate { .. } => "generate".to_string(),
             Self::Edit { .. } => "edit".to_string(),
+            Self::Encode => "encode".to_string(),
+            Self::CreateRaw => "create-raw".to_string(),
+            Self::EditRaw { .. } => "edit-raw".to_string(),
             Self::Remove { .. } => "remove".to_string(),
             Self::History { .. } => "history".to_string(),
             Self::Lock => "lock".to_string(),
@@ -385,6 +438,8 @@ fn main() {
             user,
             uri,
             folder,
+            private_key,
+            public_key,
         } => commands::add(
             &name,
             user.as_deref(),
@@ -394,6 +449,8 @@ fn main() {
                 .map(|uri| (uri.clone(), None))
                 .collect::<Vec<_>>(),
             folder.as_deref(),
+            private_key.as_deref(),
+            public_key.as_deref(),
         ),
         Opt::Generate {
             len,
@@ -430,7 +487,21 @@ fn main() {
                 ty,
             )
         }
-        Opt::Edit { find_args } => commands::edit(
+        Opt::Edit {
+            find_args,
+            private_key,
+            public_key,
+        } => commands::edit(
+            find_args.needle,
+            find_args.user.as_deref(),
+            find_args.folder.as_deref(),
+            find_args.ignorecase,
+            private_key.as_deref(),
+            public_key.as_deref(),
+        ),
+        Opt::Encode => commands::encode(),
+        Opt::CreateRaw => commands::create_raw(),
+        Opt::EditRaw { find_args } => commands::edit_raw(
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),

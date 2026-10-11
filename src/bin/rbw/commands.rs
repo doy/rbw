@@ -1,4 +1,8 @@
-use std::{fmt::Write as _, io::Write as _, os::unix::ffi::OsStrExt as _};
+use std::{
+    fmt::Write as _,
+    io::{Read as _, Write as _},
+    os::unix::ffi::OsStrExt as _,
+};
 
 use anyhow::Context as _;
 
@@ -1560,6 +1564,8 @@ pub fn add(
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
+    private_key: Option<&str>,
+    public_key: Option<&str>,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1575,24 +1581,61 @@ pub fn add(
         .map(|username| crate::actions::encrypt(username, None))
         .transpose()?;
 
-    let contents = rbw::edit::edit("", HELP_PW)?;
+    let private_key = private_key.map(read_blob).transpose()?;
+    let public_key = public_key.map(read_blob).transpose()?;
 
-    let (password, notes) = parse_editor(&contents);
-    let password = password
-        .map(|password| crate::actions::encrypt(&password, None))
-        .transpose()?;
-    let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes, None))
-        .transpose()?;
-    let uris: Vec<_> = uris
-        .iter()
-        .map(|uri| {
-            Ok(rbw::db::Uri {
-                uri: crate::actions::encrypt(&uri.0, None)?,
-                match_type: uri.1,
+    let is_ssh = private_key.is_some() || public_key.is_some();
+
+    let (data, notes) = if is_ssh {
+        let fingerprint = public_key
+            .as_deref()
+            .map(ssh_fingerprint)
+            .transpose()?
+            .flatten();
+        let data = rbw::db::EntryData::SshKey {
+            private_key: private_key
+                .as_deref()
+                .map(|k| crate::actions::encrypt(k, None))
+                .transpose()?,
+            public_key: public_key
+                .as_deref()
+                .map(|k| crate::actions::encrypt(k, None))
+                .transpose()?,
+            fingerprint: fingerprint
+                .as_deref()
+                .map(|f| crate::actions::encrypt(f, None))
+                .transpose()?,
+        };
+        (data, None)
+    } else {
+        let contents = rbw::edit::edit("", HELP_PW)?;
+
+        let (password, editor_notes) = parse_editor(&contents);
+        let password = password
+            .map(|password| crate::actions::encrypt(&password, None))
+            .transpose()?;
+        let notes = editor_notes
+            .map(|notes| crate::actions::encrypt(&notes, None))
+            .transpose()?;
+        let uris: Vec<_> = uris
+            .iter()
+            .map(|uri| {
+                Ok(rbw::db::Uri {
+                    uri: crate::actions::encrypt(&uri.0, None)?,
+                    match_type: uri.1,
+                })
             })
-        })
-        .collect::<anyhow::Result<_>>()?;
+            .collect::<anyhow::Result<_>>()?;
+        (
+            rbw::db::EntryData::Login {
+                username,
+                password,
+                uris,
+                totp: None,
+            },
+            notes,
+        )
+    };
 
     let mut folder_id = None;
     if let Some(folder_name) = folder {
@@ -1636,12 +1679,7 @@ pub fn add(
         &access_token,
         refresh_token,
         &name,
-        &rbw::db::EntryData::Login {
-            username,
-            password,
-            uris,
-            totp: None,
-        },
+        &data,
         notes.as_deref(),
         folder_id.as_deref(),
     )? {
@@ -1755,12 +1793,17 @@ pub fn edit(
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
+    private_key: Option<&str>,
+    public_key: Option<&str>,
 ) -> anyhow::Result<()> {
     unlock()?;
 
     let mut db = load_db()?;
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
+
+    let private_key = private_key.map(read_blob).transpose()?;
+    let public_key = public_key.map(read_blob).transpose()?;
 
     let desc = format!(
         "{}{}",
@@ -1848,9 +1891,49 @@ pub fn edit(
 
             (data, entry.fields, notes, entry.history)
         }
+        DecryptedData::SshKey { .. } => {
+            let rbw::db::EntryData::SshKey {
+                private_key: cur_priv,
+                public_key: cur_pub,
+                fingerprint: cur_fp,
+            } = entry.data.clone()
+            else {
+                unreachable!()
+            };
+
+            let data = rbw::db::EntryData::SshKey {
+                private_key: match &private_key {
+                    Some(private_key) => Some(crate::actions::encrypt(
+                        private_key,
+                        entry.org_id.as_deref(),
+                    )?),
+                    None => cur_priv,
+                },
+                public_key: match &public_key {
+                    Some(public_key) => Some(crate::actions::encrypt(
+                        public_key,
+                        entry.org_id.as_deref(),
+                    )?),
+                    None => cur_pub,
+                },
+                fingerprint: match &public_key {
+                    Some(public_key) => ssh_fingerprint(public_key)?
+                        .map(|fingerprint| {
+                            crate::actions::encrypt(
+                                &fingerprint,
+                                entry.org_id.as_deref(),
+                            )
+                        })
+                        .transpose()?,
+                    None => cur_fp,
+                },
+            };
+
+            (data, entry.fields, entry.notes.clone(), entry.history)
+        }
         _ => {
             return Err(anyhow::anyhow!(
-                "modifications are only supported for login and note entries"
+                "modifications are only supported for login, note, and ssh key entries"
             ));
         }
     };
@@ -2811,9 +2894,245 @@ fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
     )
 }
 
+// Read a secret blob: "-" means stdin, otherwise a file path.
+pub fn read_blob(src: &str) -> anyhow::Result<String> {
+    if src == "-" {
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf)?;
+        Ok(buf)
+    } else {
+        Ok(std::fs::read_to_string(src)?)
+    }
+}
+
+// Derive the "SHA256:..." public-key fingerprint via ssh-keygen.
+// Returns None (not an error) if ssh-keygen is missing or rejects the key.
+fn ssh_fingerprint(public_key: &str) -> anyhow::Result<Option<String>> {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+
+    let Ok(mut child) = Command::new("ssh-keygen")
+        .arg("-lf")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return Ok(None);
+    };
+    child
+        .stdin
+        .as_mut()
+        .map(|stdin| stdin.write_all(public_key.as_bytes()));
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // "<bits> <SHA256:xxx> <comment> (<type>)"
+    Ok(stdout
+        .split_whitespace()
+        .find(|token| token.starts_with("SHA256:"))
+        .map(std::string::ToString::to_string))
+}
+
+fn encrypt_value_with(
+    value: &serde_json::Value,
+    encrypt: &dyn Fn(&str) -> anyhow::Result<String>,
+) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::Value::String(encrypt(
+        value.as_str().unwrap_or_default(),
+    )?))
+}
+
+// Walk a Bitwarden cipher JSON body, encrypting the secret string leaves in
+// place to match what the API expects. Mirrors `bw encode`. The `ctx` tracks
+// which part of the schema we are in, because "secret" depends on location:
+//   top            name, notes encrypted; containers recursed
+//   container      login/card/identity: string leaves encrypted (except
+//                  match/linkedId/type); uris recurse
+//   ssh            only privateKey encrypted; publicKey/keyFingerprint plain
+//   fields         only each entry's value encrypted; name is a plain label
+//   history        only each entry's password encrypted; date is plain
+#[allow(clippy::match_same_arms)] // arms group by schema location, not value
+fn encode_json(
+    value: serde_json::Value,
+    ctx: &str,
+    encrypt: &dyn Fn(&str) -> anyhow::Result<String>,
+) -> anyhow::Result<serde_json::Value> {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (key, val) in map {
+                let (child_ctx, is_secret) = match (ctx, key.as_str()) {
+                    ("top", "name" | "notes") => ("top", true),
+                    ("top", "login" | "card" | "identity") => {
+                        ("container", false)
+                    }
+                    ("top", "sshKey") => ("ssh", false),
+                    ("top", "fields") => ("fields", false),
+                    ("top", "passwordHistory") => ("history", false),
+                    ("container", "uris") => ("container", false),
+                    ("container", "match" | "linkedId" | "type") => {
+                        ("container", false)
+                    }
+                    ("container", _) => ("container", true),
+                    ("ssh", "privateKey") => ("ssh", true),
+                    ("ssh", _) => ("ssh", false),
+                    ("fields", "value") => ("fields", true),
+                    ("fields", _) => ("fields", false),
+                    ("history", "password") => ("history", true),
+                    ("history", _) => ("history", false),
+                    _ => (ctx, false),
+                };
+                let val = match val {
+                    serde_json::Value::String(_) if is_secret => {
+                        encrypt_value_with(&val, encrypt)?
+                    }
+                    _ => encode_json(val, child_ctx, encrypt)?,
+                };
+                out.insert(key, val);
+            }
+            Ok(serde_json::Value::Object(out))
+        }
+        serde_json::Value::Array(arr) => arr
+            .into_iter()
+            .map(|v| encode_json(v, ctx, encrypt))
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map(serde_json::Value::Array),
+        other => Ok(other),
+    }
+}
+
+// `rbw encode` — read JSON from stdin, emit with secret fields encrypted.
+pub fn encode() -> anyhow::Result<()> {
+    unlock()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input)?;
+    let parsed =
+        serde_json::from_str(&input).context("input is not valid JSON")?;
+    let encoded =
+        encode_json(parsed, "top", &|s| crate::actions::encrypt(s, None))?;
+    serde_json::to_writer_pretty(std::io::stdout(), &encoded)?;
+    println!();
+    Ok(())
+}
+
+// `rbw create-raw` — POST an already-encoded cipher body from stdin.
+pub fn create_raw() -> anyhow::Result<()> {
+    unlock()?;
+
+    let mut db = load_db()?;
+    let access_token = db.access_token.as_ref().unwrap().clone();
+    let refresh_token = db.refresh_token.as_ref().unwrap().clone();
+
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input)?;
+    let body: serde_json::Value =
+        serde_json::from_str(&input).context("stdin is not valid JSON")?;
+
+    if let (Some(access_token), ()) =
+        rbw::actions::create_raw(&access_token, &refresh_token, &body)?
+    {
+        db.access_token = Some(access_token);
+        save_db(&db)?;
+    }
+    crate::actions::sync()?;
+    Ok(())
+}
+
+// `rbw edit-raw <needle>` — PUT an already-encoded cipher body from stdin.
+pub fn edit_raw(
+    name: Needle,
+    username: Option<&str>,
+    folder: Option<&str>,
+    ignore_case: bool,
+) -> anyhow::Result<()> {
+    unlock()?;
+
+    let mut db = load_db()?;
+    let access_token = db.access_token.as_ref().unwrap().clone();
+    let refresh_token = db.refresh_token.as_ref().unwrap().clone();
+
+    let (entry, _) = find_entry(&db, name, username, folder, ignore_case)
+        .context("couldn't find entry")?;
+
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input)?;
+    let body: serde_json::Value =
+        serde_json::from_str(&input).context("stdin is not valid JSON")?;
+
+    if let (Some(access_token), ()) = rbw::actions::edit_raw(
+        &access_token,
+        &refresh_token,
+        &entry.id,
+        &body,
+    )? {
+        db.access_token = Some(access_token);
+        save_db(&db)?;
+    }
+    crate::actions::sync()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[allow(clippy::unnecessary_wraps)] // matches the injected encrypt signature
+    fn fake_encrypt(s: &str) -> anyhow::Result<String> {
+        Ok(format!("enc({s})"))
+    }
+
+    fn encode(v: serde_json::Value) -> serde_json::Value {
+        encode_json(v, "top", &fake_encrypt).unwrap()
+    }
+
+    #[test]
+    fn test_encode_json_secret_leaves() {
+        let input = serde_json::json!({
+            "type": 5,
+            "name": "nas/ssh-key",
+            "notes": "a note",
+            "folderId": "plain-uuid",
+            "reprompt": 0,
+            "login": {
+                "username": "user",
+                "password": "pw",
+                "uris": [{ "uri": "https://x", "match": null }],
+            },
+            "sshKey": {
+                "privateKey": "PRIV",
+                "publicKey": "ssh-ed25519 AAAA pub",
+                "keyFingerprint": "SHA256:abc",
+            },
+            "fields": [
+                { "type": 1, "name": "label", "value": "secret" }
+            ],
+        });
+        let out = encode(input);
+
+        // encrypted
+        assert_eq!(out["name"], "enc(nas/ssh-key)");
+        assert_eq!(out["notes"], "enc(a note)");
+        assert_eq!(out["login"]["username"], "enc(user)");
+        assert_eq!(out["login"]["password"], "enc(pw)");
+        assert_eq!(out["login"]["uris"][0]["uri"], "enc(https://x)");
+        assert_eq!(out["sshKey"]["privateKey"], "enc(PRIV)");
+        assert_eq!(out["fields"][0]["value"], "enc(secret)");
+
+        // left as plaintext
+        assert_eq!(out["folderId"], "plain-uuid");
+        assert_eq!(out["type"], 5);
+        assert_eq!(out["reprompt"], 0);
+        assert_eq!(out["login"]["uris"][0]["match"], serde_json::Value::Null);
+        assert_eq!(out["sshKey"]["publicKey"], "ssh-ed25519 AAAA pub");
+        assert_eq!(out["sshKey"]["keyFingerprint"], "SHA256:abc");
+        assert_eq!(out["fields"][0]["name"], "label");
+        assert_eq!(out["fields"][0]["type"], 1);
+    }
 
     #[test]
     fn test_find_entry() {

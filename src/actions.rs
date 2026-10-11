@@ -246,6 +246,31 @@ fn edit_once(
     Ok(())
 }
 
+pub fn create_raw(
+    access_token: &str,
+    refresh_token: &str,
+    body: &serde_json::Value,
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        let (client, _) = api_client()?;
+        client.create_raw(access_token, body)?;
+        Ok(())
+    })
+}
+
+pub fn edit_raw(
+    access_token: &str,
+    refresh_token: &str,
+    id: &str,
+    body: &serde_json::Value,
+) -> Result<(Option<String>, ())> {
+    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
+        let (client, _) = api_client()?;
+        client.edit_raw(access_token, id, body)?;
+        Ok(())
+    })
+}
+
 pub fn remove(
     access_token: &str,
     refresh_token: &str,
