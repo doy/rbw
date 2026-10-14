@@ -770,6 +770,7 @@ struct CiphersPutReq {
     folder_id: Option<String>,
     #[serde(rename = "organizationId")]
     organization_id: Option<String>,
+    key: Option<String>,
     name: String,
     notes: Option<String>,
     login: Option<CipherLogin>,
@@ -1322,6 +1323,7 @@ impl Client {
         access_token: &str,
         id: &str,
         org_id: Option<&str>,
+        key: Option<&str>,
         name: &str,
         data: &crate::db::EntryData,
         fields: &[crate::db::Field],
@@ -1339,6 +1341,7 @@ impl Client {
             },
             folder_id: folder_uuid.map(std::string::ToString::to_string),
             organization_id: org_id.map(std::string::ToString::to_string),
+            key: key.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
             login: None,

@@ -693,22 +693,46 @@ pub async fn encrypt(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     plaintext: &str,
     org_id: Option<&str>,
+    entry_key: Option<&str>,
 ) -> anyhow::Result<()> {
     let state = state.lock().await;
-    let Some(keys) = state.key(org_id) else {
-        return Err(anyhow::anyhow!(
-            "failed to find encryption keys in in-memory state"
-        ));
+    let keys = state.key(org_id).ok_or_else(|| {
+        anyhow::anyhow!("failed to find encryption keys in in-memory state")
+    })?;
+    let cipherstring = encrypt_with_key(keys, entry_key, plaintext)?;
+
+    respond_encrypt(sock, cipherstring).await?;
+
+    Ok(())
+}
+
+fn encrypt_with_key(
+    keys: &rbw::locked::Keys,
+    entry_key: Option<&str>,
+    plaintext: &str,
+) -> anyhow::Result<String> {
+    let cipher_keys;
+    let keys = match entry_key {
+        Some(entry_key) => {
+            let key_cipherstring = rbw::cipherstring::CipherString::new(
+                entry_key,
+            )
+            .context("failed to parse individual item encryption key")?;
+            cipher_keys = rbw::locked::Keys::new(
+                key_cipherstring.decrypt_locked_symmetric(keys).context(
+                    "failed to decrypt individual item encryption key",
+                )?,
+            );
+            &cipher_keys
+        }
+        None => keys,
     };
-    let cipherstring = rbw::cipherstring::CipherString::encrypt_symmetric(
+    rbw::cipherstring::CipherString::encrypt_symmetric(
         keys,
         plaintext.as_bytes(),
     )
-    .context("failed to encrypt plaintext secret")?;
-
-    respond_encrypt(sock, cipherstring.to_string()).await?;
-
-    Ok(())
+    .context("failed to encrypt plaintext secret")
+    .map(|c| c.to_string())
 }
 
 #[cfg(feature = "clipboard")]
@@ -949,4 +973,57 @@ pub async fn find_ssh_private_key(
     }
 
     Err(anyhow::anyhow!("No matching private key found"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_keys(seed: u8) -> rbw::locked::Keys {
+        let mut v = rbw::locked::Vec::new();
+        v.extend((0..64).map(|i| seed.wrapping_add(i)));
+        rbw::locked::Keys::new(v)
+    }
+
+    #[test]
+    fn encrypt_with_item_key_roundtrip() {
+        let master = test_keys(1);
+        let item = test_keys(100);
+
+        // the wrapped item key as stored in the cipher's `key` field
+        let mut full_key = item.enc_key().to_vec();
+        full_key.extend_from_slice(item.mac_key());
+        let wrapped = rbw::cipherstring::CipherString::encrypt_symmetric(
+            &master, &full_key,
+        )
+        .unwrap()
+        .to_string();
+
+        // encrypt with the item key (the fixed path)
+        let ct = encrypt_with_key(&master, Some(&wrapped), "secret").unwrap();
+
+        // decrypting with the item key succeeds
+        let plain = rbw::cipherstring::CipherString::new(&ct)
+            .unwrap()
+            .decrypt_symmetric(&master, Some(&item))
+            .unwrap();
+        assert_eq!(plain, b"secret");
+
+        // decrypting with the master key (the old broken behaviour) fails
+        assert!(rbw::cipherstring::CipherString::new(&ct)
+            .unwrap()
+            .decrypt_symmetric(&master, None)
+            .is_err());
+    }
+
+    #[test]
+    fn encrypt_without_item_key_uses_master_key() {
+        let master = test_keys(2);
+        let ct = encrypt_with_key(&master, None, "secret").unwrap();
+        let plain = rbw::cipherstring::CipherString::new(&ct)
+            .unwrap()
+            .decrypt_symmetric(&master, None)
+            .unwrap();
+        assert_eq!(plain, b"secret");
+    }
 }
