@@ -52,7 +52,7 @@ async fn tokio_main(
             touch_id_ssh: config.touch_id_ssh,
             #[cfg(target_os = "macos")]
             biometric_unlock: None,
-            last_environment: rbw::protocol::Environment::default(),
+            last_environment: rbw::protocol::Environment::from_process(),
             #[cfg(feature = "clipboard")]
             clipboard: arboard::Clipboard::new()
                 .inspect_err(|e| {
