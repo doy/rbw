@@ -134,6 +134,15 @@ pub struct Environment {
 }
 
 impl Environment {
+    pub fn from_process() -> Self {
+        let env_vars = std::env::vars_os()
+            .filter(|(var_name, _)| {
+                (*ENVIRONMENT_VARIABLES_OS).contains(var_name)
+            })
+            .collect();
+        Self::new(std::env::var_os("RBW_TTY"), env_vars)
+    }
+
     pub fn new(
         tty: Option<std::ffi::OsString>,
         env_vars: Vec<(std::ffi::OsString, std::ffi::OsString)>,
