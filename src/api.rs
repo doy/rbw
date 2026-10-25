@@ -426,8 +426,235 @@ struct SyncResCipher {
     deleted_date: Option<String>,
     #[serde(rename = "Key", alias = "key")]
     key: Option<String>,
+    #[serde(rename = "Attachments", alias = "attachments")]
+    attachments: Option<Vec<crate::attachment::Attachment>>,
     #[serde(rename = "Reprompt", alias = "reprompt")]
     reprompt: CipherRepromptType,
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+
+    async fn server(
+        mode: &'static str,
+    ) -> (
+        String,
+        std::sync::Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let listener =
+            tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = requests.clone();
+        let url = base.clone();
+        let app = axum::Router::new().fallback(move |uri: axum::http::Uri, headers: axum::http::HeaderMap| {
+            let seen = seen.clone();
+            let url = url.clone();
+            async move {
+                seen.lock().unwrap().push((uri.to_string(), headers.get("Authorization").map(|v| v.to_str().unwrap().to_string())));
+                let mut status = 200;
+                let body = match uri.path() {
+                    "/ciphers/entry" => {
+                        if mode == "unauthorized" { status = 401; }
+                        let id = if mode == "wrong-entry" { "other" } else { "entry" };
+                        let attachment = serde_json::json!({"id":"file", "fileName":"encrypted", "url":format!("{url}/old"), "key":null, "size":"2"});
+                        let attachments = if mode == "duplicate" { vec![attachment.clone(), attachment] } else { vec![attachment] };
+                        serde_json::to_vec(&serde_json::json!({
+                            "id":id, "name":"encrypted", "secureNote":{}, "reprompt":1,
+                            "deletedDate":if mode == "deleted" { Some("2025-01-01") } else { None },
+                            "attachments":attachments
+                        })).unwrap()
+                    }
+                    "/ciphers/entry/attachment/file" => {
+                        if mode == "legacy" { status = 404; }
+                        if mode == "forbidden" { status = 403; }
+                        let id = if mode == "wrong-attachment" { "other" } else { "file" };
+                        serde_json::to_vec(&serde_json::json!({"id":id,"fileName":"encrypted","url":format!("{url}/blob")})).unwrap()
+                    }
+                    "/blob" | "/old" => vec![0, 255],
+                    _ => { status = 404; vec![] }
+                };
+                axum::http::Response::builder().status(status).body(axum::body::Body::from(body)).unwrap()
+            }
+        });
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (base, requests, task)
+    }
+
+    #[tokio::test]
+    async fn fresh_metadata_binds_entry_and_never_sends_bearer_to_blob() {
+        let (url, requests, task) = server("ok").await;
+        let client = Client::new(&url, &url, &url, None);
+        let (entry, attachment) = client
+            .attachment("synthetic-token", "entry", "file")
+            .await
+            .unwrap();
+        assert!(entry.master_password_reprompt());
+        assert_eq!(
+            client.attachment_bytes(&attachment).await.unwrap(),
+            [0, 255]
+        );
+        let seen = requests.lock().unwrap();
+        assert_eq!(
+            seen[0],
+            (
+                "/ciphers/entry".to_string(),
+                Some("Bearer synthetic-token".to_string())
+            )
+        );
+        assert_eq!(
+            seen[1],
+            (
+                "/ciphers/entry/attachment/file".to_string(),
+                Some("Bearer synthetic-token".to_string())
+            )
+        );
+        assert_eq!(seen[2], ("/blob".to_string(), None));
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn only_404_uses_url_from_fresh_cipher_metadata() {
+        let (url, _, task) = server("legacy").await;
+        let client = Client::new(&url, &url, &url, None);
+        let (_, attachment) =
+            client.attachment("token", "entry", "file").await.unwrap();
+        assert_eq!(attachment.url, format!("{url}/old"));
+        assert_eq!(
+            client.attachment_bytes(&attachment).await.unwrap(),
+            [0, 255]
+        );
+        task.abort();
+        let (url, requests, task) = server("forbidden").await;
+        let client = Client::new(&url, &url, &url, None);
+        assert!(matches!(
+            client.attachment("token", "entry", "file").await,
+            Err(Error::RequestFailed { status: 403 })
+        ));
+        assert_eq!(requests.lock().unwrap().len(), 2);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn mismatched_deleted_duplicate_and_unauthorized_metadata_fail_closed(
+    ) {
+        for mode in [
+            "wrong-entry",
+            "wrong-attachment",
+            "deleted",
+            "duplicate",
+            "unauthorized",
+        ] {
+            let (url, requests, task) = server(mode).await;
+            let client = Client::new(&url, &url, &url, None);
+            let result = client.attachment("token", "entry", "file").await;
+            if mode == "unauthorized" {
+                assert!(matches!(result, Err(Error::RequestUnauthorized)));
+            } else {
+                assert!(
+                    matches!(result, Err(Error::InvalidAttachment { .. })),
+                    "{mode}"
+                );
+            }
+            assert!(!requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(url, _)| url == "/blob" || url == "/old"));
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn identifiers_cannot_change_the_resource_path() {
+        let (url, requests, task) = server("ok").await;
+        let client = Client::new(&url, &url, &url, None);
+        assert!(client
+            .attachment("token", "other/../entry?ignored", "file")
+            .await
+            .is_err());
+        assert_eq!(
+            requests.lock().unwrap()[0].0,
+            "/ciphers/other%2F%2E%2E%2Fentry%3Fignored"
+        );
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn dot_identifiers_and_unsafe_urls_are_rejected_without_network() {
+        let client = Client::new("https://api.example.invalid", "", "", None);
+        for id in ["", ".", ".."] {
+            assert!(matches!(
+                client.attachment("token", id, "file").await,
+                Err(Error::InvalidAttachment { .. })
+            ));
+            assert!(matches!(
+                client.attachment("token", "entry", id).await,
+                Err(Error::InvalidAttachment { .. })
+            ));
+        }
+        for url in [
+            "file:///etc/passwd",
+            "http://api.example.invalid/file",
+            "https://user:pass@example.invalid/file",
+        ] {
+            let attachment = crate::attachment::Attachment {
+                id: "file".to_string(),
+                url: url.to_string(),
+                file_name: "encrypted".to_string(),
+                key: None,
+                size: None,
+            };
+            assert!(matches!(
+                client.attachment_bytes(&attachment).await,
+                Err(Error::InvalidAttachment { .. })
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn redirected_blob_requests_stay_unauthenticated() {
+        let (url, requests, task) = server("ok").await;
+        let listener =
+            tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let target = format!("{url}/blob");
+        let app = axum::Router::new().fallback(
+            move |headers: axum::http::HeaderMap| {
+                let target = target.clone();
+                async move {
+                    assert!(!headers.contains_key("Authorization"));
+                    axum::http::Response::builder()
+                        .status(302)
+                        .header("Location", target)
+                        .body(axum::body::Body::empty())
+                        .unwrap()
+                }
+            },
+        );
+        let redirect_task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = Client::new(&origin, &origin, &origin, None);
+        let attachment = crate::attachment::Attachment {
+            id: "file".to_string(),
+            url: origin,
+            file_name: "encrypted".to_string(),
+            key: None,
+            size: None,
+        };
+        assert_eq!(
+            client.attachment_bytes(&attachment).await.unwrap(),
+            [0, 255]
+        );
+        assert_eq!(requests.lock().unwrap()[0], ("/blob".to_string(), None));
+        redirect_task.abort();
+        task.abort();
+    }
 }
 
 impl SyncResCipher {
@@ -550,6 +777,7 @@ impl SyncResCipher {
             notes: self.notes.clone(),
             history,
             key: self.key.clone(),
+            attachments: self.attachments.clone().unwrap_or_default(),
             master_password_reprompt: self.reprompt,
         })
     }
@@ -841,6 +1069,13 @@ impl Client {
     }
 
     async fn reqwest_client(&self) -> Result<reqwest::Client> {
+        self.reqwest_client_with_redirect(reqwest::redirect::Policy::default()).await
+    }
+
+    async fn reqwest_client_with_redirect(
+        &self,
+        redirect: reqwest::redirect::Policy,
+    ) -> Result<reqwest::Client> {
         let mut default_headers = axum::http::HeaderMap::new();
         default_headers.insert(
             "Bitwarden-Client-Name",
@@ -881,12 +1116,14 @@ impl Client {
             Ok(reqwest::Client::builder()
                 .user_agent(user_agent)
                 .identity(pem)
+                .redirect(redirect)
                 .default_headers(default_headers)
                 .build()
                 .map_err(|e| Error::CreateReqwestClient { source: e })?)
         } else {
             Ok(reqwest::Client::builder()
                 .user_agent(user_agent)
+                .redirect(redirect)
                 .default_headers(default_headers)
                 .build()
                 .map_err(|e| Error::CreateReqwestClient { source: e })?)
@@ -1192,6 +1429,187 @@ impl Client {
                 status: res.status().as_u16(),
             }),
         }
+    }
+
+    /// Fetch attachment metadata from the server, rather than trusting the
+    /// editable local cache for the owning entry, encryption keys or reprompt.
+    pub async fn attachment(
+        &self,
+        access_token: &str,
+        entry_id: &str,
+        attachment_id: &str,
+    ) -> Result<(crate::db::Entry, crate::attachment::Attachment)> {
+        if [entry_id, attachment_id]
+            .iter()
+            .any(|id| id.is_empty() || *id == "." || *id == "..")
+        {
+            return Err(Error::InvalidAttachment {
+                reason: "invalid attachment identifiers".to_string(),
+            });
+        }
+        let entry_path = percent_encoding::utf8_percent_encode(
+            entry_id,
+            percent_encoding::NON_ALPHANUMERIC,
+        );
+        let attachment_path = percent_encoding::utf8_percent_encode(
+            attachment_id,
+            percent_encoding::NON_ALPHANUMERIC,
+        );
+        let client = self.reqwest_client().await?;
+        let res = client
+            .get(self.api_url(&format!("/ciphers/{entry_path}")))
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => {}
+            reqwest::StatusCode::UNAUTHORIZED => {
+                return Err(Error::RequestUnauthorized);
+            }
+            status => {
+                return Err(Error::RequestFailed {
+                    status: status.as_u16(),
+                })
+            }
+        }
+        let cipher: SyncResCipher = res.json_with_path().await?;
+        let entry =
+            cipher
+                .to_entry(&[])
+                .ok_or_else(|| Error::InvalidAttachment {
+                    reason: "entry is deleted or unsupported".to_string(),
+                })?;
+        if entry.id != entry_id {
+            return Err(Error::InvalidAttachment {
+                reason: "server returned a different entry".to_string(),
+            });
+        }
+        let mut matches =
+            entry.attachments.iter().filter(|a| a.id == attachment_id);
+        let mut attachment = matches.next().cloned().ok_or_else(|| {
+            Error::InvalidAttachment {
+                reason: "attachment not found in this entry".to_string(),
+            }
+        })?;
+        if matches.next().is_some() {
+            return Err(Error::InvalidAttachment {
+                reason: "ambiguous attachment ID".to_string(),
+            });
+        }
+
+        // The URL in /sync may have expired. Modern servers issue a fresh
+        // download URL here. Only a 404 permits the legacy metadata fallback.
+        let res = client
+            .get(self.api_url(&format!(
+                "/ciphers/{entry_path}/attachment/{attachment_path}"
+            )))
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => {
+                let fresh: crate::attachment::Attachment =
+                    res.json_with_path().await?;
+                if fresh.id != attachment_id {
+                    return Err(Error::InvalidAttachment {
+                        reason: "server returned a different attachment"
+                            .to_string(),
+                    });
+                }
+                attachment.url = fresh.url;
+            }
+            reqwest::StatusCode::NOT_FOUND => {}
+            reqwest::StatusCode::UNAUTHORIZED => {
+                return Err(Error::RequestUnauthorized)
+            }
+            status => {
+                return Err(Error::RequestFailed {
+                    status: status.as_u16(),
+                })
+            }
+        }
+        Ok((entry, attachment))
+    }
+
+    /// Fetch only the encrypted blob. Never forward a vault access token to
+    /// the attachment host, including when it is the same host as the API.
+    pub async fn attachment_bytes(
+        &self,
+        attachment: &crate::attachment::Attachment,
+    ) -> Result<Vec<u8>> {
+        let mut url = reqwest::Url::parse(&attachment.url).map_err(|_| {
+            Error::InvalidAttachment {
+                reason: "invalid download URL".to_string(),
+            }
+        })?;
+        let base = reqwest::Url::parse(&self.base_url).map_err(|_| {
+            Error::InvalidAttachment {
+                reason: "invalid server URL".to_string(),
+            }
+        })?;
+        for _ in 0..10 {
+            if !matches!(url.scheme(), "http" | "https")
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || (base.scheme() == "https" && url.scheme() != "https")
+            {
+                return Err(Error::InvalidAttachment {
+                    reason: "unsupported download URL".to_string(),
+                });
+            }
+            // Handle redirects here so client certificates are used only for
+            // the configured API origin. No request carries a vault bearer.
+            let client = if url.origin() == base.origin() {
+                self.reqwest_client_with_redirect(
+                    reqwest::redirect::Policy::none(),
+                )
+                .await?
+            } else {
+                reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .map_err(|source| Error::CreateReqwestClient { source })?
+            };
+            let res =
+                client.get(url.clone()).send().await.map_err(|source| {
+                    Error::Reqwest {
+                        source: source.without_url(),
+                    }
+                })?;
+            if res.status().is_redirection() {
+                let location = res
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|v| v.to_str().ok())
+                    .ok_or_else(|| Error::InvalidAttachment {
+                        reason: "download redirect has no valid location"
+                            .to_string(),
+                    })?;
+                url = url.join(location).map_err(|_| {
+                    Error::InvalidAttachment {
+                        reason: "invalid download redirect".to_string(),
+                    }
+                })?;
+                continue;
+            }
+            if res.status() != reqwest::StatusCode::OK {
+                return Err(Error::RequestFailed {
+                    status: res.status().as_u16(),
+                });
+            }
+            return Ok(res
+                .bytes()
+                .await
+                .map_err(|source| Error::Reqwest {
+                    source: source.without_url(),
+                })?
+                .to_vec());
+        }
+        Err(Error::InvalidAttachment {
+            reason: "too many download redirects".to_string(),
+        })
     }
 
     pub fn add(
@@ -1738,23 +2156,19 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
-        "" => {
+        "" if error_desc.is_none() || error_desc == Some("") => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_desc.is_none() || error_desc == Some("") {
-                if let Some(error_model) = error_res.error_model.as_ref() {
-                    let message = error_model.message.as_str().to_string();
-                    match message.as_str() {
-                        "Username or password is incorrect. Try again"
-                        | "TOTP code is not a number" => {
+            if let Some(error_model) = error_res.error_model.as_ref() {
+                let message = error_model.message.as_str().to_string();
+                match message.as_str() {
+                    "Username or password is incorrect. Try again"
+                    | "TOTP code is not a number" => {
+                        return Error::IncorrectPassword { message };
+                    }
+                    s => {
+                        if s.starts_with("Invalid TOTP code! Server time: ") {
                             return Error::IncorrectPassword { message };
-                        }
-                        s => {
-                            if s.starts_with(
-                                "Invalid TOTP code! Server time: ",
-                            ) {
-                                return Error::IncorrectPassword { message };
-                            }
                         }
                     }
                 }

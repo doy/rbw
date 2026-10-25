@@ -174,6 +174,10 @@ pub enum Action {
     CheckLock,
     Lock,
     Sync,
+    DownloadAttachment {
+        entry_id: String,
+        attachment_id: String,
+    },
     Decrypt {
         cipherstring: String,
         entry_key: Option<String>,
@@ -196,6 +200,7 @@ pub enum Response {
     Ack,
     Error { error: String },
     Decrypt { plaintext: String },
+    DownloadAttachment { data: String },
     Encrypt { cipherstring: String },
     Version { version: u32 },
 }

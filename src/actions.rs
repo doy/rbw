@@ -112,21 +112,17 @@ pub fn unlock<S: std::hash::BuildHasher>(
 
     let protected_private_key =
         crate::cipherstring::CipherString::new(protected_private_key)?;
-    let private_key =
-        match protected_private_key.decrypt_locked_symmetric(&key) {
-            Ok(private_key) => crate::locked::PrivateKey::new(private_key),
-            Err(e) => return Err(e),
-        };
+    let private_key = crate::locked::PrivateKey::new(
+        protected_private_key.decrypt_locked_symmetric(&key)?,
+    );
 
     let mut org_keys = std::collections::HashMap::new();
     for (org_id, protected_org_key) in protected_org_keys {
         let protected_org_key =
             crate::cipherstring::CipherString::new(protected_org_key)?;
-        let org_key =
-            match protected_org_key.decrypt_locked_asymmetric(&private_key) {
-                Ok(org_key) => crate::locked::Keys::new(org_key),
-                Err(e) => return Err(e),
-            };
+        let org_key = crate::locked::Keys::new(
+            protected_org_key.decrypt_locked_asymmetric(&private_key)?,
+        );
         org_keys.insert(org_id.clone(), org_key);
     }
 
@@ -166,6 +162,40 @@ async fn sync_once(
 )> {
     let (client, _) = api_client_async().await?;
     client.sync(access_token).await
+}
+
+pub async fn attachment(
+    access_token: &str,
+    refresh_token: &str,
+    entry_id: &str,
+    attachment_id: &str,
+) -> Result<(
+    Option<String>,
+    (crate::db::Entry, crate::attachment::Attachment),
+)> {
+    with_exchange_refresh_token_async(
+        access_token,
+        refresh_token,
+        |access_token| {
+            let access_token = access_token.to_string();
+            let entry_id = entry_id.to_string();
+            let attachment_id = attachment_id.to_string();
+            Box::pin(async move {
+                let (client, _) = api_client_async().await?;
+                client
+                    .attachment(&access_token, &entry_id, &attachment_id)
+                    .await
+            })
+        },
+    )
+    .await
+}
+
+pub async fn attachment_bytes(
+    attachment: &crate::attachment::Attachment,
+) -> Result<Vec<u8>> {
+    let (client, _) = api_client_async().await?;
+    client.attachment_bytes(attachment).await
 }
 
 pub fn add(

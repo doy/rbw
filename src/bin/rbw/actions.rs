@@ -105,6 +105,28 @@ pub fn decrypt(
     }
 }
 
+pub fn download_attachment(
+    entry_id: &str,
+    attachment_id: &str,
+) -> anyhow::Result<Vec<u8>> {
+    let mut sock = connect()?;
+    sock.send(&rbw::protocol::Request::new(
+        get_environment(),
+        rbw::protocol::Action::DownloadAttachment {
+            entry_id: entry_id.to_string(),
+            attachment_id: attachment_id.to_string(),
+        },
+    ))?;
+    match sock.recv()? {
+        rbw::protocol::Response::DownloadAttachment { data } => {
+            rbw::base64::decode(&data).context("invalid attachment response")
+        }
+        rbw::protocol::Response::Error { error } => anyhow::bail!("{error}"),
+        // Do not include a response containing file contents in an error.
+        _ => anyhow::bail!("unexpected attachment response"),
+    }
+}
+
 pub fn encrypt(
     plaintext: &str,
     org_id: Option<&str>,

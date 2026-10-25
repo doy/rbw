@@ -162,6 +162,20 @@ async fn handle_request(
             .await?;
             true
         }
+        rbw::protocol::Action::DownloadAttachment {
+            entry_id,
+            attachment_id,
+        } => {
+            crate::actions::download_attachment(
+                sock,
+                state.clone(),
+                &environment,
+                entry_id,
+                attachment_id,
+            )
+            .await?;
+            true
+        }
         rbw::protocol::Action::Encrypt { plaintext, org_id } => {
             crate::actions::encrypt(
                 sock,

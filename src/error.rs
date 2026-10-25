@@ -86,6 +86,9 @@ pub enum Error {
     #[error("invalid mac")]
     InvalidMac,
 
+    #[error("invalid attachment: {reason}")]
+    InvalidAttachment { reason: String },
+
     #[error("invalid two factor provider type: {ty}")]
     InvalidTwoFactorProvider { ty: String },
 

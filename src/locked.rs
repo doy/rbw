@@ -6,8 +6,10 @@ static REGION_LOCK_WORKS: std::sync::OnceLock<bool> =
     std::sync::OnceLock::new();
 
 pub struct Vec {
-    data: Box<arrayvec::ArrayVec<u8, LEN>>,
+    // Fields drop after our zeroization, in declaration order. Unlock before
+    // freeing the allocation: musl may unmap it as soon as the Box is freed.
     _lock: Option<region::LockGuard>,
+    data: Box<arrayvec::ArrayVec<u8, LEN>>,
 }
 
 impl Default for Vec {
@@ -161,5 +163,27 @@ impl ApiKey {
 
     pub fn client_secret(&self) -> &[u8] {
         self.client_secret.password()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn populated_locked_buffers_and_clones_drop_safely() {
+        let expected = (0..64).collect::<std::vec::Vec<u8>>();
+        for _ in 0..16 {
+            let mut original = Vec::new();
+            original.extend(expected.iter().copied());
+            let copies = (0..32)
+                .map(|_| original.clone())
+                .collect::<std::vec::Vec<_>>();
+            drop(original);
+            for copy in copies {
+                assert_eq!(copy.data(), expected);
+                drop(copy);
+            }
+        }
     }
 }

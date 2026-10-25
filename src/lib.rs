@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod api;
+pub mod attachment;
 pub mod base64;
 pub mod cipherstring;
 pub mod config;

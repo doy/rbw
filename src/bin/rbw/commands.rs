@@ -345,6 +345,15 @@ struct DecryptedCipher {
     fields: Vec<DecryptedField>,
     notes: Option<String>,
     history: Vec<DecryptedHistoryEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<DecryptedAttachment>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize)]
+struct DecryptedAttachment {
+    id: String,
+    file_name: String,
+    size: Option<String>,
 }
 
 impl DecryptedCipher {
@@ -1394,6 +1403,8 @@ pub fn get(
     clipboard: bool,
     ignore_case: bool,
     list_fields: bool,
+    attachment: Option<&str>,
+    output: Option<&std::path::Path>,
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1405,6 +1416,30 @@ pub fn get(
         needle
     );
 
+    if let Some(attachment) = attachment {
+        let entry =
+            find_attachment_entry(&db, needle, user, folder, ignore_case)
+                .with_context(|| {
+                    format!("couldn't find entry for '{desc}'")
+                })?;
+        // An exact ID needs no cached keys or filename decryption.
+        let mut ids = entry.attachments.iter().filter(|a| a.id == attachment);
+        let attachment_id = if let Some(selected) = ids.next() {
+            if ids.next().is_some() {
+                anyhow::bail!("ambiguous attachment ID");
+            }
+            selected.id.clone()
+        } else {
+            let attachments = decrypt_attachments(&entry)?;
+            select_attachment(&attachments, attachment)?.id.clone()
+        };
+        let output = output.context("attachment output is required")?;
+        let bytes = zeroize::Zeroizing::new(
+            crate::actions::download_attachment(&entry.id, &attachment_id)?,
+        );
+        write_attachment(&bytes, output)?;
+        return Ok(());
+    }
     let (_, decrypted) =
         find_entry(&db, needle, user, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
@@ -1421,6 +1456,209 @@ pub fn get(
     }
 
     Ok(())
+}
+
+fn select_attachment<'a>(
+    attachments: &'a [DecryptedAttachment],
+    selector: &str,
+) -> anyhow::Result<&'a DecryptedAttachment> {
+    // IDs take precedence over names. Duplicate names must be disambiguated
+    // with an ID rather than silently downloading the wrong file.
+    let by_id: Vec<_> =
+        attachments.iter().filter(|a| a.id == selector).collect();
+    let matches = if by_id.is_empty() {
+        attachments
+            .iter()
+            .filter(|a| a.file_name == selector)
+            .collect()
+    } else {
+        by_id
+    };
+    match matches.as_slice() {
+        [attachment] => Ok(attachment),
+        [] => anyhow::bail!(
+            "attachment not found; use get --raw to list attachment IDs"
+        ),
+        _ => anyhow::bail!(
+            "ambiguous attachment; select a unique attachment ID"
+        ),
+    }
+}
+
+fn find_attachment_entry(
+    db: &rbw::db::Db,
+    mut needle: Needle,
+    username: Option<&str>,
+    folder: Option<&str>,
+    ignore_case: bool,
+) -> anyhow::Result<rbw::db::Entry> {
+    // Entry lookup needs searchable metadata, not unrelated passwords/hidden
+    // fields. The agent enforces the selected attachment's reprompt itself.
+    if let Needle::Uuid(uuid, name) = &needle {
+        if let Some(entry) = db
+            .entries
+            .iter()
+            .find(|entry| uuid::Uuid::parse_str(&entry.id) == Ok(*uuid))
+        {
+            return Ok(entry.clone());
+        }
+        needle = Needle::Name(name.clone());
+    }
+    let entries = db
+        .entries
+        .iter()
+        .map(|entry| {
+            decrypt_search_cipher(entry).map(|search| (entry.clone(), search))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let (entry, _) =
+        find_entry_raw(&entries, &needle, username, folder, ignore_case)?;
+    Ok(entry)
+}
+
+fn decrypt_attachments(
+    entry: &rbw::db::Entry,
+) -> anyhow::Result<Vec<DecryptedAttachment>> {
+    entry
+        .attachments
+        .iter()
+        .map(|attachment| {
+            Ok(DecryptedAttachment {
+                id: attachment.id.clone(),
+                file_name: crate::actions::decrypt(
+                    &attachment.file_name,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )
+                .context("failed to decrypt attachment filename")?,
+                size: attachment.size.clone(),
+            })
+        })
+        .collect()
+}
+
+fn write_attachment(
+    bytes: &[u8],
+    output: &std::path::Path,
+) -> anyhow::Result<()> {
+    use std::io::IsTerminal as _;
+    if output == std::path::Path::new("-") {
+        let mut stdout = std::io::stdout().lock();
+        if stdout.is_terminal() {
+            anyhow::bail!("refusing to write a binary attachment to the terminal; use --output FILE or redirect stdout");
+        }
+        stdout
+            .write_all(bytes)
+            .context("failed to write attachment to stdout")?;
+        stdout
+            .flush()
+            .context("failed to flush attachment to stdout")?;
+        return Ok(());
+    }
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(parent)
+        .context("failed to create private attachment output")?;
+    file.write_all(bytes)
+        .context("failed to write attachment")?;
+    file.as_file()
+        .sync_all()
+        .context("failed to flush attachment")?;
+    // Authentication/decryption finish before creating a file. Publish it
+    // atomically without overwriting existing files, symlinks or directories.
+    file.persist_noclobber(output).context(
+        "failed to save attachment (output must not already exist)",
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    fn attachment(id: &str, name: &str) -> DecryptedAttachment {
+        DecryptedAttachment {
+            id: id.to_string(),
+            file_name: name.to_string(),
+            size: None,
+        }
+    }
+
+    #[test]
+    fn exact_name_or_id_selection_is_unambiguous() {
+        let files = vec![
+            attachment("one", "file.bin"),
+            attachment("two", "file.bin"),
+            attachment("file.bin", "../other"),
+        ];
+        assert_eq!(
+            select_attachment(&files, "file.bin").unwrap().id,
+            "file.bin"
+        );
+        assert_eq!(
+            select_attachment(&files, "../other").unwrap().id,
+            "file.bin"
+        );
+        assert!(select_attachment(&files[..2], "file.bin").is_err());
+        assert!(select_attachment(&files, "missing").is_err());
+        assert!(select_attachment(
+            &[attachment("one", "a"), attachment("one", "b")],
+            "one"
+        )
+        .is_err());
+        assert_eq!(
+            select_attachment(
+                &[attachment("id", "日本語.bin")],
+                "日本語.bin"
+            )
+            .unwrap()
+            .id,
+            "id"
+        );
+    }
+
+    #[test]
+    fn binary_and_empty_outputs_are_exact_private_and_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, bytes) in [
+            ("binary", &[0, 255, 128, 10, 13, 0][..]),
+            ("empty", &[][..]),
+        ] {
+            let path = dir.path().join(name);
+            write_attachment(bytes, &path).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode()
+                    & 0o777,
+                0o600
+            );
+            assert!(write_attachment(b"replacement", &path).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn symlinks_directories_and_missing_parents_are_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("original");
+        std::fs::write(&original, b"keep").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&original, &link).unwrap();
+        assert!(write_attachment(b"replace", &link).is_err());
+        assert_eq!(std::fs::read(&original).unwrap(), b"keep");
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert!(write_attachment(b"replace", dir.path()).is_err());
+        assert!(write_attachment(
+            b"replace",
+            &dir.path().join("absent/file")
+        )
+        .is_err());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
 }
 
 fn print_entry_list(
@@ -1507,8 +1745,7 @@ pub fn search(
         .filter(|entry| {
             entry
                 .as_ref()
-                .map(|entry| entry.search_match(term, folder))
-                .unwrap_or(true)
+                .map_or(true, |entry| entry.search_match(term, folder))
         })
         .map(|entry| entry.map(std::convert::Into::into))
         .collect::<Result<_, anyhow::Error>>()?;
@@ -2623,6 +2860,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         fields,
         notes,
         history,
+        attachments: decrypt_attachments(entry)?,
     })
 }
 
@@ -4155,6 +4393,7 @@ mod test {
                 fields: vec![],
                 notes: None,
                 history: vec![],
+                attachments: vec![],
                 key: None,
                 master_password_reprompt: rbw::api::CipherRepromptType::None,
             },

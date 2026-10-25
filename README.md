@@ -138,6 +138,24 @@ run `rbw register` to register each device using `rbw` with the Bitwarden
 server. This will prompt you for your personal API key which you can find using
 the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
 
+### Attachments
+
+Run `rbw sync` to refresh attachment metadata. `rbw get <entry> --raw`
+includes attachment IDs, decrypted filenames and sizes. Download a file by its
+exact filename or attachment ID:
+
+```sh
+rbw get <entry> --attachment document.pdf --output ./document.pdf
+rbw get <entry> --attachment <attachment-id> --output - > ./document.pdf
+```
+
+The existing username, `--folder` and `--ignorecase` entry selectors still
+apply. Duplicate filenames require an attachment ID. Downloads need a network
+connection and honor the entry's master-password reprompt. Binary contents are
+written exactly, including empty files. An explicit output filename is required;
+existing files are never overwritten, and binary stdout must be redirected or
+piped. Uploading and deleting attachments are not supported.
+
 ### SSH Agent
 
 `rbw-agent` includes a built-in SSH agent for signing SSH authentication
