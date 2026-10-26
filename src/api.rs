@@ -394,6 +394,8 @@ struct SyncRes {
     profile: SyncResProfile,
     #[serde(rename = "Folders", alias = "folders")]
     folders: Vec<SyncResFolder>,
+    #[serde(rename = "Collections", alias = "collections", default)]
+    collections: Vec<SyncResCollection>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -428,6 +430,8 @@ struct SyncResCipher {
     key: Option<String>,
     #[serde(rename = "Reprompt", alias = "reprompt")]
     reprompt: CipherRepromptType,
+    #[serde(rename = "CollectionIds", alias = "collectionIds", default)]
+    collection_ids: Option<Vec<String>>,
 }
 
 impl SyncResCipher {
@@ -551,6 +555,7 @@ impl SyncResCipher {
             history,
             key: self.key.clone(),
             master_password_reprompt: self.reprompt,
+            collection_ids: self.collection_ids.clone().unwrap_or_default(),
         })
     }
 }
@@ -571,6 +576,18 @@ struct SyncResProfileOrganization {
     id: String,
     #[serde(rename = "Key", alias = "key")]
     key: String,
+    #[serde(rename = "Name", alias = "name")]
+    name: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+struct SyncResCollection {
+    #[serde(rename = "Id", alias = "id")]
+    id: String,
+    #[serde(rename = "OrganizationId", alias = "organizationId")]
+    organization_id: String,
+    #[serde(rename = "Name", alias = "name")]
+    name: String,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -753,6 +770,11 @@ struct CiphersPostReq {
     ty: u32, // XXX what are the valid types?
     #[serde(rename = "folderId")]
     folder_id: Option<String>,
+    #[serde(
+        rename = "organizationId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    organization_id: Option<String>,
     name: String,
     notes: Option<String>,
     login: Option<CipherLogin>,
@@ -760,6 +782,13 @@ struct CiphersPostReq {
     identity: Option<CipherIdentity>,
     #[serde(rename = "secureNote")]
     secure_note: Option<CipherSecureNote>,
+}
+
+#[derive(serde::Serialize, Debug)]
+struct CiphersCreateReq {
+    cipher: CiphersPostReq,
+    #[serde(rename = "collectionIds")]
+    collection_ids: Vec<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -1153,6 +1182,8 @@ impl Client {
         String,
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
+        std::collections::HashMap<String, String>,
+        Vec<crate::db::Collection>,
     )> {
         let client = self.reqwest_client().await?;
         let res = client
@@ -1178,11 +1209,30 @@ impl Client {
                     .iter()
                     .map(|org| (org.id.clone(), org.key.clone()))
                     .collect();
+                let org_names = sync_res
+                    .profile
+                    .organizations
+                    .iter()
+                    .filter_map(|org| {
+                        org.name.clone().map(|name| (org.id.clone(), name))
+                    })
+                    .collect();
+                let collections = sync_res
+                    .collections
+                    .iter()
+                    .map(|collection| crate::db::Collection {
+                        id: collection.id.clone(),
+                        org_id: collection.organization_id.clone(),
+                        name: collection.name.clone(),
+                    })
+                    .collect();
                 Ok((
                     sync_res.profile.key,
                     sync_res.profile.private_key,
                     org_keys,
                     ciphers,
+                    org_names,
+                    collections,
                 ))
             }
             reqwest::StatusCode::UNAUTHORIZED => {
@@ -1201,10 +1251,13 @@ impl Client {
         data: &crate::db::EntryData,
         notes: Option<&str>,
         folder_id: Option<&str>,
+        org_id: Option<&str>,
+        collection_ids: &[String],
     ) -> Result<()> {
         let mut req = CiphersPostReq {
             ty: 1,
             folder_id: folder_id.map(std::string::ToString::to_string),
+            organization_id: org_id.map(std::string::ToString::to_string),
             name: name.to_string(),
             notes: notes.map(std::string::ToString::to_string),
             login: None,
@@ -1300,10 +1353,20 @@ impl Client {
             crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
         let client = reqwest::blocking::Client::new();
-        let res = client
-            .post(self.api_url("/ciphers"))
+        // organization ciphers must be created together with the
+        // collections they belong to
+        let req = if org_id.is_some() {
+            client.post(self.api_url("/ciphers/create")).json(
+                &CiphersCreateReq {
+                    cipher: req,
+                    collection_ids: collection_ids.to_vec(),
+                },
+            )
+        } else {
+            client.post(self.api_url("/ciphers")).json(&req)
+        };
+        let res = req
             .header("Authorization", format!("Bearer {access_token}"))
-            .json(&req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
         match res.status() {

@@ -59,7 +59,8 @@ enum Opt {
         #[arg(
             long,
             help = "Fields to display. \
-                Available options are id, name, user, folder, type. \
+                Available options are id, name, user, folder, type, org, \
+                collections. \
                 Multiple fields will be separated by tabs.",
             default_value = "name",
             use_value_delimiter = true
@@ -139,6 +140,14 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(long, help = "Organization to create the password entry in")]
+        org: Option<String>,
+        #[arg(
+            long,
+            help = "Organization collection for the password entry",
+            number_of_values = 1
+        )]
+        collection: Vec<String>,
     },
 
     #[command(
@@ -169,6 +178,14 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(long, help = "Organization to create the password entry in")]
+        org: Option<String>,
+        #[arg(
+            long,
+            help = "Organization collection for the password entry",
+            number_of_values = 1
+        )]
+        collection: Vec<String>,
         #[arg(
             long = "no-symbols",
             help = "Generate a password with no special characters"
@@ -385,6 +402,8 @@ fn main() {
             user,
             uri,
             folder,
+            org,
+            collection,
         } => commands::add(
             &name,
             user.as_deref(),
@@ -394,6 +413,8 @@ fn main() {
                 .map(|uri| (uri.clone(), None))
                 .collect::<Vec<_>>(),
             folder.as_deref(),
+            org.as_deref(),
+            &collection,
         ),
         Opt::Generate {
             len,
@@ -401,6 +422,8 @@ fn main() {
             user,
             uri,
             folder,
+            org,
+            collection,
             no_symbols,
             only_numbers,
             nonconfusables,
@@ -426,6 +449,8 @@ fn main() {
                     .map(|uri| (uri.clone(), None))
                     .collect::<Vec<_>>(),
                 folder.as_deref(),
+                org.as_deref(),
+                &collection,
                 len,
                 ty,
             )

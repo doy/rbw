@@ -19,6 +19,8 @@ pub struct Entry {
     pub history: Vec<HistoryEntry>,
     pub key: Option<String>,
     pub master_password_reprompt: crate::api::CipherRepromptType,
+    #[serde(default)]
+    pub collection_ids: Vec<String>,
 }
 
 impl Entry {
@@ -187,8 +189,22 @@ pub struct Db {
     pub protected_key: Option<String>,
     pub protected_private_key: Option<String>,
     pub protected_org_keys: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub organizations: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub collections: Vec<Collection>,
 
     pub entries: Vec<Entry>,
+}
+
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct Collection {
+    pub id: String,
+    pub org_id: String,
+    // encrypted with the organization key
+    pub name: String,
 }
 
 impl Db {

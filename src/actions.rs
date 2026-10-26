@@ -143,6 +143,8 @@ pub async fn sync(
         String,
         std::collections::HashMap<String, String>,
         Vec<crate::db::Entry>,
+        std::collections::HashMap<String, String>,
+        Vec<crate::db::Collection>,
     ),
 )> {
     with_exchange_refresh_token_async(
@@ -163,6 +165,8 @@ async fn sync_once(
     String,
     std::collections::HashMap<String, String>,
     Vec<crate::db::Entry>,
+    std::collections::HashMap<String, String>,
+    Vec<crate::db::Collection>,
 )> {
     let (client, _) = api_client_async().await?;
     client.sync(access_token).await
@@ -175,9 +179,19 @@ pub fn add(
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
+    org_id: Option<&str>,
+    collection_ids: &[String],
 ) -> Result<(Option<String>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, name, data, notes, folder_id)
+        add_once(
+            access_token,
+            name,
+            data,
+            notes,
+            folder_id,
+            org_id,
+            collection_ids,
+        )
     })
 }
 
@@ -187,9 +201,19 @@ fn add_once(
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
+    org_id: Option<&str>,
+    collection_ids: &[String],
 ) -> Result<()> {
     let (client, _) = api_client()?;
-    client.add(access_token, name, data, notes, folder_id)?;
+    client.add(
+        access_token,
+        name,
+        data,
+        notes,
+        folder_id,
+        org_id,
+        collection_ids,
+    )?;
     Ok(())
 }
 

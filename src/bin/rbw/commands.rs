@@ -187,6 +187,8 @@ struct DecryptedListCipher {
     uris: Option<Vec<String>>,
     #[serde(rename = "type")]
     entry_type: Option<String>,
+    org: Option<String>,
+    collections: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -331,6 +333,8 @@ impl From<DecryptedSearchCipher> for DecryptedListCipher {
             user: value.user,
             folder: value.folder,
             uris: Some(value.uris.into_iter().map(|(s, _)| s).collect()),
+            org: None,
+            collections: None,
         }
     }
 }
@@ -1186,6 +1190,8 @@ enum ListField {
     Folder,
     Uri,
     EntryType,
+    Org,
+    Collections,
 }
 
 impl ListField {
@@ -1197,6 +1203,8 @@ impl ListField {
             Self::Folder,
             Self::Uri,
             Self::EntryType,
+            Self::Org,
+            Self::Collections,
         ]
     }
 }
@@ -1211,6 +1219,8 @@ impl std::convert::TryFrom<&String> for ListField {
             "user" => Self::User,
             "folder" => Self::Folder,
             "type" => Self::EntryType,
+            "org" => Self::Org,
+            "collections" => Self::Collections,
             _ => return Err(anyhow::anyhow!("unknown field {s}")),
         })
     }
@@ -1374,7 +1384,7 @@ pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
     let mut entries: Vec<DecryptedListCipher> = db
         .entries
         .iter()
-        .map(|entry| decrypt_list_cipher(entry, &fields))
+        .map(|entry| decrypt_list_cipher(entry, &db, &fields))
         .collect::<anyhow::Result<_>>()?;
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
@@ -1464,6 +1474,14 @@ fn print_entry_list(
                             std::string::ToString::to_string,
                         )
                     }
+                    ListField::Org => entry.org.as_ref().map_or_else(
+                        String::new,
+                        std::string::ToString::to_string,
+                    ),
+                    ListField::Collections => entry
+                        .collections
+                        .as_ref()
+                        .map_or_else(String::new, |c| c.join(", ")),
                 })
                 .collect();
 
@@ -1560,6 +1578,8 @@ pub fn add(
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
+    org: Option<&str>,
+    collections: &[String],
 ) -> anyhow::Result<()> {
     unlock()?;
 
@@ -1569,26 +1589,29 @@ pub fn add(
     let mut access_token = db.access_token.as_ref().unwrap().clone();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
-    let name = crate::actions::encrypt(name, None)?;
+    let (org_id, collection_ids) =
+        resolve_org_collections(&db, org, collections)?;
+
+    let name = crate::actions::encrypt(name, org_id.as_deref())?;
 
     let username = username
-        .map(|username| crate::actions::encrypt(username, None))
+        .map(|username| crate::actions::encrypt(username, org_id.as_deref()))
         .transpose()?;
 
     let contents = rbw::edit::edit("", HELP_PW)?;
 
     let (password, notes) = parse_editor(&contents);
     let password = password
-        .map(|password| crate::actions::encrypt(&password, None))
+        .map(|password| crate::actions::encrypt(&password, org_id.as_deref()))
         .transpose()?;
     let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes, None))
+        .map(|notes| crate::actions::encrypt(&notes, org_id.as_deref()))
         .transpose()?;
     let uris: Vec<_> = uris
         .iter()
         .map(|uri| {
             Ok(rbw::db::Uri {
-                uri: crate::actions::encrypt(&uri.0, None)?,
+                uri: crate::actions::encrypt(&uri.0, org_id.as_deref())?,
                 match_type: uri.1,
             })
         })
@@ -1644,6 +1667,8 @@ pub fn add(
         },
         notes.as_deref(),
         folder_id.as_deref(),
+        org_id.as_deref(),
+        &collection_ids,
     )? {
         db.access_token = Some(access_token);
         save_db(&db)?;
@@ -1654,11 +1679,115 @@ pub fn add(
     Ok(())
 }
 
+/// Look up the organization and collection ids for the given names, so that
+/// new entries can be created inside an organization's collections.
+fn resolve_org_collections(
+    db: &rbw::db::Db,
+    org: Option<&str>,
+    collections: &[String],
+) -> anyhow::Result<(Option<String>, Vec<String>)> {
+    if org.is_none() && collections.is_empty() {
+        return Ok((None, vec![]));
+    }
+
+    let org_id = if let Some(org) = org {
+        let matches: Vec<_> = db
+            .organizations
+            .iter()
+            .filter(|(id, name)| {
+                id.as_str() == org || name.eq_ignore_ascii_case(org)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        match matches.as_slice() {
+            [id] => Some(id.clone()),
+            [] => {
+                return Err(anyhow::anyhow!(
+                    "unknown organization {org} (known: {}; try rbw sync)",
+                    db.organizations
+                        .values()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "organization name {org} is ambiguous, use its id"
+                ))
+            }
+        }
+    } else {
+        None
+    };
+
+    let available: Vec<(String, String, String)> = db
+        .collections
+        .iter()
+        .filter(|c| org_id.as_ref().is_none_or(|org_id| &c.org_id == org_id))
+        .map(|c| {
+            Ok((
+                c.id.clone(),
+                c.org_id.clone(),
+                crate::actions::decrypt(&c.name, None, Some(&c.org_id))?,
+            ))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let describe = || {
+        available
+            .iter()
+            .map(|(_, _, name)| name.clone())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if collections.is_empty() {
+        return Err(anyhow::anyhow!(
+            "entries in an organization need at least one --collection \
+             (available: {})",
+            describe()
+        ));
+    }
+
+    let mut collection_ids = vec![];
+    let mut collection_org_id = org_id;
+    for wanted in collections {
+        let found: Vec<_> = available
+            .iter()
+            .filter(|(id, _, name)| {
+                id == wanted || name.eq_ignore_ascii_case(wanted)
+            })
+            .collect();
+        let (id, org_id, _) = match found.as_slice() {
+            [found] => *found,
+            [] => {
+                return Err(anyhow::anyhow!(
+                    "unknown collection {wanted} (available: {})",
+                    describe()
+                ))
+            }
+            _ => return Err(anyhow::anyhow!(
+                "collection name {wanted} is ambiguous, use --org or its id"
+            )),
+        };
+        if collection_org_id.as_ref().is_some_and(|o| o != org_id) {
+            return Err(anyhow::anyhow!(
+                "collections must all belong to the same organization"
+            ));
+        }
+        collection_org_id = Some(org_id.clone());
+        collection_ids.push(id.clone());
+    }
+
+    Ok((collection_org_id, collection_ids))
+}
+
 pub fn generate(
     name: Option<&str>,
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
+    org: Option<&str>,
+    collections: &[String],
     len: usize,
     ty: rbw::pwgen::Type,
 ) -> anyhow::Result<()> {
@@ -1674,16 +1803,21 @@ pub fn generate(
         let mut access_token = db.access_token.as_ref().unwrap().clone();
         let refresh_token = db.refresh_token.as_ref().unwrap();
 
-        let name = crate::actions::encrypt(name, None)?;
+        let (org_id, collection_ids) =
+            resolve_org_collections(&db, org, collections)?;
+
+        let name = crate::actions::encrypt(name, org_id.as_deref())?;
         let username = username
-            .map(|username| crate::actions::encrypt(username, None))
+            .map(|username| {
+                crate::actions::encrypt(username, org_id.as_deref())
+            })
             .transpose()?;
-        let password = crate::actions::encrypt(&password, None)?;
+        let password = crate::actions::encrypt(&password, org_id.as_deref())?;
         let uris: Vec<_> = uris
             .iter()
             .map(|uri| {
                 Ok(rbw::db::Uri {
-                    uri: crate::actions::encrypt(&uri.0, None)?,
+                    uri: crate::actions::encrypt(&uri.0, org_id.as_deref())?,
                     match_type: uri.1,
                 })
             })
@@ -1739,6 +1873,8 @@ pub fn generate(
             },
             None,
             folder_id.as_deref(),
+            org_id.as_deref(),
+            &collection_ids,
         )? {
             db.access_token = Some(access_token);
             save_db(&db)?;
@@ -2124,6 +2260,7 @@ fn decrypt_field(
 
 fn decrypt_list_cipher(
     entry: &rbw::db::Entry,
+    db: &rbw::db::Db,
     fields: &[ListField],
 ) -> anyhow::Result<DecryptedListCipher> {
     let id = entry.id.clone();
@@ -2190,6 +2327,31 @@ fn decrypt_list_cipher(
         })
         .map(str::to_string);
 
+    let org = if fields.contains(&ListField::Org) {
+        entry
+            .org_id
+            .as_ref()
+            .map(|org_id| db.organizations.get(org_id).unwrap_or(org_id))
+            .cloned()
+    } else {
+        None
+    };
+    let collections = if fields.contains(&ListField::Collections) {
+        // collection names are encrypted with the organization key
+        Some(
+            entry
+                .collection_ids
+                .iter()
+                .filter_map(|id| db.collections.iter().find(|c| &c.id == id))
+                .map(|c| {
+                    crate::actions::decrypt(&c.name, None, Some(&c.org_id))
+                })
+                .collect::<anyhow::Result<_>>()?,
+        )
+    } else {
+        None
+    };
+
     Ok(DecryptedListCipher {
         id,
         name,
@@ -2197,6 +2359,8 @@ fn decrypt_list_cipher(
         folder,
         uris,
         entry_type,
+        org,
+        collections,
     })
 }
 
@@ -4157,6 +4321,7 @@ mod test {
                 history: vec![],
                 key: None,
                 master_password_reprompt: rbw::api::CipherRepromptType::None,
+                collection_ids: vec![],
             },
             DecryptedSearchCipher {
                 id: id.to_string(),
