@@ -110,6 +110,17 @@ pub fn unlock<S: std::hash::BuildHasher>(
         Err(e) => return Err(e),
     };
 
+    unlock_with_user_key(key, protected_private_key, protected_org_keys)
+}
+
+pub fn unlock_with_user_key<S: std::hash::BuildHasher>(
+    key: crate::locked::Keys,
+    protected_private_key: &str,
+    protected_org_keys: &std::collections::HashMap<String, String, S>,
+) -> Result<(
+    crate::locked::Keys,
+    std::collections::HashMap<String, crate::locked::Keys>,
+)> {
     let protected_private_key =
         crate::cipherstring::CipherString::new(protected_private_key)?;
     let private_key =

@@ -96,6 +96,14 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `biometric_unlock`: If `true`, `rbw` will first try to unlock using the
+  Bitwarden desktop app's biometric unlock (the same mechanism the official
+  browser extension uses): the desktop app must be running with "browser
+  integration" and biometric unlock enabled, and will show the OS biometric
+  prompt. If the desktop app is not available or the unlock fails, `rbw`
+  falls back to asking for the master password as usual. Note that this
+  relies on an internal Bitwarden protocol which may change in future
+  desktop app releases. Defaults to `false`.
 
 ### Profiles
 

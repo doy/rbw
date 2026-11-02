@@ -1269,6 +1269,11 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
+        "biometric_unlock" => {
+            config.biometric_unlock = value
+                .parse()
+                .context("failed to parse value for biometric_unlock")?;
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1298,6 +1303,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        "biometric_unlock" => config.biometric_unlock = false,
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;

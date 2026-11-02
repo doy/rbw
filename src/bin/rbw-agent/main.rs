@@ -2,6 +2,7 @@ use anyhow::Context as _;
 
 mod actions;
 mod agent;
+mod bitwarden_desktop;
 mod daemon;
 mod debugger;
 mod notifications;
@@ -42,6 +43,7 @@ async fn tokio_main(
             master_password_reprompt: std::collections::HashSet::new(),
             master_password_reprompt_initialized: false,
             last_environment: rbw::protocol::Environment::default(),
+            bitwarden_desktop_channel: None,
             #[cfg(feature = "clipboard")]
             clipboard: arboard::Clipboard::new()
                 .inspect_err(|e| {
@@ -49,6 +51,27 @@ async fn tokio_main(
                 })
                 .ok(),
         }));
+
+    // like the browser extension, pre-establish the channel to the desktop
+    // app so that the first biometric unlock doesn't have to wait for the
+    // connection + rsa handshake
+    if config.biometric_unlock {
+        let state = state.clone();
+        tokio::spawn(async move {
+            match crate::actions::connect_bitwarden_desktop().await {
+                Ok(channel) => {
+                    state.lock().await.bitwarden_desktop_channel =
+                        Some(channel);
+                }
+                Err(e) => {
+                    log::debug!(
+                        "couldn't pre-connect to bitwarden desktop app: \
+                         {e:#}"
+                    );
+                }
+            }
+        });
+    }
 
     let agent =
         crate::agent::Agent::new(timer_r, sync_timer_r, state.clone());

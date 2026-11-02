@@ -404,6 +404,28 @@ async fn unlock_state(
 
         let email = config_email().await?;
 
+        if rbw::config::Config::load_async().await?.biometric_unlock {
+            match biometric_unlock(
+                state.clone(),
+                db.access_token.as_deref(),
+                &protected_private_key,
+                &db.protected_org_keys,
+            )
+            .await
+            {
+                Ok((keys, org_keys)) => {
+                    unlock_success(state, keys, org_keys).await?;
+                    return Ok(());
+                }
+                Err(e) => {
+                    log::warn!(
+                        "biometric unlock failed, falling back to \
+                         pinentry: {e:#}"
+                    );
+                }
+            }
+        }
+
         let mut err_msg = None;
         for i in 1_u8..=3 {
             let err = if i > 1 {
@@ -479,6 +501,40 @@ async fn unlock_success(
     state.priv_key = Some(keys);
     state.org_keys = Some(org_keys);
     Ok(())
+}
+
+async fn biometric_unlock(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    access_token: Option<&str>,
+    protected_private_key: &str,
+    protected_org_keys: &std::collections::HashMap<String, String>,
+) -> anyhow::Result<(
+    rbw::locked::Keys,
+    std::collections::HashMap<String, rbw::locked::Keys>,
+)> {
+    let access_token = access_token.context("not logged in")?;
+    // reuse the already established channel if there is one; don't hold the
+    // state lock while waiting for the user to answer the biometric prompt
+    let cached = state.lock().await.bitwarden_desktop_channel.take();
+    let (res, channel) =
+        crate::bitwarden_desktop::unlock_user_key(cached, access_token)
+            .await;
+    state.lock().await.bitwarden_desktop_channel = channel;
+    let key = res?;
+    Ok(rbw::actions::unlock_with_user_key(
+        key,
+        protected_private_key,
+        protected_org_keys,
+    )?)
+}
+
+// used at agent startup to pre-establish the desktop app channel, so the
+// first biometric unlock doesn't have to wait for it
+pub async fn connect_bitwarden_desktop(
+) -> anyhow::Result<crate::bitwarden_desktop::DesktopChannel> {
+    let db = load_db().await?;
+    let access_token = db.access_token.context("not logged in")?;
+    crate::bitwarden_desktop::connect_channel(&access_token).await
 }
 
 pub async fn lock(

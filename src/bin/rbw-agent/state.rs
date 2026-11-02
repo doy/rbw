@@ -24,6 +24,13 @@ pub struct State {
     // should all send their own environment over.
     pub last_environment: rbw::protocol::Environment,
 
+    // established channel to the bitwarden desktop app, kept alive across
+    // unlocks (like the browser extension does) so the biometric prompt
+    // appears without waiting for connection + rsa handshake. it only holds
+    // a transport key, no vault material, so it survives locking the agent.
+    pub bitwarden_desktop_channel:
+        Option<crate::bitwarden_desktop::DesktopChannel>,
+
     #[cfg(feature = "clipboard")]
     pub clipboard: Option<arboard::Clipboard>,
 }
