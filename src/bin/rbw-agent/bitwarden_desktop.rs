@@ -380,6 +380,8 @@ where
         use rsa::pkcs8::EncodePublicKey as _;
         use zeroize::Zeroize as _;
 
+        write_frame(&mut stream, br#"{"clientType":"cli"}"#).await?;
+
         let mut rng = rand_8::rngs::OsRng;
         let private_key = rsa::RsaPrivateKey::new(&mut rng, 2048)
             .context("failed to generate rsa key")?;
@@ -677,6 +679,11 @@ mod tests {
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
         use rsa::pkcs8::DecodePublicKey as _;
+
+        let frame = super::read_frame(server).await.unwrap();
+        let announcement: serde_json::Value =
+            serde_json::from_slice(&frame).unwrap();
+        assert_eq!(announcement, serde_json::json!({"clientType": "cli"}));
 
         let frame = super::read_frame(server).await.unwrap();
         let msg: serde_json::Value = serde_json::from_slice(&frame).unwrap();
