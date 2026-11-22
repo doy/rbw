@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.16.0] - Unreleased
+
+First release of `rbw-ng`, a maintained continuation of `rbw`. The commands,
+configuration and local database are unchanged.
+
+## Added
+
+* Touch ID unlock on macOS (`touch_id_unlock`), backed by a non-exportable
+  Secure Enclave key that lives only as long as the agent (m11y, doy/rbw#374).
+* Touch ID approval before each SSH signature on macOS (`touch_id_ssh`). The
+  prompt names the key and the requesting program and its parent.
+
+## Fixed
+
+* `rbw edit` no longer corrupts items that have their own encryption key
+  (Jörg Thalheim, doy/rbw#368, fixes doy/rbw#364).
+* `rbw add` and `rbw edit` send `encryptedFor`, which Vaultwarden 1.37
+  requires (Junmo Kim, doy/rbw#386).
+* Every request now sends a current `Bitwarden-Client-Version`, so the server
+  no longer refuses edits as coming from an outdated client (Chad Sharp,
+  doy/rbw#328). The add, edit, remove and folder requests also send the user
+  agent and the client certificate from `client_cert_path`, which they ignored.
+
+## Changed
+
+* Dependencies updated to clear the open RustSec advisories, including in
+  rustls, rustls-webpki, url and tokio (Michel Lind, doy/rbw#376). `humantime`,
+  now unmaintained, is no longer a dependency.
+* Lint fixes for current Rust toolchains (m11y, doy/rbw#373).
+
 ## [1.15.0] - 2025-12-31
 
 ## Added

@@ -1981,8 +1981,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rbw"
-version = "1.15.0"
+name = "rbw-ng"
+version = "1.16.0"
 dependencies = [
  "aes",
  "anyhow",

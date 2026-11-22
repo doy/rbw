@@ -1,7 +1,12 @@
-# rbw
+# rbw-ng
 
-This is an unofficial command line client for
-[Bitwarden](https://bitwarden.com/). Although Bitwarden does come with its own
+`rbw-ng` is a maintained continuation of [`rbw`](https://github.com/doy/rbw),
+the unofficial command line client for [Bitwarden](https://bitwarden.com/).
+It is a drop-in replacement: the commands are still `rbw` and `rbw-agent`, and
+it reads the same configuration and local database, so switching needs no
+setup.
+
+Although Bitwarden does come with its own
 [command line client](https://help.bitwarden.com/article/cli/), it is
 limited by being stateless - to use it, you're required to manually lock and
 unlock the client, and pass the temporary keys around in environment variables,
@@ -11,63 +16,51 @@ similar to the way that `ssh-agent` or `gpg-agent` work. This allows the client
 to be used in a much simpler way, with the background agent taking care of
 maintaining the necessary state.
 
-## Maintenance
+## Why this fork
 
-I consider `rbw` to be essentially feature-complete for me at this point. While
-I still use it on a daily basis, and will continue to fix regressions as they
-occur, I am unlikely to spend time implementing new features on my own. If you
-would like to see new functionality in `rbw`, I am more than happy to review
-and merge pull requests implementing those features.
+`rbw` has had no commits since its 1.15.0 release in December 2025, while
+Bitwarden and Vaultwarden kept changing. Fixes piled up as unmerged pull
+requests (see the [maintainership
+discussion](https://github.com/doy/rbw/issues/338)). `rbw-ng` merges the ones
+that hold up to review, fixes what is still broken, and keeps up with server
+changes. Contributors' commits are kept with their authorship.
+
+Compared to `rbw` 1.15.0, it adds:
+
+* Touch ID unlock on macOS, backed by a Secure Enclave key that never leaves
+  the chip (see [Touch ID](#touch-id)).
+* Touch ID approval before each SSH signature on macOS, with the requesting
+  program named in the prompt.
+* Fixes for `rbw edit` corrupting items that have their own encryption key,
+  for edits refused by the server, for `rbw add` and `rbw edit` on
+  Vaultwarden 1.37, and for requests that ignored `client_cert_path`.
+* Dependency updates for the RustSec advisories open against `rbw`.
+
+The full list is in the [changelog](CHANGELOG.md). Bug reports and pull
+requests are welcome, including ones first opened against `rbw`.
 
 ## Installation
 
-### Arch Linux
+`rbw-ng` is not packaged yet. With a working Rust installation, install it
+from this repository:
 
-`rbw` is available in the [extra
-repository](https://archlinux.org/packages/extra/x86_64/rbw/).
-Alternatively, you can install
-[`rbw-git`](https://aur.archlinux.org/packages/rbw-git/) from the AUR, which
-will always build from the latest master commit.
+```sh
+cargo install --locked --git https://github.com/TimotheFCN/rbw-ng
+```
 
-### Debian/Ubuntu
+This installs the `rbw` and `rbw-agent` binaries. If `rbw` is already
+installed from a package manager, remove it first (or make sure
+`~/.cargo/bin` comes first in your `PATH`), then run `rbw stop-agent` so the
+new agent starts.
 
-`rbw` is officially packaged for Debian as
-[`rust-rbw`](https://tracker.debian.org/pkg/rust-rbw) and is available in
-testing (forky). You can install it using `sudo apt install rbw`.
-
-Alternatively, you can download a Debian package from
-[https://git.tozt.net/rbw/releases/deb/
-](https://git.tozt.net/rbw/releases/deb/). The packages are signed by
-[`minisign`](https://github.com/jedisct1/minisign), and can be verified using
-the public key `RWTM0AZ5RpROOfAIWx1HvYQ6pw1+FKwN6526UFTKNImP/Hz3ynCFst3r`.
-
-### Fedora/EPEL
-
-`rbw` is available in [Fedora and EPEL 9](https://bodhi.fedoraproject.org/updates/?packages=rust-rbw)
-(for RHEL and compatible distributions).
-
-You can install it using `sudo dnf install rbw`.
-
-### Homebrew
-
-`rbw` is available in the [Homebrew repository](https://formulae.brew.sh/formula/rbw). You can install it via `brew install rbw`.
-
-### Nix
-
-`rbw` is available in the
-[NixOS repository](https://search.nixos.org/packages?show=rbw). You can try
-it out via `nix-shell -p rbw`.
-
-### Alpine
-
-`rbw` is available in the [community repository](https://pkgs.alpinelinux.org/packages?name=rbw). You can install it with `apk add rbw`.
-
-### Other
-
-With a working Rust installation, `rbw` can be installed via `cargo install
---locked rbw`. This requires that the
+Password prompts need a
 [`pinentry`](https://www.gnupg.org/related_software/pinentry/index.en.html)
-program is installed (to display password prompts).
+program. On macOS, install `pinentry-mac` and point `rbw` at it:
+
+```sh
+brew install pinentry-mac
+rbw config set pinentry pinentry-mac
+```
 
 ## Configuration
 
@@ -193,6 +186,15 @@ export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/rbw/ssh-agent-socket"
 
 If you're using a profile, the socket will be located at
 `"XDG_RUNTIME_DIR/rbw-<profile>/ssh-agent-socket"`.
+
+macOS has no `XDG_RUNTIME_DIR`, so the socket is in the per-user temporary
+directory instead:
+
+```sh
+export SSH_AUTH_SOCK="${TMPDIR%/}/rbw-$(id -u)/ssh-agent-socket"
+```
+
+To approve each signature with Touch ID, see [Touch ID](#touch-id).
 
 ### 2FA support
 

@@ -1,17 +1,22 @@
 [package]
-name = "rbw"
-version = "1.15.0"
-authors = ["Jesse Luehrs <doy@tozt.net>"]
+name = "rbw-ng"
+version = "1.16.0"
+authors = ["Jesse Luehrs <doy@tozt.net>", "rbw-ng contributors"]
 edition = "2021"
 rust-version = "1.82.0"
 
-description = "Unofficial Bitwarden CLI"
-repository = "https://github.com/doy/rbw"
+description = "Unofficial Bitwarden CLI, a maintained continuation of rbw"
+repository = "https://github.com/TimotheFCN/rbw-ng"
 readme = "README.md"
 keywords = ["bitwarden"]
 categories = ["command-line-utilities", "cryptography"]
 license = "MIT"
 include = ["src/**/*", "bin/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
+
+# The library keeps rbw's crate name so the binaries' `rbw::` paths and the
+# drop-in behaviour stay the same.
+[lib]
+name = "rbw"
 
 [dependencies]
 aes = "0.8.4"
@@ -132,6 +137,8 @@ struct_field_names = "allow"
 
 [package.metadata.deb]
 depends = "pinentry"
+conflicts = "rbw"
+replaces = "rbw"
 license-file = ["LICENSE"]
 assets = [
     [
