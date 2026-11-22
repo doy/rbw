@@ -207,7 +207,7 @@ mod tests {
     fn own_process_is_described() {
         let pid = libc::pid_t::try_from(std::process::id()).unwrap();
         let (name, parent) = super::process_info(pid).unwrap();
-        assert!(!name.is_empty());
+        assert_ne!(name, "");
         assert!(parent.is_some());
     }
 }
