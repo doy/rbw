@@ -35,7 +35,6 @@ futures-channel = "0.3.31"
 futures-util = "0.3.31"
 hkdf = "0.12.4"
 hmac = { version = "0.12.1", features = ["std"] }
-humantime = "2.3.0"
 is-terminal = "0.4.17"
 libc = "0.2.178"
 log = "0.4.29"

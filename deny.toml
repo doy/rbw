@@ -16,6 +16,11 @@ ignore = [
     # this is only a warning about being unmaintained, the only known
     # undefined behavior is in a function we don't use
     "RUSTSEC-2025-0069",
+    # timing variability in elliptic-curve 0.13, pulled in by ssh-key through
+    # ssh-agent-lib. the ssh agent only signs with ed25519 and rsa keys, so
+    # no secret-dependent ecdsa operation runs on this code. drop this once
+    # ssh-agent-lib moves to ssh-key 0.7.
+    "RUSTSEC-2026-0387",
 ]
 
 [bans]
@@ -28,11 +33,12 @@ skip = [
     # https://github.com/darfink/region-rs/pull/25
     { name = "bitflags", version = "1.3.2" },
     { name = "bitflags", version = "2.4.1" },
-    # ssh-agent-lib is holding this back
-    { name = "thiserror", version = "1.0.69" },
-    { name = "thiserror", version = "2.0.17" },
-    { name = "thiserror-impl", version = "1.0.69" },
-    { name = "thiserror-impl", version = "2.0.17" },
+    # ecosystem-wide major version transitions: hyper-util already uses
+    # base64 0.23, proc macros are moving to syn 3, and indexmap (through
+    # arboard on wayland) uses the newer hashbrown
+    { name = "base64", version = "0.22.1" },
+    { name = "syn", version = "2.0.119" },
+    { name = "hashbrown", version = "0.15.5" },
     # until the rand 0.8 -> 0.9 transition finished making its way through
     # the crate ecosystem
     { name = "rand", version = "0.8.5" },
