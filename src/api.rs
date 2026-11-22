@@ -848,7 +848,7 @@ impl Client {
         }
     }
 
-    async fn reqwest_client(&self) -> Result<reqwest::Client> {
+    fn default_headers() -> axum::http::HeaderMap {
         let mut default_headers = axum::http::HeaderMap::new();
         default_headers.insert(
             "Bitwarden-Client-Name",
@@ -865,11 +865,22 @@ impl Client {
             axum::http::HeaderValue::from_str(&DEVICE_TYPE.to_string())
                 .unwrap(),
         );
-        let user_agent = format!(
-            "{}/{}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        );
+        default_headers
+    }
+
+    fn user_agent() -> String {
+        format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+    }
+
+    fn client_identity(buf: &[u8]) -> Result<reqwest::Identity> {
+        reqwest::Identity::from_pem(buf)
+            .map_err(|e| Error::CreateReqwestClient { source: e })
+    }
+
+    async fn reqwest_client(&self) -> Result<reqwest::Client> {
+        let mut builder = reqwest::Client::builder()
+            .user_agent(Self::user_agent())
+            .default_headers(Self::default_headers());
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
             let mut f = tokio::fs::File::open(client_cert_path)
@@ -884,21 +895,33 @@ impl Client {
                     file: client_cert_path.clone(),
                 }
             })?;
-            let pem = reqwest::Identity::from_pem(&buf)
-                .map_err(|e| Error::CreateReqwestClient { source: e })?;
-            Ok(reqwest::Client::builder()
-                .user_agent(user_agent)
-                .identity(pem)
-                .default_headers(default_headers)
-                .build()
-                .map_err(|e| Error::CreateReqwestClient { source: e })?)
-        } else {
-            Ok(reqwest::Client::builder()
-                .user_agent(user_agent)
-                .default_headers(default_headers)
-                .build()
-                .map_err(|e| Error::CreateReqwestClient { source: e })?)
+            builder = builder.identity(Self::client_identity(&buf)?);
         }
+        builder
+            .build()
+            .map_err(|e| Error::CreateReqwestClient { source: e })
+    }
+
+    // The blocking requests (add, edit, remove and folders) need the same
+    // headers and client certificate as the async ones. Without the
+    // Bitwarden-Client-Version header, the server refuses to edit items
+    // that have their own encryption key.
+    fn blocking_reqwest_client(&self) -> Result<reqwest::blocking::Client> {
+        let mut builder = reqwest::blocking::Client::builder()
+            .user_agent(Self::user_agent())
+            .default_headers(Self::default_headers());
+        if let Some(client_cert_path) = self.client_cert_path.as_ref() {
+            let buf = std::fs::read(client_cert_path).map_err(|e| {
+                Error::LoadClientCert {
+                    source: e,
+                    file: client_cert_path.clone(),
+                }
+            })?;
+            builder = builder.identity(Self::client_identity(&buf)?);
+        }
+        builder
+            .build()
+            .map_err(|e| Error::CreateReqwestClient { source: e })
     }
 
     pub async fn prelogin(
@@ -1311,7 +1334,7 @@ impl Client {
             }
             crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
-        let client = reqwest::blocking::Client::new();
+        let client = self.blocking_reqwest_client()?;
         let res = client
             .post(self.api_url("/ciphers"))
             .header("Authorization", format!("Bearer {access_token}"))
@@ -1465,11 +1488,10 @@ impl Client {
             }
             crate::db::EntryData::SshKey { .. } => unreachable!(),
         }
-        let client = reqwest::blocking::Client::new();
+        let client = self.blocking_reqwest_client()?;
         let res = client
             .put(self.api_url(&format!("/ciphers/{id}")))
             .header("Authorization", format!("Bearer {access_token}"))
-            .header("Bitwarden-Client-Version", BITWARDEN_CLIENT_VERSION)
             .json(&req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
@@ -1485,7 +1507,7 @@ impl Client {
     }
 
     pub fn remove(&self, access_token: &str, id: &str) -> Result<()> {
-        let client = reqwest::blocking::Client::new();
+        let client = self.blocking_reqwest_client()?;
         let res = client
             .delete(self.api_url(&format!("/ciphers/{id}")))
             .header("Authorization", format!("Bearer {access_token}"))
@@ -1506,7 +1528,7 @@ impl Client {
         &self,
         access_token: &str,
     ) -> Result<Vec<(String, String)>> {
-        let client = reqwest::blocking::Client::new();
+        let client = self.blocking_reqwest_client()?;
         let res = client
             .get(self.api_url("/folders"))
             .header("Authorization", format!("Bearer {access_token}"))
@@ -1538,7 +1560,7 @@ impl Client {
         let req = FoldersPostReq {
             name: name.to_string(),
         };
-        let client = reqwest::blocking::Client::new();
+        let client = self.blocking_reqwest_client()?;
         let res = client
             .post(self.api_url("/folders"))
             .header("Authorization", format!("Bearer {access_token}"))
@@ -1568,7 +1590,7 @@ impl Client {
             client_id: "cli".to_string(),
             refresh_token: refresh_token.to_string(),
         };
-        let client = reqwest::blocking::Client::new();
+        let client = self.blocking_reqwest_client()?;
         let res = client
             .post(self.identity_url("/connect/token"))
             .form(&connect_req)
