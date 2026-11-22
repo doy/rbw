@@ -7,6 +7,8 @@ mod biometric;
 mod daemon;
 mod debugger;
 mod notifications;
+#[cfg(target_os = "macos")]
+mod presence;
 mod sock;
 mod ssh_agent;
 mod state;
@@ -47,6 +49,8 @@ async fn tokio_main(
             #[cfg(target_os = "macos")]
             touch_id_unlock: config.touch_id_unlock,
             #[cfg(target_os = "macos")]
+            touch_id_ssh: config.touch_id_ssh,
+            #[cfg(target_os = "macos")]
             biometric_unlock: None,
             last_environment: rbw::protocol::Environment::default(),
             #[cfg(feature = "clipboard")]
@@ -68,6 +72,13 @@ async fn tokio_main(
 }
 
 fn real_main() -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if std::env::args().nth(1).as_deref()
+        == Some(crate::presence::HELPER_ARGUMENT)
+    {
+        crate::presence::helper_main();
+    }
+
     #[cfg(target_os = "macos")]
     if std::env::args().nth(1).as_deref()
         == Some(crate::biometric::HELPER_ARGUMENT)

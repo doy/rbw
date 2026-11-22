@@ -3,7 +3,6 @@ use signature::{RandomizedSigner as _, SignatureEncoding as _, Signer as _};
 const SSH_AGENT_RSA_SHA2_256: u32 = 2;
 const SSH_AGENT_RSA_SHA2_512: u32 = 4;
 
-#[derive(Clone)]
 pub struct SshAgent {
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 }
@@ -27,8 +26,49 @@ impl SshAgent {
     }
 }
 
+impl ssh_agent_lib::agent::Agent<tokio::net::UnixListener> for SshAgent {
+    fn new_session(
+        &mut self,
+        #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+        socket: &tokio::net::UnixStream,
+    ) -> impl ssh_agent_lib::agent::Session {
+        SshSession {
+            state: self.state.clone(),
+            #[cfg(target_os = "macos")]
+            peer: crate::presence::describe_peer(socket),
+        }
+    }
+}
+
+// One connection from an ssh client.
+pub struct SshSession {
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    // Who is asking, for the Touch ID prompt.
+    #[cfg(target_os = "macos")]
+    peer: String,
+}
+
+#[cfg(target_os = "macos")]
+impl SshSession {
+    async fn confirm_sign(
+        &self,
+        key_name: &str,
+    ) -> Result<(), ssh_agent_lib::error::AgentError> {
+        if !self.state.lock().await.touch_id_ssh {
+            return Ok(());
+        }
+        // macOS shows this as "rbw-agent is trying to <reason>."
+        let reason =
+            format!("sign with the SSH key \"{key_name}\" for {}", self.peer);
+        crate::presence::confirm(&reason).await.map_err(|e| {
+            log::warn!("refused to sign with \"{key_name}\": {e}");
+            ssh_agent_lib::error::AgentError::Other(e.into())
+        })
+    }
+}
+
 #[ssh_agent_lib::async_trait]
-impl ssh_agent_lib::agent::Session for SshAgent {
+impl ssh_agent_lib::agent::Session for SshSession {
     async fn request_identities(
         &mut self,
     ) -> Result<
@@ -60,12 +100,17 @@ impl ssh_agent_lib::agent::Session for SshAgent {
         let pubkey =
             ssh_agent_lib::ssh_key::PublicKey::new(request.pubkey, "");
 
-        let private_key =
+        let (key_name, private_key) =
             crate::actions::find_ssh_private_key(self.state.clone(), pubkey)
                 .await
                 .map_err(|e| {
                     ssh_agent_lib::error::AgentError::Other(e.into())
                 })?;
+
+        #[cfg(target_os = "macos")]
+        self.confirm_sign(&key_name).await?;
+        #[cfg(not(target_os = "macos"))]
+        let _ = key_name;
 
         match private_key.key_data() {
             ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(key) => key

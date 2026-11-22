@@ -17,6 +17,8 @@ pub struct State {
     // rereading config on every successful password unlock.
     pub touch_id_unlock: bool,
     #[cfg(target_os = "macos")]
+    pub touch_id_ssh: bool,
+    #[cfg(target_os = "macos")]
     pub biometric_unlock: Option<std::sync::Arc<crate::biometric::Session>>,
 
     // this is stored here specifically for the use of the ssh agent, because

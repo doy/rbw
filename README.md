@@ -99,6 +99,8 @@ configuration options:
   after the master password has unlocked it once in the current agent process.
   The Secure Enclave key and wrapped vault key are kept only in memory and are
   discarded when the agent exits. Defaults to `false`.
+* `touch_id_ssh`: On macOS, ask for Touch ID before the SSH agent signs
+  anything. Defaults to `false`.
 
 ### Profiles
 
@@ -148,6 +150,19 @@ it and the wrapped vault key exist only for the lifetime of `rbw-agent`; no
 master password or additional vault key material is written to disk. Entries
 configured to require master password reprompt continue to require the master
 password.
+
+The SSH agent can also ask before every signature:
+
+```sh
+rbw config set touch_id_ssh true
+```
+
+The prompt names the key and the program asking for it, for example "sign
+with the SSH key "github" for ssh (pid 4242), started by git". Touch ID, a
+paired Apple Watch or the login password can approve it, so this also works
+with the lid closed. If nobody approves, the signature is refused. With both
+settings on and a locked database, the first signature asks twice: once to
+unlock the database and once to approve the signature.
 
 Run `rbw get <name>` to get your passwords. If you also want to get the username
 or the note associated, you can use the flag `--full`. You can also use the flag

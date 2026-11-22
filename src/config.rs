@@ -20,6 +20,8 @@ pub struct Config {
     pub pinentry: String,
     #[serde(default)]
     pub touch_id_unlock: bool,
+    #[serde(default)]
+    pub touch_id_ssh: bool,
     pub client_cert_path: Option<std::path::PathBuf>,
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
@@ -39,6 +41,7 @@ impl Default for Config {
             sync_interval: default_sync_interval(),
             pinentry: default_pinentry(),
             touch_id_unlock: false,
+            touch_id_ssh: false,
             client_cert_path: None,
             device_id: None,
         }
@@ -259,5 +262,6 @@ mod tests {
     fn old_config_defaults_touch_id_unlock_to_false() {
         let config: Config = serde_json::from_str("{}").unwrap();
         assert!(!config.touch_id_unlock);
+        assert!(!config.touch_id_ssh);
     }
 }

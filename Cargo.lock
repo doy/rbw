@@ -259,6 +259,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block2"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
+dependencies = [
+ "objc2",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1543,6 +1552,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-local-authentication"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48e0b8b339e0d9d2ed4416b7f93f9d4daadff7d4dd797f89867cde11aeac607"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1973,6 +1993,7 @@ dependencies = [
  "base32",
  "base64 0.22.1",
  "block-padding",
+ "block2",
  "cbc",
  "clap",
  "clap_complete",
@@ -1989,6 +2010,9 @@ dependencies = [
  "is-terminal",
  "libc",
  "log",
+ "objc2",
+ "objc2-foundation",
+ "objc2-local-authentication",
  "open",
  "pbkdf2",
  "percent-encoding",

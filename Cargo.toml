@@ -89,6 +89,19 @@ arboard = { version = "3.6.1", default-features = false, features = [
 ], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSError",
+    "NSString",
+] }
+objc2-local-authentication = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "block2",
+    "LAContext",
+    "LAError",
+] }
 security-framework = { version = "3.5.1", features = ["OSX_10_13"] }
 
 [features]

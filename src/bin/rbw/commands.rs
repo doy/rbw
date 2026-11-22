@@ -1281,6 +1281,18 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             }
             config.touch_id_unlock = enabled;
         }
+        "touch_id_ssh" => {
+            let enabled = value
+                .parse()
+                .context("failed to parse value for touch_id_ssh")?;
+            #[cfg(not(target_os = "macos"))]
+            if enabled {
+                return Err(anyhow::anyhow!(
+                    "touch_id_ssh is only supported on macOS"
+                ));
+            }
+            config.touch_id_ssh = enabled;
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1311,6 +1323,7 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
         "touch_id_unlock" => config.touch_id_unlock = false,
+        "touch_id_ssh" => config.touch_id_ssh = false,
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;

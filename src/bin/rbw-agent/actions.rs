@@ -1053,7 +1053,7 @@ pub async fn get_ssh_public_keys(
 pub async fn find_ssh_private_key(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     request_public_key: ssh_agent_lib::ssh_key::PublicKey,
-) -> anyhow::Result<ssh_agent_lib::ssh_key::PrivateKey> {
+) -> anyhow::Result<(String, ssh_agent_lib::ssh_key::PrivateKey)> {
     let environment = {
         let state = state.lock().await;
         state.set_timeout();
@@ -1105,10 +1105,20 @@ pub async fn find_ssh_private_key(
                 )
                 .await?;
 
-                return ssh_agent_lib::ssh_key::PrivateKey::from_openssh(
-                    private_key_plaintext,
+                let private_key =
+                    ssh_agent_lib::ssh_key::PrivateKey::from_openssh(
+                        private_key_plaintext,
+                    )
+                    .map_err(anyhow::Error::new)?;
+                let name = decrypt_cipher(
+                    state.clone(),
+                    &environment,
+                    &entry.name,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
                 )
-                .map_err(anyhow::Error::new);
+                .await?;
+                return Ok((name, private_key));
             }
         }
     }
