@@ -2,8 +2,8 @@ function __fish_rbw_get_completion_name
     set -l cmd (commandline -xpc)
     set -e cmd[1] # rbw
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
-    set -e argv[1] # get
+    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields create -- $cmd
+    set -e argv[1] # get or edit
 
     set -l candidates (command rbw list --fields name,folder,user)
     # if folder is set, filter by it
@@ -62,8 +62,8 @@ function __fish_rbw_get_completion_fields
         set -a cmd $token
     end
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
-    set -e argv[1] # get
+    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields create -- $cmd
+    set -e argv[1] # get or edit
 
     if test (count $argv) -gt 0
         command rbw get "$argv[1]" --list-fields 2>/dev/null

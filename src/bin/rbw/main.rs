@@ -160,7 +160,8 @@ enum Opt {
             value_parser = parse_field,
             help = "Add a hidden custom field (may be repeated). The value \
                     ends up in shell history and is visible to other \
-                    processes",
+                    processes; `rbw edit --field NAME --create` reads it \
+                    from stdin or the editor instead",
             number_of_values = 1
         )]
         hidden_field: Vec<(String, String)>,
@@ -229,7 +230,12 @@ enum Opt {
             The editor to use is determined  by the value of the \
             $VISUAL or $EDITOR environment variables. The first line \
             will be saved as the password and the remainder will be saved \
-            as a note."
+            as a note.\n\n\
+            With --field, only that field is edited: the entry name, \
+            notes, a login's username, password, totp or uris (one per \
+            line), or a custom field. When stdin is not a terminal, the \
+            new value is read from it as is, without the trailing \
+            newline; otherwise the editor opens with the current value."
     )]
     Edit {
         #[command(flatten)]
@@ -237,13 +243,15 @@ enum Opt {
         #[arg(
             short = 'f',
             long,
-            help = "Edit a single field (e.g. username, name, notes, totp, or a custom field name)"
+            help = "Edit a single field: name, notes, username, password, \
+                    totp, uris or the name of a custom field"
         )]
         field: Option<String>,
         #[arg(
             long,
             requires = "field",
-            help = "Create the custom field (as a hidden field) if it doesn't exist"
+            help = "Add the custom field as a hidden field if the entry \
+                    doesn't have it"
         )]
         create: bool,
     },
@@ -617,7 +625,7 @@ mod test {
     }
 
     #[test]
-    fn test_add_args() {
+    fn test_add_and_edit_args() {
         let Ok(Opt::Add {
             field,
             hidden_field,
@@ -648,7 +656,16 @@ mod test {
         );
         assert_eq!(hidden_field, [("b".to_string(), "2".to_string())]);
 
+        let Ok(Opt::Edit { field, create, .. }) = Opt::try_parse_from([
+            "rbw", "edit", "entry", "-f", "password", "--create",
+        ]) else {
+            panic!("failed to parse");
+        };
+        assert_eq!(field.as_deref(), Some("password"));
+        assert!(create);
+
         for args in [
+            &["rbw", "edit", "entry", "--create"][..],
             &["rbw", "add", "entry", "user", "--secure-note"][..],
             &["rbw", "add", "entry", "--secure-note", "--uri", "x"][..],
             &["rbw", "add", "entry", "--field", "novalue"][..],

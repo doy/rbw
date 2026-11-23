@@ -1860,10 +1860,14 @@ pub fn edit(
         find_entry(&db, name, username, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
-    let (name, data, fields, notes, history) = if let Some(field) = field {
+    let edited = if let Some(field) = field {
         edit_field(&entry, &decrypted, field, create)?
     } else {
-        edit_default(&entry, &decrypted)?
+        Some(edit_default(&entry, &decrypted)?)
+    };
+    let Some((name, data, fields, notes, history)) = edited else {
+        eprintln!("'{}' is unchanged, nothing to save", field.unwrap_or(""));
+        return Ok(());
     };
 
     rbw::actions::edit(
@@ -1885,16 +1889,20 @@ pub fn edit(
     Ok(())
 }
 
-fn edit_default(
-    entry: &rbw::db::Entry,
-    decrypted: &DecryptedCipher,
-) -> anyhow::Result<(
+// what an edit sends: the encrypted name, data, custom fields, notes and
+// password history
+type EditedEntry = (
     String,
     rbw::db::EntryData,
     Vec<rbw::db::Field>,
     Option<String>,
     Vec<rbw::db::HistoryEntry>,
-)> {
+);
+
+fn edit_default(
+    entry: &rbw::db::Entry,
+    decrypted: &DecryptedCipher,
+) -> anyhow::Result<EditedEntry> {
     let (data, fields, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
             let mut contents =
@@ -1905,16 +1913,7 @@ fn edit_default(
 
             let contents = rbw::edit::edit(&contents, HELP_PW)?;
 
-            let (password, notes) = parse_editor(&contents);
-            let password = password
-                .map(|password| {
-                    crate::actions::encrypt(
-                        &password,
-                        entry.key.as_deref(),
-                        entry.org_id.as_deref(),
-                    )
-                })
-                .transpose()?;
+            let (new_password, notes) = parse_editor(&contents);
             let notes = notes
                 .map(|notes| {
                     crate::actions::encrypt(
@@ -1935,15 +1934,13 @@ fn edit_default(
                 unreachable!();
             };
 
-            if let Some(prev_password) = entry_password.clone() {
-                let new_history_entry = rbw::db::HistoryEntry {
-                    last_used_date: rbw::api::format_rfc3339(
-                        std::time::SystemTime::now(),
-                    ),
-                    password: prev_password,
-                };
-                history.insert(0, new_history_entry);
-            }
+            let password = edit_password(
+                entry,
+                entry_password.as_deref(),
+                password.as_deref(),
+                new_password.as_deref(),
+                &mut history,
+            )?;
 
             let data = rbw::db::EntryData::Login {
                 username: entry_username.clone(),
@@ -2018,14 +2015,14 @@ fn find_custom_field(
             .enumerate()
             .filter_map(|(i, name)| name.map(|name| (i, name)))
     };
+    // unlike `rbw get --field`, don't match part of a name: that would
+    // edit the wrong field when the one asked for doesn't exist, or update
+    // an existing field instead of creating one with --create
     let lower = field.to_lowercase();
-    let levels: [Vec<(usize, &str)>; 3] = [
+    let levels: [Vec<(usize, &str)>; 2] = [
         named().filter(|(_, name)| *name == field).collect(),
         named()
             .filter(|(_, name)| name.to_lowercase() == lower)
-            .collect(),
-        named()
-            .filter(|(_, name)| name.to_lowercase().contains(&lower))
             .collect(),
     ];
     for matches in levels {
@@ -2048,12 +2045,13 @@ fn find_custom_field(
     Ok(None)
 }
 
-fn read_field_value(current: Option<&str>) -> anyhow::Result<Option<String>> {
+fn read_field_value(
+    current: Option<&str>,
+    help: &str,
+) -> anyhow::Result<Option<String>> {
     if std::io::stdin().is_terminal() {
-        let contents = rbw::edit::edit(
-            &format!("{}\n", current.unwrap_or("")),
-            HELP_FIELD,
-        )?;
+        let contents =
+            rbw::edit::edit(&format!("{}\n", current.unwrap_or("")), help)?;
         Ok(parse_field_value(&contents))
     } else {
         // taken verbatim on purpose, not run through the editor parser
@@ -2074,18 +2072,111 @@ fn parse_piped_field_value(input: &str) -> Option<String> {
     }
 }
 
+// what an edit does to the login password
+#[derive(Debug, PartialEq, Eq)]
+enum PasswordChange<'a> {
+    // keep the current ciphertext
+    Unchanged,
+    // the new password, or none to remove it
+    Changed(Option<&'a str>),
+}
+
+fn password_change<'a>(
+    encrypted: Option<&str>,
+    current: Option<&str>,
+    new: Option<&'a str>,
+) -> PasswordChange<'a> {
+    // like the official clients, store an empty password as none
+    let new = new.filter(|password| !password.is_empty());
+    if encrypted.is_none() && new.is_none() {
+        return PasswordChange::Unchanged;
+    }
+    // current is none with a ciphertext when it couldn't be decrypted, and
+    // then it can't be compared
+    if current.is_some() && current == new {
+        return PasswordChange::Unchanged;
+    }
+    PasswordChange::Changed(new)
+}
+
+// returns the encrypted password to send. an unchanged password keeps its
+// ciphertext, so that saving without changes adds nothing to the history and
+// leaves the server's password revision date alone. a changed one moves the
+// old one into the history, as the official clients do.
+fn edit_password(
+    entry: &rbw::db::Entry,
+    encrypted: Option<&str>,
+    current: Option<&str>,
+    new: Option<&str>,
+    history: &mut Vec<rbw::db::HistoryEntry>,
+) -> anyhow::Result<Option<String>> {
+    match password_change(encrypted, current, new) {
+        PasswordChange::Unchanged => Ok(encrypted.map(str::to_string)),
+        PasswordChange::Changed(new) => {
+            if let Some(old) = encrypted {
+                history.insert(
+                    0,
+                    rbw::db::HistoryEntry {
+                        last_used_date: rbw::api::format_rfc3339(
+                            std::time::SystemTime::now(),
+                        ),
+                        password: old.to_string(),
+                    },
+                );
+            }
+            new.map(|new| {
+                crate::actions::encrypt(
+                    new,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )
+            })
+            .transpose()
+        }
+    }
+}
+
+// one uri per line, ignoring blank lines and surrounding whitespace
+fn parse_uri_lines(value: Option<&str>) -> Vec<&str> {
+    value
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+// checks a new value for a custom field of the given type
+fn check_custom_field_value(
+    field: &str,
+    ty: Option<rbw::api::FieldType>,
+    value: Option<&str>,
+) -> anyhow::Result<()> {
+    if ty == Some(rbw::api::FieldType::Boolean)
+        && !matches!(value, Some("true" | "false"))
+    {
+        anyhow::bail!(
+            "'{field}' is a boolean field, its value must be true or false"
+        );
+    }
+    Ok(())
+}
+
+// edits one field of the entry. returns none when the value didn't change,
+// so there is nothing to send.
 fn edit_field(
     entry: &rbw::db::Entry,
     decrypted: &DecryptedCipher,
     field: &str,
     create: bool,
-) -> anyhow::Result<(
-    String,
-    rbw::db::EntryData,
-    Vec<rbw::db::Field>,
-    Option<String>,
-    Vec<rbw::db::HistoryEntry>,
-)> {
+) -> anyhow::Result<Option<EditedEntry>> {
+    if field.is_empty() {
+        anyhow::bail!("the field name can't be empty");
+    }
+    if matches!(entry.data, rbw::db::EntryData::SshKey { .. }) {
+        anyhow::bail!("editing SSH key entries is not supported");
+    }
+
     let encrypt = |plain: &str| {
         crate::actions::encrypt(
             plain,
@@ -2101,23 +2192,33 @@ fn edit_field(
             let names: Vec<Option<&str>> =
                 decrypted.fields.iter().map(|f| f.name.as_deref()).collect();
             let idx = find_custom_field(&names, field)?;
-            if idx.is_none() && !create {
-                if field.parse::<Field>().is_ok() {
-                    anyhow::bail!(
-                        "field '{field}' can't be edited on this entry type \
-                         and no custom field with that name exists \
-                         (use --create to add one)"
-                    );
-                }
-                anyhow::bail!(
+            let ty = match idx {
+                Some(i) => entry.fields[i].ty,
+                None if create => Some(rbw::api::FieldType::Hidden),
+                None if field.parse::<Field>().is_ok() => anyhow::bail!(
+                    "field '{field}' can't be edited on this entry type \
+                     and no custom field with that name exists \
+                     (use --create to add one)"
+                ),
+                None => anyhow::bail!(
                     "no field named '{field}' found on this entry \
                      (use --create to add it)"
+                ),
+            };
+            if ty == Some(rbw::api::FieldType::Linked) {
+                anyhow::bail!(
+                    "'{field}' is a linked field, which shows another \
+                     field of the entry and has no value of its own"
                 );
             }
 
             let current =
                 idx.and_then(|i| decrypted.fields[i].value.as_deref());
-            let new_value = read_field_value(current)?;
+            let new_value = read_field_value(current, HELP_FIELD)?;
+            check_custom_field_value(field, ty, new_value.as_deref())?;
+            if idx.is_some() && new_value.as_deref() == current {
+                return Ok(None);
+            }
             let value = new_value.as_deref().map(encrypt).transpose()?;
 
             let mut fields = entry.fields.clone();
@@ -2125,22 +2226,25 @@ fn edit_field(
                 fields[i].value = value;
             } else {
                 if value.is_none() {
-                    anyhow::bail!("refusing to create field '{field}' with an empty value");
+                    anyhow::bail!(
+                        "refusing to create field '{field}' with an empty \
+                         value"
+                    );
                 }
                 fields.push(rbw::db::Field {
-                    ty: Some(rbw::api::FieldType::Hidden),
+                    ty,
                     name: Some(encrypt(field)?),
                     value,
                     linked_id: None,
                 });
             }
-            return Ok((
+            return Ok(Some((
                 entry.name.clone(),
                 entry.data.clone(),
                 fields,
                 entry.notes.clone(),
                 entry.history.clone(),
-            ));
+            )));
         }
     };
 
@@ -2155,45 +2259,57 @@ fn edit_field(
         }
         (Field::Totp, DecryptedData::Login { totp, .. }) => totp.clone(),
         (Field::Uris, DecryptedData::Login { uris, .. }) => {
-            uris.as_ref().map(|uris| {
-                uris.iter()
-                    .map(|u| u.uri.clone())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
+            // a uri that can't be decrypted would be dropped from the
+            // edited list
+            let uris = uris.as_ref().context(
+                "some of the entry's uris couldn't be decrypted, so they \
+                 can't be edited",
+            )?;
+            if uris.is_empty() {
+                None
+            } else {
+                Some(
+                    uris.iter()
+                        .map(|u| u.uri.clone())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            }
         }
         _ => unreachable!("field_target only returns editable built-ins"),
     };
 
-    let new_value = read_field_value(current.as_deref())?;
+    let help = if parsed == Field::Uris {
+        HELP_URIS
+    } else {
+        HELP_FIELD
+    };
+    let new_value = read_field_value(current.as_deref(), help)?;
+    if parsed == Field::Name && new_value.is_none() {
+        anyhow::bail!("the entry name can't be empty");
+    }
+    let unchanged = if parsed == Field::Uris {
+        parse_uri_lines(new_value.as_deref())
+            == parse_uri_lines(current.as_deref())
+    } else {
+        new_value == current
+    };
+    if unchanged {
+        return Ok(None);
+    }
 
+    let mut name = entry.name.clone();
+    let mut notes = entry.notes.clone();
     let mut history = entry.history.clone();
     let mut data = entry.data.clone();
 
     match (parsed, &mut data) {
         (Field::Name, _) => {
-            let name = new_value
-                .as_deref()
-                .map(encrypt)
-                .transpose()?
-                .unwrap_or_default();
-            return Ok((
-                name,
-                data,
-                entry.fields.clone(),
-                entry.notes.clone(),
-                history,
-            ));
+            // checked above that there is a new name
+            name = encrypt(new_value.as_deref().unwrap_or_default())?;
         }
         (Field::Notes, _) => {
-            let notes = new_value.as_deref().map(encrypt).transpose()?;
-            return Ok((
-                entry.name.clone(),
-                data,
-                entry.fields.clone(),
-                notes,
-                history,
-            ));
+            notes = new_value.as_deref().map(encrypt).transpose()?;
         }
         (
             Field::Password,
@@ -2202,19 +2318,13 @@ fn edit_field(
                 ..
             },
         ) => {
-            if let Some(prev_password) = entry_password.clone() {
-                history.insert(
-                    0,
-                    rbw::db::HistoryEntry {
-                        last_used_date: rbw::api::format_rfc3339(
-                            std::time::SystemTime::now(),
-                        ),
-                        password: prev_password,
-                    },
-                );
-            }
-            *entry_password =
-                new_value.as_deref().map(encrypt).transpose()?;
+            *entry_password = edit_password(
+                entry,
+                entry_password.as_deref(),
+                current.as_deref(),
+                new_value.as_deref(),
+                &mut history,
+            )?;
         }
         (Field::Username, rbw::db::EntryData::Login { username, .. }) => {
             *username = new_value.as_deref().map(encrypt).transpose()?;
@@ -2223,47 +2333,42 @@ fn edit_field(
             *totp = new_value.as_deref().map(encrypt).transpose()?;
         }
         (Field::Uris, rbw::db::EntryData::Login { uris, .. }) => {
-            let old_match =
-                if let DecryptedData::Login { uris: old, .. } =
-                    &decrypted.data
-                {
-                    old.as_ref()
-                        .map(|uris| {
-                            uris.iter()
-                                .map(|u| (u.uri.clone(), u.match_type))
-                                .collect::<std::collections::HashMap<_, _>>()
-                        })
-                        .unwrap_or_default()
-                } else {
-                    std::collections::HashMap::new()
-                };
-            *uris = new_value
-                .map(|value| {
-                    value
-                        .lines()
-                        .map(|uri| {
+            let DecryptedData::Login {
+                uris: Some(decrypted_uris),
+                ..
+            } = &decrypted.data
+            else {
+                unreachable!("checked above");
+            };
+            // the decrypted uris line up with the entry's. a uri that is
+            // still in the list keeps its ciphertext and match type, so
+            // the server's checksum for it stays valid.
+            let old: Vec<(&str, &rbw::db::Uri)> = decrypted_uris
+                .iter()
+                .map(|u| u.uri.as_str())
+                .zip(uris.iter())
+                .collect();
+            *uris = parse_uri_lines(new_value.as_deref())
+                .into_iter()
+                .map(|uri| {
+                    old.iter().find(|(plain, _)| *plain == uri).map_or_else(
+                        || {
                             encrypt_uri(
                                 uri,
-                                old_match.get(uri).copied().flatten(),
+                                None,
                                 entry.key.as_deref(),
                                 entry.org_id.as_deref(),
                             )
-                        })
-                        .collect::<anyhow::Result<Vec<_>>>()
+                        },
+                        |(_, old)| Ok((*old).clone()),
+                    )
                 })
-                .transpose()?
-                .unwrap_or_default();
+                .collect::<anyhow::Result<Vec<_>>>()?;
         }
         _ => unreachable!("field_target only returns editable built-ins"),
     }
 
-    Ok((
-        entry.name.clone(),
-        data,
-        entry.fields.clone(),
-        entry.notes.clone(),
-        history,
-    ))
+    Ok(Some((name, data, entry.fields.clone(), notes, history)))
 }
 
 fn parse_field_value(contents: &str) -> Option<String> {
@@ -2288,6 +2393,11 @@ fn parse_field_value(contents: &str) -> Option<String> {
 const HELP_FIELD: &str = r"
 # The content of this file will be saved as the new field value.
 # Lines with leading # will be ignored.
+";
+
+const HELP_URIS: &str = r"
+# Put one URI per line. Blank lines and lines with leading # will be
+# ignored.
 ";
 
 pub fn remove(
@@ -3441,6 +3551,65 @@ mod test {
     }
 
     #[test]
+    fn test_password_change() {
+        use PasswordChange::{Changed, Unchanged};
+        // no password before or after
+        assert_eq!(password_change(None, None, None), Unchanged);
+        assert_eq!(password_change(None, None, Some("")), Unchanged);
+        // the same password
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), Some("a")),
+            Unchanged
+        );
+        // a new, changed or removed password
+        assert_eq!(
+            password_change(None, None, Some("a")),
+            Changed(Some("a"))
+        );
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), Some("b")),
+            Changed(Some("b"))
+        );
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), None),
+            Changed(None)
+        );
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), Some("")),
+            Changed(None)
+        );
+        // a password that couldn't be decrypted can't be compared
+        assert_eq!(
+            password_change(Some("2.a"), None, Some("a")),
+            Changed(Some("a"))
+        );
+        assert_eq!(password_change(Some("2.a"), None, None), Changed(None));
+    }
+
+    #[test]
+    fn test_parse_uri_lines() {
+        assert_eq!(parse_uri_lines(None), Vec::<&str>::new());
+        assert_eq!(
+            parse_uri_lines(Some(" https://a \n\n\thttps://b\r\n")),
+            ["https://a", "https://b"]
+        );
+    }
+
+    #[test]
+    fn test_check_custom_field_value() {
+        use rbw::api::FieldType;
+        for ty in [None, Some(FieldType::Text), Some(FieldType::Hidden)] {
+            assert!(check_custom_field_value("f", ty, Some("yes")).is_ok());
+            assert!(check_custom_field_value("f", ty, None).is_ok());
+        }
+        let boolean = Some(FieldType::Boolean);
+        assert!(check_custom_field_value("f", boolean, Some("true")).is_ok());
+        assert!(check_custom_field_value("f", boolean, Some("false")).is_ok());
+        assert!(check_custom_field_value("f", boolean, Some("yes")).is_err());
+        assert!(check_custom_field_value("f", boolean, None).is_err());
+    }
+
+    #[test]
     fn test_check_new_field_names() {
         assert!(check_new_field_names([]).is_ok());
         assert!(check_new_field_names(["a", "b", "A"]).is_ok());
@@ -3493,8 +3662,8 @@ mod test {
         assert_eq!(find_custom_field(&names, "API_KEY").unwrap(), Some(3));
         assert_eq!(find_custom_field(&names, "token").unwrap(), Some(5));
         assert!(find_custom_field(&names, "TOKEN").is_err());
-        assert_eq!(find_custom_field(&names, "api").unwrap(), Some(3));
-        assert!(find_custom_field(&names, "db_pass").is_err());
+        assert_eq!(find_custom_field(&names, "api").unwrap(), None);
+        assert_eq!(find_custom_field(&names, "db_pass").unwrap(), None);
         assert_eq!(find_custom_field(&names, "missing").unwrap(), None);
     }
 
