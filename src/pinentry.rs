@@ -304,6 +304,12 @@ fn test_read_password() {
 mod tests {
     use super::*;
 
+    // Writing an executable while another test forks can make running it
+    // fail with "text file busy", because the forked child briefly holds the
+    // file open for writing. Tests that write and run a stand-in take turns.
+    static SPAWN_LOCK: tokio::sync::Mutex<()> =
+        tokio::sync::Mutex::const_new(());
+
     // Writes a pinentry stand-in that runs the given shell script.
     fn fake_pinentry(name: &str, script: &str) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt as _;
@@ -340,6 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn pinentry_that_never_answers_is_stopped() {
+        let _guard = SPAWN_LOCK.lock().await;
         let program = fake_pinentry("hang", "exec sleep 600");
         let started = std::time::Instant::now();
         assert!(matches!(ask(&program).await, Err(Error::PinentryTimedOut)));
@@ -348,6 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn pinentry_timeout_is_reported() {
+        let _guard = SPAWN_LOCK.lock().await;
         let program = fake_pinentry(
             "timeout",
             "echo OK; echo 'ERR 83886142 Timeout <Pinentry>'",
