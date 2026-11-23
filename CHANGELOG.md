@@ -1,6 +1,10 @@
 # Changelog
 
-## [1.17.0] - Unreleased
+## [1.17.0] - 2026-11-23
+
+First release of `rbw-ng`, a maintained continuation of `rbw`. It also
+includes the changes listed under 1.16.0. The commands, configuration and
+local database are unchanged from `rbw`.
 
 ## Added
 
@@ -40,10 +44,9 @@
 
 * `client_cert_path` is documented (zandivx, doy/rbw#340).
 
-## [1.16.0] - Unreleased
+## [1.16.0] - Not released separately
 
-First release of `rbw-ng`, a maintained continuation of `rbw`. The commands,
-configuration and local database are unchanged.
+These changes were first released in 1.17.0.
 
 ## Added
 
