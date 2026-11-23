@@ -57,11 +57,12 @@ pub enum TwoFactorProviderType {
     Remember = 5,
     OrganizationDuo = 6,
     WebAuthn = 7,
+    RecoveryCode = 8,
 }
 
 impl TwoFactorProviderType {
-    pub fn message(&self) -> &str {
-        match *self {
+    pub const fn message(self) -> &'static str {
+        match self {
             Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
             Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
@@ -69,8 +70,8 @@ impl TwoFactorProviderType {
         }
     }
 
-    pub fn header(&self) -> &str {
-        match *self {
+    pub const fn header(self) -> &'static str {
+        match self {
             Self::Authenticator => "Authenticator App",
             Self::Yubikey => "Yubikey",
             Self::Email => "Email Code",
@@ -81,6 +82,19 @@ impl TwoFactorProviderType {
     pub fn grab(&self) -> bool {
         !matches!(self, Self::Email)
     }
+}
+
+// A code the user typed to finish logging in.
+#[derive(Debug, Clone, Copy)]
+pub enum LoginCode<'a> {
+    // A two-step login code from one of the account's providers.
+    TwoFactor {
+        provider: TwoFactorProviderType,
+        token: &'a str,
+    },
+    // The one-time code Bitwarden emails to approve a device it has not
+    // seen before, for accounts without two-step login.
+    NewDevice(&'a str),
 }
 
 impl<'de> serde::Deserialize<'de> for TwoFactorProviderType {
@@ -138,6 +152,7 @@ impl std::convert::TryFrom<u64> for TwoFactorProviderType {
             5 => Ok(Self::Remember),
             6 => Ok(Self::OrganizationDuo),
             7 => Ok(Self::WebAuthn),
+            8 => Ok(Self::RecoveryCode),
             _ => Err(Error::InvalidTwoFactorProvider {
                 ty: format!("{ty}"),
             }),
@@ -158,6 +173,7 @@ impl std::str::FromStr for TwoFactorProviderType {
             "5" => Ok(Self::Remember),
             "6" => Ok(Self::OrganizationDuo),
             "7" => Ok(Self::WebAuthn),
+            "8" => Ok(Self::RecoveryCode),
             _ => Err(Error::InvalidTwoFactorProvider { ty: ty.to_string() }),
         }
     }
@@ -302,6 +318,11 @@ struct ConnectTokenReq {
     two_factor_token: Option<String>,
     #[serde(rename = "twoFactorProvider")]
     two_factor_provider: Option<u32>,
+    #[serde(
+        rename = "newDeviceOtp",
+        skip_serializing_if = "Option::is_none"
+    )]
+    new_device_otp: Option<String>,
     #[serde(flatten)]
     auth: ConnectTokenAuth,
 }
@@ -372,6 +393,12 @@ struct ConnectRefreshTokenReq {
 #[derive(serde::Deserialize, Debug)]
 struct ConnectRefreshTokenRes {
     access_token: String,
+    // Bitwarden's own identity server returns long-lived refresh tokens and
+    // does not rotate them, so this is absent there. A Vaultwarden backed by an
+    // external identity provider relays a rotating token, and the previous one
+    // is consumed by the exchange -- reusing it fails every subsequent refresh.
+    #[serde(default)]
+    refresh_token: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -974,6 +1001,7 @@ impl Client {
             device_push_token: String::new(),
             two_factor_token: None,
             two_factor_provider: None,
+            new_device_otp: None,
         };
         let client = self.reqwest_client().await?;
         let res = client
@@ -1008,9 +1036,18 @@ impl Client {
         sso_id: Option<&str>,
         device_id: &str,
         password_hash: &crate::locked::PasswordHash,
-        two_factor_token: Option<&str>,
-        two_factor_provider: Option<TwoFactorProviderType>,
+        code: Option<LoginCode<'_>>,
     ) -> Result<(String, String, String)> {
+        let (two_factor_token, two_factor_provider, new_device_otp) =
+            match code {
+                Some(LoginCode::TwoFactor { provider, token }) => {
+                    (Some(token.to_string()), Some(provider as u32), None)
+                }
+                Some(LoginCode::NewDevice(otp)) => {
+                    (None, None, Some(otp.to_string()))
+                }
+                None => (None, None, None),
+            };
         let connect_req = match sso_id {
             Some(sso_id) => {
                 let (sso_code, sso_code_verifier, callback_url) =
@@ -1029,10 +1066,9 @@ impl Client {
                     device_identifier: device_id.to_string(),
                     device_name: "rbw".to_string(),
                     device_push_token: String::new(),
-                    two_factor_token: two_factor_token
-                        .map(std::string::ToString::to_string),
-                    two_factor_provider: two_factor_provider
-                        .map(|ty| ty as u32),
+                    two_factor_token,
+                    two_factor_provider,
+                    new_device_otp,
                 }
             }
             None => ConnectTokenReq {
@@ -1048,9 +1084,9 @@ impl Client {
                 device_identifier: device_id.to_string(),
                 device_name: "rbw".to_string(),
                 device_push_token: String::new(),
-                two_factor_token: two_factor_token
-                    .map(std::string::ToString::to_string),
-                two_factor_provider: two_factor_provider.map(|ty| ty as u32),
+                two_factor_token,
+                two_factor_provider,
+                new_device_otp,
             },
         };
 
@@ -1584,7 +1620,7 @@ impl Client {
     pub fn exchange_refresh_token(
         &self,
         refresh_token: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<String>)> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
             client_id: "cli".to_string(),
@@ -1596,14 +1632,20 @@ impl Client {
             .form(&connect_req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
+        if !res.status().is_success() {
+            return Err(classify_refresh_error_res(
+                res.status().as_u16(),
+                res.text(),
+            ));
+        }
         let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
-        Ok(connect_res.access_token)
+        Ok((connect_res.access_token, connect_res.refresh_token))
     }
 
     pub async fn exchange_refresh_token_async(
         &self,
         refresh_token: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<String>)> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
             client_id: "cli".to_string(),
@@ -1616,9 +1658,13 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
+        if !res.status().is_success() {
+            let code = res.status().as_u16();
+            return Err(classify_refresh_error_res(code, res.text().await));
+        }
         let connect_res: ConnectRefreshTokenRes =
             res.json_with_path().await?;
-        Ok(connect_res.access_token)
+        Ok((connect_res.access_token, connect_res.refresh_token))
     }
 
     fn api_url(&self, path: &str) -> String {
@@ -1746,6 +1792,45 @@ fn sso_query_code(
     Ok(sso_code.clone())
 }
 
+/// Classify a failed response from the `refresh_token` grant.
+///
+/// `invalid_grant` is unambiguous here in a way it is not during login: no
+/// password or second factor is involved, so the only thing the server can be
+/// rejecting is the refresh token itself. It will never become valid again, so
+/// callers should stop retrying and require a fresh login.
+fn classify_refresh_error_res(
+    code: u16,
+    body: std::result::Result<String, reqwest::Error>,
+) -> Error {
+    let Ok(body) = body else {
+        return Error::RequestFailed { status: code };
+    };
+    match body.clone().json_with_path::<ConnectErrorRes>() {
+        Ok(json) => {
+            // older Vaultwarden versions answered with an empty error and
+            // put the reason in the ErrorModel message
+            let old_vaultwarden_rejection = json.error.is_empty()
+                && json.error_model.as_ref().is_some_and(|model| {
+                    model
+                        .message
+                        .starts_with("Unable to refresh login credentials")
+                });
+            if json.error == "invalid_grant" || old_vaultwarden_rejection {
+                Error::RefreshTokenInvalid
+            } else {
+                log::warn!(
+                    "unexpected error received during token refresh: {json:?}"
+                );
+                Error::RequestFailed { status: code }
+            }
+        }
+        Err(e) => {
+            log::warn!("{e}: {body}");
+            Error::RequestFailed { status: code }
+        }
+    }
+}
+
 fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
     let error_desc = error_res.error_description.clone();
     let error_desc = error_desc.as_deref();
@@ -1777,6 +1862,29 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
+        // Bitwarden uses device_error for several unrelated failures and
+        // tells them apart only through the ErrorModel message, which its
+        // own clients match on as well.
+        "device_error" => {
+            let message = error_res
+                .error_model
+                .as_ref()
+                .map(|error_model| error_model.message.as_str());
+            return match message {
+                Some("new device verification required") => {
+                    Error::NewDeviceVerificationRequired
+                }
+                Some("invalid new device otp") => Error::IncorrectPassword {
+                    message: "The verification code is incorrect".to_string(),
+                },
+                _ => Error::DeviceRejected {
+                    message: message
+                        .or(error_desc)
+                        .unwrap_or("unknown device error")
+                        .to_string(),
+                },
+            };
+        }
         // bitwarden_rs returns an empty error and error_description for
         // this case, for some reason
         "" if error_desc.is_none() || error_desc == Some("") => {
@@ -1800,4 +1908,155 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device_error(message: &str) -> Error {
+        let body = format!(
+            r#"{{"error":"device_error","error_description":"x","ErrorModel":{{"Message":"{message}","Object":"error"}}}}"#
+        );
+        let res: ConnectErrorRes = serde_json::from_str(&body).unwrap();
+        classify_login_error(&res, 400)
+    }
+
+    // Answers one request with the given status and body, like the identity
+    // server would.
+    fn mock_identity(status: u16, body: &'static str) -> Client {
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = stream.read(&mut chunk).unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..n]);
+            }
+            let response = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        let url = format!("http://{addr}");
+        Client::new(&url, &url, &url, None)
+    }
+
+    #[test]
+    fn refresh_keeps_a_rotated_refresh_token() {
+        let client = mock_identity(
+            200,
+            r#"{"access_token":"new-access","refresh_token":"new-refresh"}"#,
+        );
+        let (access, refresh) = client.exchange_refresh_token("old").unwrap();
+        assert_eq!(access, "new-access");
+        assert_eq!(refresh.as_deref(), Some("new-refresh"));
+    }
+
+    #[test]
+    fn refresh_without_rotation_returns_no_refresh_token() {
+        let client = mock_identity(200, r#"{"access_token":"new-access"}"#);
+        let (_, refresh) = client.exchange_refresh_token("old").unwrap();
+        assert_eq!(refresh, None);
+    }
+
+    #[test]
+    fn rejected_refresh_token_is_reported() {
+        let client = mock_identity(400, r#"{"error":"invalid_grant"}"#);
+        assert!(matches!(
+            client.exchange_refresh_token("old"),
+            Err(Error::RefreshTokenInvalid)
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejected_refresh_token_is_reported_async() {
+        let client = mock_identity(401, r#"{"error":"invalid_grant"}"#);
+        assert!(matches!(
+            client.exchange_refresh_token_async("old").await,
+            Err(Error::RefreshTokenInvalid)
+        ));
+    }
+
+    #[test]
+    fn old_vaultwarden_rejection_is_reported() {
+        let client = mock_identity(
+            401,
+            r#"{"error":"","error_description":"","errorModel":{"message":"Unable to refresh login credentials: Invalid claim","object":"error"}}"#,
+        );
+        assert!(matches!(
+            client.exchange_refresh_token("old"),
+            Err(Error::RefreshTokenInvalid)
+        ));
+    }
+
+    #[test]
+    fn other_refresh_failures_keep_the_token() {
+        let client = mock_identity(502, "Bad Gateway");
+        assert!(matches!(
+            client.exchange_refresh_token("old"),
+            Err(Error::RequestFailed { status: 502 })
+        ));
+    }
+
+    #[test]
+    fn device_errors_are_told_apart() {
+        assert!(matches!(
+            device_error("new device verification required"),
+            Error::NewDeviceVerificationRequired
+        ));
+        assert!(matches!(
+            device_error("invalid new device otp"),
+            Error::IncorrectPassword { .. }
+        ));
+        assert!(matches!(
+            device_error("no device information provided"),
+            Error::DeviceRejected { message }
+                if message == "no device information provided"
+        ));
+    }
+
+    #[test]
+    fn login_code_fills_the_matching_form_fields() {
+        let form = |two_factor_token, two_factor_provider, new_device_otp| {
+            let req = ConnectTokenReq {
+                auth: ConnectTokenAuth::Password(ConnectTokenPassword {
+                    username: "u".to_string(),
+                    password: "p".to_string(),
+                }),
+                grant_type: "password".to_string(),
+                scope: "api".to_string(),
+                client_id: "cli".to_string(),
+                device_type: 8,
+                device_identifier: "d".to_string(),
+                device_name: "rbw".to_string(),
+                device_push_token: String::new(),
+                two_factor_token,
+                two_factor_provider,
+                new_device_otp,
+            };
+            // the same encoding the login request uses
+            let request = reqwest::Client::new()
+                .post("http://localhost/connect/token")
+                .form(&req)
+                .build()
+                .unwrap();
+            String::from_utf8(
+                request.body().unwrap().as_bytes().unwrap().to_vec(),
+            )
+            .unwrap()
+        };
+        assert!(!form(None, None, None).contains("newDeviceOtp"));
+        assert!(form(None, None, Some("123456".to_string()))
+            .contains("newDeviceOtp=123456"));
+    }
 }

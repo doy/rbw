@@ -1,4 +1,3 @@
-use anyhow::Context as _;
 use futures_util::StreamExt as _;
 
 pub struct Agent {
@@ -67,20 +66,42 @@ impl Agent {
         while let Some(event) = stream.next().await {
             match event {
                 Event::Request(res) => {
-                    let mut sock = crate::sock::Sock::new(
-                        res.context("failed to accept incoming connection")?,
-                    );
+                    // a failed accept (for example from running out of file
+                    // descriptors) only affects that client, so keep serving
+                    // instead of exiting and losing the unlocked state
+                    let stream = match res {
+                        Ok(stream) => stream,
+                        Err(e) => {
+                            log::warn!(
+                                "failed to accept incoming connection: {e}"
+                            );
+                            // don't spin while the condition lasts
+                            tokio::time::sleep(
+                                std::time::Duration::from_millis(100),
+                            )
+                            .await;
+                            continue;
+                        }
+                    };
+                    let mut sock = crate::sock::Sock::new(stream);
                     let state = self.state.clone();
                     tokio::spawn(async move {
                         let res =
                             handle_request(&mut sock, state.clone()).await;
                         if let Err(e) = res {
-                            // unwrap is the only option here
-                            sock.send(&rbw::protocol::Response::Error {
-                                error: format!("{e:#}"),
-                            })
-                            .await
-                            .unwrap();
+                            // the client may have disconnected already, so
+                            // we can't do anything useful with a send
+                            // failure; just log it instead of panicking
+                            if let Err(send_err) = sock
+                                .send(&rbw::protocol::Response::Error {
+                                    error: format!("{e:#}"),
+                                })
+                                .await
+                            {
+                                log::warn!(
+                                    "failed to send error response to client: {send_err:#}"
+                                );
+                            }
                         }
                     });
                 }
@@ -122,6 +143,14 @@ async fn handle_request(
         }
     };
     let (action, environment) = req.into_parts();
+    // Quit and Version never touch the keys, and must not wait for the state
+    // lock, which a pending master password reprompt holds
+    if !matches!(
+        action,
+        rbw::protocol::Action::Quit | rbw::protocol::Action::Version
+    ) {
+        state.lock().await.lock_if_expired();
+    }
     let set_timeout = match &action {
         rbw::protocol::Action::Register => {
             crate::actions::register(sock, &environment).await?;

@@ -4,19 +4,41 @@ use std::convert::TryFrom as _;
 
 use tokio::io::AsyncWriteExt as _;
 
+// pinentry's own timeout error, GPG_ERR_TIMEOUT from GPG_ERR_SOURCE_PINENTRY
+const PINENTRY_ERR_TIMEOUT: &str = "83886142";
+
+// How long past its own timeout a pinentry may take to exit before it is
+// killed. Letting it exit by itself lets a terminal pinentry restore the
+// terminal.
+const KILL_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+pub struct Pinentry {
+    pub program: String,
+    // Seconds an unanswered prompt stays up, or 0 to wait forever.
+    pub timeout: u64,
+}
+
 pub async fn getpin(
-    pinentry: &str,
+    pinentry: &Pinentry,
     prompt: &str,
     desc: &str,
     err: Option<&str>,
     environment: &crate::protocol::Environment,
     grab: bool,
 ) -> Result<crate::locked::Password> {
-    let mut opts = tokio::process::Command::new(pinentry);
+    let mut opts = tokio::process::Command::new(&pinentry.program);
     opts.stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped());
-    let mut args = vec!["--timeout".into(), "0".into()];
-    if let Some(tty) = environment.tty() {
+        .stdout(std::process::Stdio::piped())
+        // a prompt nobody is waiting for anymore should not outlive the
+        // request that opened it
+        .kill_on_drop(true);
+    let mut args =
+        vec!["--timeout".into(), pinentry.timeout.to_string().into()];
+    // the ssh agent reuses the environment of the last rbw command, whose
+    // terminal may be closed by now. a terminal pinentry pointed at a dead
+    // tty can neither be seen nor answered, and spins at full cpu, so leave
+    // the tty out and let pinentry find its own or fail.
+    if let Some(tty) = environment.tty().filter(|tty| tty_is_usable(tty)) {
         args.extend(["--ttyname".into(), tty.into()]);
     }
 
@@ -79,22 +101,47 @@ pub async fn getpin(
 
     let mut buf = crate::locked::Vec::new();
     buf.zero();
-    // unwrap is safe because we specified stdout as piped in the command opts
-    // above
-    let len = read_password(
-        ncommands,
-        buf.data_mut(),
-        child.stdout.as_mut().unwrap(),
-    )
-    .await?;
+    let answer = async {
+        // unwrap is safe because we specified stdout as piped in the command
+        // opts above
+        let len = read_password(
+            ncommands,
+            buf.data_mut(),
+            child.stdout.as_mut().unwrap(),
+        )
+        .await?;
+        child
+            .wait()
+            .await
+            .map_err(|source| Error::PinentryWait { source })?;
+        Ok(len)
+    };
+    // enforce the timeout here too, for pinentry programs that ignore it
+    let len = if pinentry.timeout == 0 {
+        answer.await
+    } else {
+        let limit =
+            std::time::Duration::from_secs(pinentry.timeout) + KILL_GRACE;
+        tokio::time::timeout(limit, answer)
+            .await
+            .unwrap_or(Err(Error::PinentryTimedOut))
+    }?;
     buf.truncate(len);
 
-    child
-        .wait()
-        .await
-        .map_err(|source| Error::PinentryWait { source })?;
-
     Ok(crate::locked::Password::new(buf))
+}
+
+// Whether the path is still a terminal that can be opened. Opened without
+// blocking and without becoming our controlling terminal.
+fn tty_is_usable(tty: &std::ffi::OsStr) -> bool {
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+        .open(tty)
+        .is_ok_and(|f| rustix::termios::isatty(&f))
 }
 
 async fn read_password<R>(
@@ -133,6 +180,9 @@ where
                 match code {
                     Some("83886179") => {
                         return Err(Error::PinentryCancelled);
+                    }
+                    Some(PINENTRY_ERR_TIMEOUT) => {
+                        return Err(Error::PinentryTimedOut);
                     }
                     Some(code) => {
                         if let Some(error) = split.next() {
@@ -247,5 +297,75 @@ fn test_read_password() {
             let len = read_password(4, &mut buf, &input[..]).await.unwrap();
             assert_eq!(&buf[0..len], &output[..]);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Writing an executable while another test forks can make running it
+    // fail with "text file busy", because the forked child briefly holds the
+    // file open for writing. Tests that write and run a stand-in take turns.
+    static SPAWN_LOCK: tokio::sync::Mutex<()> =
+        tokio::sync::Mutex::const_new(());
+
+    // Writes a pinentry stand-in that runs the given shell script.
+    fn fake_pinentry(name: &str, script: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = std::env::temp_dir()
+            .join(format!("rbw-pinentry-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(
+            &path,
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        path
+    }
+
+    async fn ask(
+        program: &std::path::Path,
+    ) -> Result<crate::locked::Password> {
+        getpin(
+            &Pinentry {
+                program: program.to_string_lossy().into_owned(),
+                timeout: 1,
+            },
+            "Prompt",
+            "Description",
+            None,
+            &crate::protocol::Environment::default(),
+            false,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn pinentry_that_never_answers_is_stopped() {
+        let _guard = SPAWN_LOCK.lock().await;
+        let program = fake_pinentry("hang", "exec sleep 600");
+        let started = std::time::Instant::now();
+        assert!(matches!(ask(&program).await, Err(Error::PinentryTimedOut)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn pinentry_timeout_is_reported() {
+        let _guard = SPAWN_LOCK.lock().await;
+        let program = fake_pinentry(
+            "timeout",
+            "echo OK; echo 'ERR 83886142 Timeout <Pinentry>'",
+        );
+        assert!(matches!(ask(&program).await, Err(Error::PinentryTimedOut)));
+    }
+
+    #[test]
+    fn only_terminals_are_usable_ttys() {
+        assert!(!tty_is_usable(std::ffi::OsStr::new("/dev/null")));
+        assert!(!tty_is_usable(std::ffi::OsStr::new("/dev/rbw-no-such-tty")));
     }
 }

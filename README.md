@@ -88,12 +88,16 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `pinentry_timeout`: Seconds an unanswered pinentry prompt stays open before
+  it is dismissed, or `0` to wait forever. Defaults to `120`.
 * `touch_id_unlock`: On macOS, allow Touch ID to unlock the database again
   after the master password has unlocked it once in the current agent process.
   The Secure Enclave key and wrapped vault key are kept only in memory and are
   discarded when the agent exits. Defaults to `false`.
 * `touch_id_ssh`: On macOS, ask for Touch ID before the SSH agent signs
   anything. Defaults to `false`.
+* `client_cert_path`: Path to a PEM file holding a client certificate and its
+  private key, for servers that require mutual TLS. Unset by default.
 
 ### Profiles
 

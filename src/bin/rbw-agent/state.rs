@@ -52,6 +52,14 @@ impl State {
         self.timeout.set(self.timeout_duration);
     }
 
+    // The lock timer only notices a wake from sleep after a few seconds, so
+    // check its deadline before serving a request.
+    pub fn lock_if_expired(&mut self) {
+        if self.timeout.expired() {
+            self.clear();
+        }
+    }
+
     pub fn clear(&mut self) {
         self.priv_key = None;
         self.org_keys = None;

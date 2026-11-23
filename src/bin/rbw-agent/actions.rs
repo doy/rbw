@@ -113,9 +113,7 @@ pub async fn login(
             )
             .await
             .context("failed to read password from pinentry")?;
-            match rbw::actions::login(&email, password.clone(), None, None)
-                .await
-            {
+            match rbw::actions::login(&email, password.clone(), None).await {
                 Ok((
                     access_token,
                     refresh_token,
@@ -125,6 +123,38 @@ pub async fn login(
                     parallelism,
                     protected_key,
                 )) => {
+                    login_success(
+                        state.clone(),
+                        access_token,
+                        refresh_token,
+                        kdf,
+                        iterations,
+                        memory,
+                        parallelism,
+                        protected_key,
+                        password,
+                        db,
+                        email,
+                    )
+                    .await?;
+                    break 'attempts;
+                }
+                Err(rbw::error::Error::NewDeviceVerificationRequired) => {
+                    let (
+                        access_token,
+                        refresh_token,
+                        kdf,
+                        iterations,
+                        memory,
+                        parallelism,
+                        protected_key,
+                    ) = login_with_code(
+                        environment,
+                        &email,
+                        password.clone(),
+                        CodePrompt::NewDevice,
+                    )
+                    .await?;
                     login_success(
                         state.clone(),
                         access_token,
@@ -174,11 +204,11 @@ pub async fn login(
                                 memory,
                                 parallelism,
                                 protected_key,
-                            ) = two_factor(
+                            ) = login_with_code(
                                 environment,
                                 &email,
                                 password.clone(),
-                                provider,
+                                CodePrompt::TwoFactor(provider),
                             )
                             .await?;
                             login_success(
@@ -224,11 +254,23 @@ pub async fn login(
     Ok(())
 }
 
-async fn two_factor(
+// Minimum time to wait for a code the server sent by email.
+const EMAILED_CODE_TIMEOUT_SECS: u64 = 600;
+
+// The code the second step of a login asks for.
+#[derive(Clone, Copy)]
+enum CodePrompt {
+    TwoFactor(rbw::api::TwoFactorProviderType),
+    // Bitwarden emails this code when an account without two-step login
+    // signs in from a device it has not seen before.
+    NewDevice,
+}
+
+async fn login_with_code(
     environment: &rbw::protocol::Environment,
     email: &str,
     password: rbw::locked::Password,
-    provider: rbw::api::TwoFactorProviderType,
+    prompt: CodePrompt,
 ) -> anyhow::Result<(
     String,
     String,
@@ -238,79 +280,103 @@ async fn two_factor(
     Option<u32>,
     String,
 )> {
-    let mut err_msg = None;
-    for i in 1_u8..=3 {
-        let err = if i > 1 {
-            // this unwrap is safe because we only ever continue the loop if
-            // we have set err_msg
-            Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
-        } else {
-            None
-        };
-        let code = rbw::pinentry::getpin(
-            &config_pinentry().await?,
+    let (header, description, grab) = match prompt {
+        CodePrompt::TwoFactor(provider) => (
             provider.header(),
-            provider.message(),
+            provider.message().to_string(),
+            provider.grab(),
+        ),
+        CodePrompt::NewDevice => (
+            "New Device Verification",
+            format!(
+                "Enter the verification code Bitwarden emailed to {email} \
+                 to approve this device."
+            ),
+            // the person needs to switch to their mail client
+            false,
+        ),
+    };
+
+    let mut pinentry = config_pinentry().await?;
+    // a code sent by email can take a while to arrive, and timing out means
+    // starting over with a new code
+    let emailed = matches!(
+        prompt,
+        CodePrompt::NewDevice
+            | CodePrompt::TwoFactor(rbw::api::TwoFactorProviderType::Email)
+    );
+    if emailed && pinentry.timeout != 0 {
+        pinentry.timeout = pinentry.timeout.max(EMAILED_CODE_TIMEOUT_SECS);
+    }
+
+    let mut err_msg: Option<String> = None;
+    for i in 1_u8..=3 {
+        let err = err_msg
+            .as_deref()
+            .map(|message| format!("{message} (attempt {i}/3)"));
+        let input = rbw::pinentry::getpin(
+            &pinentry,
+            header,
+            &description,
             err.as_deref(),
             environment,
-            provider.grab(),
+            grab,
         )
         .await
         .context("failed to read code from pinentry")?;
-        let code = std::str::from_utf8(code.password())
-            .context("code was not valid utf8")?;
-        match rbw::actions::login(
-            email,
-            password.clone(),
-            Some(code),
-            Some(provider),
-        )
-        .await
-        {
-            Ok((
-                access_token,
-                refresh_token,
-                kdf,
-                iterations,
-                memory,
-                parallelism,
-                protected_key,
-            )) => {
-                return Ok((
-                    access_token,
-                    refresh_token,
-                    kdf,
-                    iterations,
-                    memory,
-                    parallelism,
-                    protected_key,
-                ))
+        let code = std::str::from_utf8(input.password())
+            .context("code was not valid utf8")?
+            .trim();
+
+        let message = match prompt {
+            // sending no code would make Bitwarden email a new one
+            CodePrompt::NewDevice if code.is_empty() => {
+                "Enter the code from the email".to_string()
             }
-            Err(rbw::error::Error::IncorrectPassword { message }) => {
-                if i == 3 {
-                    return Err(rbw::error::Error::IncorrectPassword {
-                        message,
-                    })
-                    .context("failed to log in to bitwarden instance");
+            _ => {
+                let login_code = match prompt {
+                    CodePrompt::TwoFactor(provider) => {
+                        rbw::api::LoginCode::TwoFactor {
+                            provider,
+                            token: code,
+                        }
+                    }
+                    CodePrompt::NewDevice => {
+                        rbw::api::LoginCode::NewDevice(code)
+                    }
+                };
+                match rbw::actions::login(
+                    email,
+                    password.clone(),
+                    Some(login_code),
+                )
+                .await
+                {
+                    Ok(tokens) => return Ok(tokens),
+                    Err(rbw::error::Error::IncorrectPassword { message }) => {
+                        message
+                    }
+                    // can get this if the user passes an empty string
+                    Err(rbw::error::Error::TwoFactorRequired { .. }) => {
+                        "TOTP code is not a number".to_string()
+                    }
+                    Err(rbw::error::Error::NewDeviceVerificationRequired) => {
+                        "Bitwarden emailed a new verification code"
+                            .to_string()
+                    }
+                    Err(e) => {
+                        return Err(e).context(
+                            "failed to log in to bitwarden instance",
+                        )
+                    }
                 }
-                err_msg = Some(message);
             }
-            // can get this if the user passes an empty string
-            Err(rbw::error::Error::TwoFactorRequired { .. }) => {
-                let message = "TOTP code is not a number".to_string();
-                if i == 3 {
-                    return Err(rbw::error::Error::IncorrectPassword {
-                        message,
-                    })
-                    .context("failed to log in to bitwarden instance");
-                }
-                err_msg = Some(message);
-            }
-            Err(e) => {
-                return Err(e)
-                    .context("failed to log in to bitwarden instance")
-            }
+        };
+        if i == 3 {
+            return Err(rbw::error::Error::IncorrectPassword { message })
+                .context("failed to log in to bitwarden instance");
         }
+        err_msg = Some(message);
     }
 
     unreachable!()
@@ -641,7 +707,7 @@ pub async fn sync(
     sock: Option<&mut crate::sock::Sock>,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
-    let mut db = load_db().await?;
+    let db = load_db().await?;
 
     let access_token = if let Some(access_token) = &db.access_token {
         access_token.clone()
@@ -654,7 +720,7 @@ pub async fn sync(
         return Err(anyhow::anyhow!("failed to find refresh token in db"));
     };
     let (
-        access_token,
+        tokens,
         (
             protected_key,
             protected_private_key,
@@ -665,14 +731,18 @@ pub async fn sync(
     ) = rbw::actions::sync(&access_token, &refresh_token)
         .await
         .context("failed to sync database from server")?;
+    // the rbw command line can write the db while the sync is in flight, for
+    // example to store tokens it refreshed, so apply the results to what is
+    // on disk now rather than to the copy read before the request
+    let mut db = load_db().await?;
     #[cfg(target_os = "macos")]
     let protected_key_changed = db
         .protected_key
         .as_deref()
         .is_some_and(|old_protected_key| old_protected_key != protected_key);
     state.lock().await.set_master_password_reprompt(&entries);
-    if let Some(access_token) = access_token {
-        db.access_token = Some(access_token);
+    if let Some(tokens) = tokens {
+        tokens.store_in(&mut db);
     }
     db.protected_key = Some(protected_key);
     db.protected_private_key = Some(protected_private_key);
@@ -978,9 +1048,12 @@ async fn config_base_url() -> anyhow::Result<String> {
     Ok(config.base_url())
 }
 
-async fn config_pinentry() -> anyhow::Result<String> {
+async fn config_pinentry() -> anyhow::Result<rbw::pinentry::Pinentry> {
     let config = rbw::config::Config::load_async().await?;
-    Ok(config.pinentry)
+    Ok(rbw::pinentry::Pinentry {
+        program: config.pinentry,
+        timeout: config.pinentry_timeout,
+    })
 }
 
 pub async fn subscribe_to_notifications(
@@ -1017,37 +1090,81 @@ pub async fn subscribe_to_notifications(
 
 pub async fn get_ssh_public_keys(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
-) -> anyhow::Result<Vec<String>> {
+) -> anyhow::Result<Vec<ssh_agent_lib::proto::Identity>> {
     let environment = {
-        let state = state.lock().await;
+        let mut state = state.lock().await;
+        state.lock_if_expired();
         state.set_timeout();
         state.last_environment().clone()
     };
     unlock_state(state.clone(), &environment).await?;
 
     let db = load_db().await?;
-    let mut pubkeys = Vec::new();
+    let mut identities = Vec::new();
 
     for entry in db.entries {
-        if let rbw::db::EntryData::SshKey {
+        let rbw::db::EntryData::SshKey {
             public_key: Some(encrypted),
             ..
         } = &entry.data
+        else {
+            continue;
+        };
+        // one broken entry should not hide every other key
+        let plaintext = match decrypt_cipher(
+            state.clone(),
+            &environment,
+            encrypted,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )
+        .await
         {
-            let plaintext = decrypt_cipher(
+            Ok(plaintext) => plaintext,
+            Err(e) => {
+                log::warn!(
+                    "skipping entry {} whose SSH public key can't be \
+                     decrypted: {e:#}",
+                    entry.id
+                );
+                continue;
+            }
+        };
+        let public_key =
+            match ssh_agent_lib::ssh_key::PublicKey::from_openssh(&plaintext)
+            {
+                Ok(public_key) => public_key,
+                Err(e) => {
+                    log::warn!(
+                        "skipping entry {} with an unreadable SSH public \
+                         key: {e}",
+                        entry.id
+                    );
+                    continue;
+                }
+            };
+        // keys generated by Bitwarden carry no comment, so name them after
+        // their entry to tell them apart in `ssh-add -l`
+        let comment = if public_key.comment().is_empty() {
+            decrypt_cipher(
                 state.clone(),
                 &environment,
-                encrypted,
+                &entry.name,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             )
-            .await?;
-
-            pubkeys.push(plaintext);
-        }
+            .await
+            .unwrap_or_default()
+        } else {
+            public_key.comment().to_string()
+        };
+        identities.push(ssh_agent_lib::proto::Identity {
+            pubkey: public_key.key_data().clone(),
+            comment,
+        });
     }
 
-    Ok(pubkeys)
+    Ok(identities)
 }
 
 pub async fn find_ssh_private_key(
@@ -1055,7 +1172,8 @@ pub async fn find_ssh_private_key(
     request_public_key: ssh_agent_lib::ssh_key::PublicKey,
 ) -> anyhow::Result<(String, ssh_agent_lib::ssh_key::PrivateKey)> {
     let environment = {
-        let state = state.lock().await;
+        let mut state = state.lock().await;
+        state.lock_if_expired();
         state.set_timeout();
         state.last_environment().clone()
     };
@@ -1083,14 +1201,17 @@ pub async fn find_ssh_private_key(
                 entry.org_id.as_deref(),
             )
             .await?;
-            let public_key_bytes =
+            // a malformed entry cannot be the requested key, and should not
+            // stop the search for it
+            let Ok(public_key) =
                 ssh_agent_lib::ssh_key::PublicKey::from_openssh(
                     &public_key_plaintext,
                 )
-                .map_err(anyhow::Error::new)?
-                .to_bytes();
+            else {
+                continue;
+            };
 
-            if public_key_bytes == request_bytes {
+            if public_key.to_bytes() == request_bytes {
                 let private_key_enc =
                     private_key.as_ref().ok_or_else(|| {
                         anyhow::anyhow!("Matching entry has no private key")

@@ -18,6 +18,8 @@ pub struct Config {
     pub sync_interval: u64,
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
+    #[serde(default = "default_pinentry_timeout")]
+    pub pinentry_timeout: u64,
     #[serde(default)]
     pub touch_id_unlock: bool,
     #[serde(default)]
@@ -40,6 +42,7 @@ impl Default for Config {
             lock_timeout: default_lock_timeout(),
             sync_interval: default_sync_interval(),
             pinentry: default_pinentry(),
+            pinentry_timeout: default_pinentry_timeout(),
             touch_id_unlock: false,
             touch_id_ssh: false,
             client_cert_path: None,
@@ -54,6 +57,10 @@ pub fn default_lock_timeout() -> u64 {
 
 pub fn default_sync_interval() -> u64 {
     3600
+}
+
+pub const fn default_pinentry_timeout() -> u64 {
+    120
 }
 
 pub fn default_pinentry() -> String {
@@ -263,5 +270,6 @@ mod tests {
         let config: Config = serde_json::from_str("{}").unwrap();
         assert!(!config.touch_id_unlock);
         assert!(!config.touch_id_ssh);
+        assert_eq!(config.pinentry_timeout, 120);
     }
 }

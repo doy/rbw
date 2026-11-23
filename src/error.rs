@@ -160,6 +160,9 @@ pub enum Error {
     #[error("pinentry cancelled")]
     PinentryCancelled,
 
+    #[error("pinentry prompt timed out")]
+    PinentryTimedOut,
+
     #[error("pinentry error: {error}")]
     PinentryErrorMessage { error: String },
 
@@ -171,6 +174,9 @@ pub enum Error {
 
     #[error("This device has not yet been registered with the Bitwarden server. Run `rbw register` first, and then try again.")]
     RegistrationRequired,
+
+    #[error("the server no longer accepts this login, run `rbw login` to log in again")]
+    RefreshTokenInvalid,
 
     #[error("failed to remove db at {}", .file.display())]
     RemoveDb {
@@ -234,6 +240,12 @@ pub enum Error {
         providers: Vec<crate::api::TwoFactorProviderType>,
         sso_email_2fa_session_token: Option<String>,
     },
+
+    #[error("new device verification required")]
+    NewDeviceVerificationRequired,
+
+    #[error("the server rejected this device: {message}")]
+    DeviceRejected { message: String },
 
     #[error("unimplemented cipherstring type: {ty}")]
     UnimplementedCipherStringType { ty: String },

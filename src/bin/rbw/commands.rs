@@ -1269,6 +1269,11 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
+        "pinentry_timeout" => {
+            config.pinentry_timeout = value
+                .parse()
+                .context("failed to parse value for pinentry_timeout")?;
+        }
         "touch_id_unlock" => {
             let enabled = value
                 .parse()
@@ -1322,6 +1327,9 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        "pinentry_timeout" => {
+            config.pinentry_timeout = rbw::config::default_pinentry_timeout();
+        }
         "touch_id_unlock" => config.touch_id_unlock = false,
         "touch_id_ssh" => config.touch_id_ssh = false,
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
@@ -1598,7 +1606,7 @@ pub fn add(
     // unwrap is safe here because the call to unlock above is guaranteed to
     // populate these or error
     let mut access_token = db.access_token.as_ref().unwrap().clone();
-    let refresh_token = db.refresh_token.as_ref().unwrap();
+    let mut refresh_token = db.refresh_token.as_ref().unwrap().clone();
 
     let name = crate::actions::encrypt(name, None, None)?;
 
@@ -1627,13 +1635,9 @@ pub fn add(
 
     let mut folder_id = None;
     if let Some(folder_name) = folder {
-        let (new_access_token, folders) =
-            rbw::actions::list_folders(&access_token, refresh_token)?;
-        if let Some(new_access_token) = new_access_token {
-            access_token.clone_from(&new_access_token);
-            db.access_token = Some(new_access_token);
-            save_db(&db)?;
-        }
+        let (tokens, folders) =
+            rbw::actions::list_folders(&access_token, &refresh_token)?;
+        update_tokens(tokens, &mut access_token, &mut refresh_token);
 
         let folders: Vec<(String, String)> = folders
             .iter()
@@ -1649,23 +1653,19 @@ pub fn add(
             }
         }
         if folder_id.is_none() {
-            let (new_access_token, id) = rbw::actions::create_folder(
+            let (tokens, id) = rbw::actions::create_folder(
                 &access_token,
-                refresh_token,
+                &refresh_token,
                 &crate::actions::encrypt(folder_name, None, None)?,
             )?;
-            if let Some(new_access_token) = new_access_token {
-                access_token.clone_from(&new_access_token);
-                db.access_token = Some(new_access_token);
-                save_db(&db)?;
-            }
+            update_tokens(tokens, &mut access_token, &mut refresh_token);
             folder_id = Some(id);
         }
     }
 
-    if let (Some(access_token), ()) = rbw::actions::add(
+    rbw::actions::add(
         &access_token,
-        refresh_token,
+        &refresh_token,
         &user_id,
         &name,
         &rbw::db::EntryData::Login {
@@ -1676,10 +1676,7 @@ pub fn add(
         },
         notes.as_deref(),
         folder_id.as_deref(),
-    )? {
-        db.access_token = Some(access_token);
-        save_db(&db)?;
-    }
+    )?;
 
     crate::actions::sync()?;
 
@@ -1711,7 +1708,7 @@ pub fn generate(
         // unwrap is safe here because the call to unlock above is guaranteed
         // to populate these or error
         let mut access_token = db.access_token.as_ref().unwrap().clone();
-        let refresh_token = db.refresh_token.as_ref().unwrap();
+        let mut refresh_token = db.refresh_token.as_ref().unwrap().clone();
 
         let name = crate::actions::encrypt(name, None, None)?;
         let username = username
@@ -1730,13 +1727,9 @@ pub fn generate(
 
         let mut folder_id = None;
         if let Some(folder_name) = folder {
-            let (new_access_token, folders) =
-                rbw::actions::list_folders(&access_token, refresh_token)?;
-            if let Some(new_access_token) = new_access_token {
-                access_token.clone_from(&new_access_token);
-                db.access_token = Some(new_access_token);
-                save_db(&db)?;
-            }
+            let (tokens, folders) =
+                rbw::actions::list_folders(&access_token, &refresh_token)?;
+            update_tokens(tokens, &mut access_token, &mut refresh_token);
 
             let folders: Vec<(String, String)> = folders
                 .iter()
@@ -1752,23 +1745,19 @@ pub fn generate(
                 }
             }
             if folder_id.is_none() {
-                let (new_access_token, id) = rbw::actions::create_folder(
+                let (tokens, id) = rbw::actions::create_folder(
                     &access_token,
-                    refresh_token,
+                    &refresh_token,
                     &crate::actions::encrypt(folder_name, None, None)?,
                 )?;
-                if let Some(new_access_token) = new_access_token {
-                    access_token.clone_from(&new_access_token);
-                    db.access_token = Some(new_access_token);
-                    save_db(&db)?;
-                }
+                update_tokens(tokens, &mut access_token, &mut refresh_token);
                 folder_id = Some(id);
             }
         }
 
-        if let (Some(access_token), ()) = rbw::actions::add(
+        rbw::actions::add(
             &access_token,
-            refresh_token,
+            &refresh_token,
             &user_id,
             &name,
             &rbw::db::EntryData::Login {
@@ -1779,10 +1768,7 @@ pub fn generate(
             },
             None,
             folder_id.as_deref(),
-        )? {
-            db.access_token = Some(access_token);
-            save_db(&db)?;
-        }
+        )?;
 
         crate::actions::sync()?;
     }
@@ -1907,7 +1893,7 @@ pub fn edit(
         }
     };
 
-    if let (Some(access_token), ()) = rbw::actions::edit(
+    rbw::actions::edit(
         access_token,
         refresh_token,
         &user_id,
@@ -1920,10 +1906,7 @@ pub fn edit(
         entry.folder_id.as_deref(),
         &history,
         entry.key.as_deref(),
-    )? {
-        db.access_token = Some(access_token);
-        save_db(&db)?;
-    }
+    )?;
 
     crate::actions::sync()?;
     Ok(())
@@ -1937,7 +1920,7 @@ pub fn remove(
 ) -> anyhow::Result<()> {
     unlock()?;
 
-    let mut db = load_db()?;
+    let db = load_db()?;
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
@@ -1950,12 +1933,7 @@ pub fn remove(
     let (entry, _) = find_entry(&db, name, username, folder, ignore_case)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
-    if let (Some(access_token), ()) =
-        rbw::actions::remove(access_token, refresh_token, &entry.id)?
-    {
-        db.access_token = Some(access_token);
-        save_db(&db)?;
-    }
+    rbw::actions::remove(access_token, refresh_token, &entry.id)?;
 
     crate::actions::sync()?;
 
@@ -2708,23 +2686,25 @@ fn user_id(db: &rbw::db::Db) -> anyhow::Result<&str> {
     })
 }
 
+// Switches to tokens that a request had to refresh, for the requests after
+// it. The library has already saved them.
+fn update_tokens(
+    tokens: Option<rbw::actions::RefreshedTokens>,
+    access_token: &mut String,
+    refresh_token: &mut String,
+) {
+    if let Some(tokens) = tokens {
+        *access_token = tokens.access_token;
+        *refresh_token = tokens.refresh_token;
+    }
+}
+
 fn load_db() -> anyhow::Result<rbw::db::Db> {
     let config = rbw::config::Config::load()?;
     config.email.as_ref().map_or_else(
         || Err(anyhow::anyhow!("failed to find email address in config")),
         |email| {
             rbw::db::Db::load(&config.server_name(), email)
-                .map_err(anyhow::Error::new)
-        },
-    )
-}
-
-fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
-    let config = rbw::config::Config::load()?;
-    config.email.as_ref().map_or_else(
-        || Err(anyhow::anyhow!("failed to find email address in config")),
-        |email| {
-            db.save(&config.server_name(), email)
                 .map_err(anyhow::Error::new)
         },
     )

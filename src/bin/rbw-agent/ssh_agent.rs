@@ -77,17 +77,7 @@ impl ssh_agent_lib::agent::Session for SshSession {
     > {
         crate::actions::get_ssh_public_keys(self.state.clone())
             .await
-            .map_err(|e| ssh_agent_lib::error::AgentError::Other(e.into()))?
-            .into_iter()
-            .map(|p| {
-                p.parse::<ssh_agent_lib::ssh_key::PublicKey>()
-                    .map(|pk| ssh_agent_lib::proto::Identity {
-                        pubkey: pk.key_data().clone(),
-                        comment: String::new(),
-                    })
-                    .map_err(ssh_agent_lib::error::AgentError::other)
-            })
-            .collect()
+            .map_err(|e| ssh_agent_lib::error::AgentError::Other(e.into()))
     }
 
     async fn sign(
