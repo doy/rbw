@@ -1269,6 +1269,11 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
+        "pinentry_timeout" => {
+            config.pinentry_timeout = value
+                .parse()
+                .context("failed to parse value for pinentry_timeout")?;
+        }
         "touch_id_unlock" => {
             let enabled = value
                 .parse()
@@ -1322,6 +1327,9 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        "pinentry_timeout" => {
+            config.pinentry_timeout = rbw::config::default_pinentry_timeout();
+        }
         "touch_id_unlock" => config.touch_id_unlock = false,
         "touch_id_ssh" => config.touch_id_ssh = false,
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),

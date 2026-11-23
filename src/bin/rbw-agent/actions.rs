@@ -1029,9 +1029,12 @@ async fn config_base_url() -> anyhow::Result<String> {
     Ok(config.base_url())
 }
 
-async fn config_pinentry() -> anyhow::Result<String> {
+async fn config_pinentry() -> anyhow::Result<rbw::pinentry::Pinentry> {
     let config = rbw::config::Config::load_async().await?;
-    Ok(config.pinentry)
+    Ok(rbw::pinentry::Pinentry {
+        program: config.pinentry,
+        timeout: config.pinentry_timeout,
+    })
 }
 
 pub async fn subscribe_to_notifications(

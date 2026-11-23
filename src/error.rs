@@ -160,6 +160,9 @@ pub enum Error {
     #[error("pinentry cancelled")]
     PinentryCancelled,
 
+    #[error("pinentry prompt timed out")]
+    PinentryTimedOut,
+
     #[error("pinentry error: {error}")]
     PinentryErrorMessage { error: String },
 
