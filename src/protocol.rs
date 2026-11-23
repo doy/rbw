@@ -12,9 +12,11 @@ pub const VERSION: u32 = {
     let minor = env!("CARGO_PKG_VERSION_MINOR");
     let patch = env!("CARGO_PKG_VERSION_PATCH");
 
+    // the client restarts an agent that reports a different version, so
+    // different releases must never map to the same number
     unwrap(&u32::from_str_radix(major, 10)) * 1_000_000
-        + unwrap(&u32::from_str_radix(minor, 10)) * 1_000_000
-        + unwrap(&u32::from_str_radix(patch, 10)) * 1_000_000
+        + unwrap(&u32::from_str_radix(minor, 10)) * 1_000
+        + unwrap(&u32::from_str_radix(patch, 10))
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
