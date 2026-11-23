@@ -9,6 +9,8 @@ use tokio::io::AsyncWriteExt as _;
 const PINENTRY_ERR_TIMEOUT: &str = "83886142";
 // GPG_ERR_CANCELED, from the cancel button or closing the dialog
 const PINENTRY_ERR_CANCELED: &str = "83886179";
+// GPG_ERR_NOT_CONFIRMED, from the "not OK" button of CONFIRM
+const PINENTRY_ERR_NOT_CONFIRMED: &str = "83886194";
 
 // How long past its own timeout a pinentry may take to exit before it is
 // killed. Letting it exit by itself lets a terminal pinentry restore the
@@ -70,6 +72,48 @@ pub async fn getpin(
     buf.truncate(len);
 
     Ok(crate::locked::Password::new(buf))
+}
+
+// Asks the person to approve something, with the description as the whole
+// question. Returns Ok only when they choose the approve button: cancelling,
+// declining, a timeout, or a pinentry that can't show the dialog are all
+// errors.
+pub async fn confirm(
+    pinentry: &Pinentry,
+    desc: &str,
+    environment: &crate::protocol::Environment,
+) -> Result<()> {
+    // no keyboard grab: a dialog that pops up while the person is typing
+    // elsewhere should not capture an Enter meant for another window
+    let mut child = spawn(pinentry, environment, false)?;
+    // unwrap is safe because we specified stdin as piped in spawn
+    let mut stdin = child.stdin.take().unwrap();
+
+    let mut ncommands = 1;
+    send(&mut stdin, "SETTITLE rbw").await?;
+    ncommands += 1;
+    send(&mut stdin, &format!("SETDESC {}", assuan_escape(desc))).await?;
+    ncommands += 1;
+    send(&mut stdin, "SETOK Allow").await?;
+    ncommands += 1;
+    send(&mut stdin, "SETCANCEL Deny").await?;
+    ncommands += 1;
+    send(&mut stdin, "CONFIRM").await?;
+    ncommands += 1;
+    drop(stdin);
+
+    let answer = async {
+        // unwrap is safe because we specified stdout as piped in spawn
+        let stdout =
+            tokio::io::BufReader::new(child.stdout.as_mut().unwrap());
+        read_confirmation(ncommands, stdout).await?;
+        child
+            .wait()
+            .await
+            .map_err(|source| Error::PinentryWait { source })?;
+        Ok(())
+    };
+    with_timeout(pinentry, answer).await
 }
 
 fn spawn(
@@ -259,12 +303,50 @@ where
     Ok(len)
 }
 
+// Reads pinentry's answers to `ncommands` commands, counting its greeting
+// as one, when the last command is CONFIRM. Only an OK to every one of them
+// means the person approved.
+async fn read_confirmation<R>(mut ncommands: u8, r: R) -> Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt as _;
+
+    let mut lines = r.lines();
+    loop {
+        let line = lines
+            .next_line()
+            .await
+            .map_err(|source| Error::PinentryReadOutput { source })?
+            .ok_or_else(|| Error::PinentryReadOutput {
+                source: std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "unexpected EOF",
+                ),
+            })?;
+        if line == "OK" || line.starts_with("OK ") {
+            ncommands -= 1;
+            if ncommands == 0 {
+                return Ok(());
+            }
+        } else if line.starts_with("S ") || line.starts_with('#') {
+            // status and comment lines carry no answer
+        } else if line.starts_with("ERR ") {
+            return Err(pinentry_error(&line));
+        } else {
+            return Err(Error::FailedToParsePinentry { out: line });
+        }
+    }
+}
+
 // The error for an "ERR <code> <description>" line.
 fn pinentry_error(line: &str) -> Error {
     let mut split = line.splitn(3, ' ');
     let _ = split.next(); // ERR
     match split.next() {
-        Some(PINENTRY_ERR_CANCELED) => Error::PinentryCancelled,
+        Some(PINENTRY_ERR_CANCELED | PINENTRY_ERR_NOT_CONFIRMED) => {
+            Error::PinentryCancelled
+        }
         Some(PINENTRY_ERR_TIMEOUT) => Error::PinentryTimedOut,
         Some(code) => split.next().map_or_else(
             || Error::PinentryErrorMessage {
@@ -412,6 +494,155 @@ mod tests {
             "echo OK; echo 'ERR 83886142 Timeout <Pinentry>'",
         );
         assert!(matches!(ask(&program).await, Err(Error::PinentryTimedOut)));
+    }
+
+    async fn ask_to_confirm(
+        program: &std::path::Path,
+        desc: &str,
+    ) -> Result<()> {
+        confirm(
+            &Pinentry {
+                program: program.to_string_lossy().into_owned(),
+                timeout: 1,
+            },
+            desc,
+            &crate::protocol::Environment::default(),
+        )
+        .await
+    }
+
+    // A pinentry that answers OK to everything and logs the commands it
+    // got to the returned file.
+    fn approving_pinentry(
+        name: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        let log = std::env::temp_dir()
+            .join(format!("rbw-pinentry-test-{}", std::process::id()))
+            .join(format!("{name}.log"));
+        let _ = std::fs::remove_file(&log);
+        let program = fake_pinentry(
+            name,
+            &format!(
+                "echo 'OK Pleased to meet you'\n\
+                 while IFS= read -r line; do\n\
+                 printf '%s\\n' \"$line\" >> '{}'\n\
+                 echo OK\n\
+                 done",
+                log.display()
+            ),
+        );
+        (program, log)
+    }
+
+    #[tokio::test]
+    async fn confirmation_needs_an_ok_to_confirm() {
+        let _guard = SPAWN_LOCK.lock().await;
+        let (program, log) = approving_pinentry("approve");
+        ask_to_confirm(&program, "Sign with \"key\"?")
+            .await
+            .unwrap();
+        let commands = std::fs::read_to_string(log).unwrap();
+        assert_eq!(
+            commands,
+            "SETTITLE rbw\nSETDESC Sign with \"key\"?\nSETOK Allow\n\
+             SETCANCEL Deny\nCONFIRM\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn confirmation_text_cannot_add_commands() {
+        let _guard = SPAWN_LOCK.lock().await;
+        let (program, log) = approving_pinentry("inject");
+        ask_to_confirm(&program, "evil\nGETPIN\r\nBYE 100%")
+            .await
+            .unwrap();
+        let commands = std::fs::read_to_string(log).unwrap();
+        let lines: Vec<_> = commands.lines().collect();
+        assert_eq!(lines.len(), 5, "{commands:?}");
+        assert_eq!(lines[1], "SETDESC evil%0AGETPIN%0D%0ABYE 100%25");
+    }
+
+    #[tokio::test]
+    async fn refused_confirmations_are_errors() {
+        let _guard = SPAWN_LOCK.lock().await;
+        // answers OK to every command but CONFIRM
+        let answer_confirm = |name, answer: &str| {
+            fake_pinentry(
+                name,
+                &format!(
+                    "echo OK\n\
+                     while IFS= read -r line; do\n\
+                     case \"$line\" in\n\
+                     CONFIRM) {answer}; exit 0;;\n\
+                     *) echo OK;;\n\
+                     esac\n\
+                     done"
+                ),
+            )
+        };
+
+        let cancelled = answer_confirm(
+            "cancel",
+            "echo 'ERR 83886179 Operation cancelled'",
+        );
+        assert!(matches!(
+            ask_to_confirm(&cancelled, "?").await,
+            Err(Error::PinentryCancelled)
+        ));
+        let declined =
+            answer_confirm("decline", "echo 'ERR 83886194 Not confirmed'");
+        assert!(matches!(
+            ask_to_confirm(&declined, "?").await,
+            Err(Error::PinentryCancelled)
+        ));
+        let timed_out =
+            answer_confirm("confirm-timeout", "echo 'ERR 83886142 Timeout'");
+        assert!(matches!(
+            ask_to_confirm(&timed_out, "?").await,
+            Err(Error::PinentryTimedOut)
+        ));
+        // a pinentry that can't show the dialog
+        let no_display = answer_confirm(
+            "no-display",
+            "echo 'ERR 83918950 Inappropriate ioctl for device'",
+        );
+        assert!(matches!(
+            ask_to_confirm(&no_display, "?").await,
+            Err(Error::PinentryErrorMessage { .. })
+        ));
+        // anything but OK is not an approval
+        let data = answer_confirm("data", "echo 'D 1'; echo OK");
+        assert!(matches!(
+            ask_to_confirm(&data, "?").await,
+            Err(Error::FailedToParsePinentry { .. })
+        ));
+        let okay = answer_confirm("okay", "echo OKAY");
+        assert!(matches!(
+            ask_to_confirm(&okay, "?").await,
+            Err(Error::FailedToParsePinentry { .. })
+        ));
+        let silent = answer_confirm("exit", "exit 1");
+        assert!(matches!(
+            ask_to_confirm(&silent, "?").await,
+            Err(Error::PinentryReadOutput { .. })
+        ));
+        let missing = std::path::Path::new("/nonexistent/rbw-pinentry");
+        assert!(matches!(
+            ask_to_confirm(missing, "?").await,
+            Err(Error::Spawn { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn confirmation_nobody_answers_is_refused() {
+        let _guard = SPAWN_LOCK.lock().await;
+        let program = fake_pinentry("confirm-hang", "exec sleep 600");
+        let started = std::time::Instant::now();
+        assert!(matches!(
+            ask_to_confirm(&program, "?").await,
+            Err(Error::PinentryTimedOut)
+        ));
+        assert!(started.elapsed() < std::time::Duration::from_secs(30));
     }
 
     #[tokio::test]
