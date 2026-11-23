@@ -40,9 +40,26 @@ impl Sock {
         buf.read_line(&mut line)
             .await
             .context("failed to read message from socket")?;
-        Ok(serde_json::from_str(&line)
-            .map_err(|e| format!("failed to parse message '{line}': {e}")))
+        Ok(serde_json::from_str(&line).map_err(|e| {
+            format!("failed to parse message '{}': {e}", quote_start(&line))
+        }))
     }
+}
+
+// a request can be megabytes long (a batch decryption of a large vault), and
+// the error that quotes it goes to the agent log and back to the client, so
+// only quote the start of it
+fn quote_start(line: &str) -> std::borrow::Cow<'_, str> {
+    const MAX_LEN: usize = 200;
+    let line = line.trim_end();
+    if line.len() <= MAX_LEN {
+        return line.into();
+    }
+    let mut end = MAX_LEN;
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}... ({} bytes)", &line[..end], line.len()).into()
 }
 
 pub fn listen() -> anyhow::Result<tokio::net::UnixListener> {
@@ -53,4 +70,26 @@ pub fn listen() -> anyhow::Result<tokio::net::UnixListener> {
         .context("failed to listen on socket")?;
     log::debug!("listening on socket {}", path.to_string_lossy());
     Ok(sock)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quote_start;
+
+    #[test]
+    fn short_requests_are_quoted_whole() {
+        assert_eq!(
+            quote_start("{\"type\":\"Nope\"}\n"),
+            "{\"type\":\"Nope\"}"
+        );
+    }
+
+    #[test]
+    fn long_requests_are_cut_on_a_char_boundary() {
+        let line = format!("{}{}", "a".repeat(199), "é".repeat(1000));
+        let quoted = quote_start(&line);
+        assert!(quoted.starts_with(&"a".repeat(199)));
+        assert!(quoted.ends_with(&format!("... ({} bytes)", line.len())));
+        assert!(quoted.len() < 250);
+    }
 }
