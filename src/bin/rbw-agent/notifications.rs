@@ -35,14 +35,18 @@ impl Handler {
     pub async fn connect(
         &mut self,
         url: String,
+        extra_headers: axum::http::HeaderMap,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.is_connected() {
             self.disconnect().await?;
         }
 
-        let (write, read_handle) =
-            subscribe_to_notifications(url, self.sending_channels.clone())
-                .await?;
+        let (write, read_handle) = subscribe_to_notifications(
+            url,
+            extra_headers,
+            self.sending_channels.clone(),
+        )
+        .await?;
 
         self.write = Some(write);
         self.read_handle = Some(read_handle);
@@ -82,6 +86,7 @@ impl Handler {
 
 async fn subscribe_to_notifications(
     url: String,
+    extra_headers: axum::http::HeaderMap,
     sending_channels: std::sync::Arc<
         tokio::sync::RwLock<Vec<tokio::sync::mpsc::UnboundedSender<Message>>>,
     >,
@@ -97,9 +102,15 @@ async fn subscribe_to_notifications(
     ),
     Box<dyn std::error::Error>,
 > {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+
     let url = url::Url::parse(url.as_str())?;
+    // a proxy in front of the server may check these on the websocket
+    // handshake too
+    let mut request = url.into_client_request()?;
+    request.headers_mut().extend(extra_headers);
     let (ws_stream, _response) =
-        tokio_tungstenite::connect_async(url).await?;
+        tokio_tungstenite::connect_async(request).await?;
     let (mut write, read) = ws_stream.split();
 
     write
@@ -171,4 +182,48 @@ fn parse_message(
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn websocket_handshake_sends_extra_headers() {
+        use tokio::io::AsyncReadExt as _;
+
+        let listener =
+            tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        // reads the handshake and hangs up without answering
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut chunk = [0; 1024];
+            while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = stream.read(&mut chunk).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                head.extend_from_slice(&chunk[..n]);
+            }
+            String::from_utf8_lossy(&head).to_lowercase()
+        });
+
+        let mut extra_headers = axum::http::HeaderMap::new();
+        extra_headers.insert(
+            "X-Proxy-Token",
+            axum::http::HeaderValue::from_static("abc"),
+        );
+        let result = super::subscribe_to_notifications(
+            format!("ws://{addr}/notifications/hub"),
+            extra_headers,
+            std::sync::Arc::new(tokio::sync::RwLock::new(Vec::new())),
+        )
+        .await;
+        assert!(result.is_err());
+
+        let head = server.await.unwrap();
+        assert!(head.starts_with("get /notifications/hub "));
+        assert!(head.contains("\r\nx-proxy-token: abc\r\n"));
+        assert!(head.contains("\r\nupgrade: websocket\r\n"));
+    }
 }

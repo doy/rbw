@@ -1,9 +1,9 @@
 [package]
 name = "rbw-ng"
-version = "1.17.0"
+version = "1.18.0"
 authors = ["Jesse Luehrs <doy@tozt.net>", "rbw-ng contributors"]
 edition = "2021"
-rust-version = "1.82.0"
+rust-version = "1.88.0"
 
 description = "Unofficial Bitwarden CLI, a maintained continuation of rbw"
 repository = "https://github.com/TimotheFCN/rbw-ng"
@@ -83,7 +83,10 @@ tokio-tungstenite = { version = "0.28", features = [
     "url",
 ] }
 tokio = { version = "1.48.0", features = ["full"] }
-totp-rs = { version = "5.7.0", features = ["steam"] }
+totp-rs = { version = "6.0.0", default-features = false, features = [
+    "std",
+    "steam",
+] }
 url = "2.5.7"
 urlencoding = "2.1.3"
 uuid = { version = "1.19.0", features = ["v4"] }

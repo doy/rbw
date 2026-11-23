@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.18.0] - Unreleased
+
+## Added
+
+* `rbw add --secure-note` creates a secure note, with the editor contents or
+  stdin as the note (Edgar Albalate, doy/rbw#381).
+* `rbw add --field NAME=VALUE` and `--hidden-field NAME=VALUE` add text and
+  hidden custom fields to the new entry (Andrew Gazelka, doy/rbw#384).
+* `rbw edit --field` changes a single field: the name, notes, a login's
+  username, password, TOTP secret or URIs, or a custom field. The value comes
+  from stdin, or from the editor when stdin is a terminal, and `--create` adds
+  a missing custom field (shan and Edgar Albalate, doy/rbw#367; the checks for
+  linked and boolean fields follow wangjunwei's doy/rbw#372).
+* `extra_headers` sends extra HTTP headers with every request to the server,
+  including the notifications websocket, for servers behind Cloudflare Access
+  or another proxy that authenticates with a header (Ohad Lutzky,
+  doy/rbw#310). Set them with `rbw config set extra_headers.NAME VALUE`.
+  Invalid headers and the ones `rbw` sets itself are refused with an error.
+* `ssh_confirm` makes the SSH agent ask before every signature, on every
+  platform: Touch ID on macOS, as `touch_id_ssh` did, and a pinentry Allow/Deny
+  dialog elsewhere (Francesco Pompò, doy/rbw#335). The prompt names the key
+  and the program asking, now also on Linux. Only an explicit approval signs;
+  a cancel, a timeout or a pinentry that can't be shown refuses.
+
+## Fixed
+
+* `rbw edit` no longer resets what `rbw` doesn't store locally: it kept
+  unmarking favorites, turning off the master password reprompt, unarchiving
+  entries and dropping passkeys, the password revision date, the autofill
+  setting and an identity's company. It also dropped the URI checksums, after
+  which the official clients hid the URIs of entries that have their own key.
+* `rbw edit` no longer adds the password to the history when it didn't change.
+* `rbw edit` syncs before opening the editor, so it no longer overwrites
+  changes made in another client since the last sync.
+* `rbw code` and `rbw get --field totp` report an error for an `otpauth://`
+  URI with `digits` outside 1 to 9 or a `period` of 0, and for a `steam:` URI
+  without a secret, instead of crashing or printing a wrong code.
+* Text sent to pinentry is escaped, so a `%` or a newline in a prompt, such
+  as an error message from the server, no longer garbles it or cuts the
+  conversation with pinentry short.
+* `rbw edit` refuses to edit a password, notes or a field it couldn't
+  decrypt (for example after cancelling a master password reprompt), instead
+  of showing it empty and erasing it on save.
+* The client now restarts the running agent after every upgrade. The protocol
+  version it compares gave some releases the same number (1.17.1 and 1.18.0,
+  for example), so the old agent kept running.
+
+## Changed
+
+* `touch_id_ssh` is deprecated in favour of `ssh_confirm`. Configs that set it
+  keep asking, and `rbw config set touch_id_ssh` now sets `ssh_confirm`. A
+  config with `touch_id_ssh` set by hand on Linux, which 1.17.0 ignored, now
+  turns on the pinentry prompt there.
+* New config files are readable only by their owner.
+* `rbw get`, `list`, `search`, `code`, `edit`, `history` and `remove`, and
+  `add`/`generate` with `--folder`, send one or two batched requests to the
+  agent instead of one request per field of every entry, which took
+  over a second with a few hundred entries on macOS (Christoph, doy/rbw#359;
+  the same approach was proposed by Benedikt Bartscher in doy/rbw#344).
+  Cancelling a master password reprompt now also skips the remaining prompts
+  for that command.
+* TOTP codes are generated with totp-rs 6 (Michel Lind, doy/rbw#375). The
+  codes are unchanged, and tests now check them against the RFC 6238 vectors
+  and Steam codes. Building `rbw-ng` now needs Rust 1.88 or newer.
+
 ## [1.17.0] - 2026-11-23
 
 First release of `rbw-ng`, a maintained continuation of `rbw`. It also

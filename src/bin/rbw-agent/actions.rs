@@ -777,6 +777,30 @@ async fn decrypt_cipher(
     entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
+    decrypt_cipher_in_request(
+        state,
+        environment,
+        cipherstring,
+        entry_key,
+        org_id,
+        &mut false,
+    )
+    .await
+}
+
+// Decrypts one cipherstring as part of a request that may decrypt several.
+// If the user cancels or fails a master password reprompt, the request sets
+// reprompt_declined, and the remaining reprompt-protected values in the same
+// request fail without asking again. Values are never decrypted without a
+// successful prompt of their own.
+async fn decrypt_cipher_in_request(
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    cipherstring: &str,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+    reprompt_declined: &mut bool,
+) -> anyhow::Result<String> {
     let mut state = state.lock().await;
     if !state.master_password_reprompt_initialized() {
         let db = load_db().await?;
@@ -807,78 +831,14 @@ async fn decrypt_cipher(
         .master_password_reprompt
         .contains(&master_password_reprompt)
     {
-        let db = load_db().await?;
-
-        let Some(kdf) = db.kdf else {
-            return Err(anyhow::anyhow!("failed to find kdf type in db"));
-        };
-
-        let Some(iterations) = db.iterations else {
+        if *reprompt_declined {
             return Err(anyhow::anyhow!(
-                "failed to find number of iterations in db"
+                "master password reprompt was declined earlier in this request"
             ));
-        };
-
-        let memory = db.memory;
-        let parallelism = db.parallelism;
-
-        let Some(protected_key) = db.protected_key else {
-            return Err(anyhow::anyhow!(
-                "failed to find protected key in db"
-            ));
-        };
-        let Some(protected_private_key) = db.protected_private_key else {
-            return Err(anyhow::anyhow!(
-                "failed to find protected private key in db"
-            ));
-        };
-
-        let email = config_email().await?;
-
-        let mut err_msg = None;
-        for i in 1_u8..=3 {
-            let err = if i > 1 {
-                // this unwrap is safe because we only ever continue the loop
-                // if we have set err_msg
-                Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
-            } else {
-                None
-            };
-            let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
-                "Master Password",
-                "Accessing this entry requires the master password",
-                err.as_deref(),
-                environment,
-                true,
-            )
-            .await
-            .context("failed to read password from pinentry")?;
-            match rbw::actions::unlock(
-                &email,
-                &password,
-                kdf,
-                iterations,
-                memory,
-                parallelism,
-                &protected_key,
-                &protected_private_key,
-                &db.protected_org_keys,
-            ) {
-                Ok(_) => {
-                    break;
-                }
-                Err(rbw::error::Error::IncorrectPassword { message }) => {
-                    if i == 3 {
-                        return Err(rbw::error::Error::IncorrectPassword {
-                            message,
-                        })
-                        .context("failed to unlock database");
-                    }
-                    err_msg = Some(message);
-                }
-                Err(e) => return Err(e).context("failed to unlock database"),
-            }
+        }
+        if let Err(e) = confirm_master_password(environment).await {
+            *reprompt_declined = true;
+            return Err(e);
         }
     }
 
@@ -894,6 +854,86 @@ async fn decrypt_cipher(
     Ok(plaintext)
 }
 
+// Asks for the master password before revealing a value from an entry with
+// master password reprompt enabled. The caller holds the state lock for the
+// whole prompt, so other requests wait until it is answered.
+async fn confirm_master_password(
+    environment: &rbw::protocol::Environment,
+) -> anyhow::Result<()> {
+    let db = load_db().await?;
+
+    let Some(kdf) = db.kdf else {
+        return Err(anyhow::anyhow!("failed to find kdf type in db"));
+    };
+
+    let Some(iterations) = db.iterations else {
+        return Err(anyhow::anyhow!(
+            "failed to find number of iterations in db"
+        ));
+    };
+
+    let memory = db.memory;
+    let parallelism = db.parallelism;
+
+    let Some(protected_key) = db.protected_key else {
+        return Err(anyhow::anyhow!("failed to find protected key in db"));
+    };
+    let Some(protected_private_key) = db.protected_private_key else {
+        return Err(anyhow::anyhow!(
+            "failed to find protected private key in db"
+        ));
+    };
+
+    let email = config_email().await?;
+
+    let mut err_msg = None;
+    for i in 1_u8..=3 {
+        let err = if i > 1 {
+            // this unwrap is safe because we only ever continue the loop
+            // if we have set err_msg
+            Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
+        } else {
+            None
+        };
+        let password = rbw::pinentry::getpin(
+            &config_pinentry().await?,
+            "Master Password",
+            "Accessing this entry requires the master password",
+            err.as_deref(),
+            environment,
+            true,
+        )
+        .await
+        .context("failed to read password from pinentry")?;
+        match rbw::actions::unlock(
+            &email,
+            &password,
+            kdf,
+            iterations,
+            memory,
+            parallelism,
+            &protected_key,
+            &protected_private_key,
+            &db.protected_org_keys,
+        ) {
+            Ok(_) => {
+                break;
+            }
+            Err(rbw::error::Error::IncorrectPassword { message }) => {
+                if i == 3 {
+                    return Err(rbw::error::Error::IncorrectPassword {
+                        message,
+                    })
+                    .context("failed to unlock database");
+                }
+                err_msg = Some(message);
+            }
+            Err(e) => return Err(e).context("failed to unlock database"),
+        }
+    }
+    Ok(())
+}
+
 pub async fn decrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
@@ -906,6 +946,38 @@ pub async fn decrypt(
         decrypt_cipher(state, environment, cipherstring, entry_key, org_id)
             .await?;
     respond_decrypt(sock, plaintext).await?;
+
+    Ok(())
+}
+
+pub async fn decrypt_many(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    environment: &rbw::protocol::Environment,
+    items: &[rbw::protocol::DecryptItem],
+) -> anyhow::Result<()> {
+    let mut plaintexts = Vec::with_capacity(items.len());
+    let mut reprompt_declined = false;
+    for item in items {
+        // handle_request checked the lock deadline before the batch, but a
+        // reprompt can keep it running for minutes (or across a sleep), so
+        // check again before each value, as separate requests would
+        state.lock().await.lock_if_expired();
+        plaintexts.push(
+            decrypt_cipher_in_request(
+                state.clone(),
+                environment,
+                &item.cipherstring,
+                item.entry_key.as_deref(),
+                item.org_id.as_deref(),
+                &mut reprompt_declined,
+            )
+            .await
+            .map_err(|e| format!("{e:#}")),
+        );
+    }
+    sock.send(&rbw::protocol::Response::DecryptMany { plaintexts })
+        .await?;
 
     Ok(())
 }
@@ -1048,7 +1120,7 @@ async fn config_base_url() -> anyhow::Result<String> {
     Ok(config.base_url())
 }
 
-async fn config_pinentry() -> anyhow::Result<rbw::pinentry::Pinentry> {
+pub async fn config_pinentry() -> anyhow::Result<rbw::pinentry::Pinentry> {
     let config = rbw::config::Config::load_async().await?;
     Ok(rbw::pinentry::Pinentry {
         program: config.pinentry,
@@ -1079,10 +1151,12 @@ pub async fn subscribe_to_notifications(
     )
     .replace("https://", "wss://");
 
+    let extra_headers = config.extra_headers()?;
+
     let mut state = state.lock().await;
     state
         .notifications_handler
-        .connect(websocket_url)
+        .connect(websocket_url, extra_headers)
         .await
         .err()
         .map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))

@@ -181,11 +181,12 @@ pub fn add(
     user_id: &str,
     name: &str,
     data: &crate::db::EntryData,
+    fields: &[crate::db::Field],
     notes: Option<&str>,
     folder_id: Option<&str>,
 ) -> Result<(Option<RefreshedTokens>, ())> {
     with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, user_id, name, data, notes, folder_id)
+        add_once(access_token, user_id, name, data, fields, notes, folder_id)
     })
 }
 
@@ -194,11 +195,20 @@ fn add_once(
     user_id: &str,
     name: &str,
     data: &crate::db::EntryData,
+    fields: &[crate::db::Field],
     notes: Option<&str>,
     folder_id: Option<&str>,
 ) -> Result<()> {
     let (client, _) = api_client()?;
-    client.add(access_token, user_id, name, data, notes, folder_id)?;
+    client.add(
+        access_token,
+        user_id,
+        name,
+        data,
+        fields,
+        notes,
+        folder_id,
+    )?;
     Ok(())
 }
 
@@ -554,6 +564,7 @@ fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
         &config.identity_url(),
         &config.ui_url(),
         config.client_cert_path(),
+        config.extra_headers()?,
     );
     Ok((client, config))
 }
@@ -566,6 +577,7 @@ async fn api_client_async(
         &config.identity_url(),
         &config.ui_url(),
         config.client_cert_path(),
+        config.extra_headers()?,
     );
     Ok((client, config))
 }

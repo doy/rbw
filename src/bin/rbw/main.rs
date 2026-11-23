@@ -139,6 +139,32 @@ enum Opt {
         uri: Vec<String>,
         #[arg(long, help = "Folder for the password entry")]
         folder: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["user", "uri"],
+            help = "Create a secure note instead of a login; the editor \
+                    contents (or stdin) are stored as the note"
+        )]
+        secure_note: bool,
+        #[arg(
+            long,
+            value_name = "NAME=VALUE",
+            value_parser = parse_field,
+            help = "Add a text custom field (may be repeated)",
+            number_of_values = 1
+        )]
+        field: Vec<(String, String)>,
+        #[arg(
+            long,
+            value_name = "NAME=VALUE",
+            value_parser = parse_field,
+            help = "Add a hidden custom field (may be repeated). The value \
+                    ends up in shell history and is visible to other \
+                    processes; `rbw edit --field NAME --create` reads it \
+                    from stdin or the editor instead",
+            number_of_values = 1
+        )]
+        hidden_field: Vec<(String, String)>,
     },
 
     #[command(
@@ -204,11 +230,30 @@ enum Opt {
             The editor to use is determined  by the value of the \
             $VISUAL or $EDITOR environment variables. The first line \
             will be saved as the password and the remainder will be saved \
-            as a note."
+            as a note.\n\n\
+            With --field, only that field is edited: the entry name, \
+            notes, a login's username, password, totp or uris (one per \
+            line), or a custom field. When stdin is not a terminal, the \
+            new value is read from it as is, without the trailing \
+            newline; otherwise the editor opens with the current value."
     )]
     Edit {
         #[command(flatten)]
         find_args: FindArgs,
+        #[arg(
+            short = 'f',
+            long,
+            help = "Edit a single field: name, notes, username, password, \
+                    totp, uris or the name of a custom field"
+        )]
+        field: Option<String>,
+        #[arg(
+            long,
+            requires = "field",
+            help = "Add the custom field as a hidden field if the entry \
+                    doesn't have it"
+        )]
+        create: bool,
     },
 
     #[command(about = "Remove a given entry", visible_alias = "rm")]
@@ -307,6 +352,16 @@ impl Config {
     }
 }
 
+// the name ends at the first '=', so values can contain '=' but names can't
+fn parse_field(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .filter(|(name, _)| !name.is_empty())
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .ok_or_else(|| {
+            "expected NAME=VALUE with a non-empty NAME".to_string()
+        })
+}
+
 fn main() {
     let opt = Opt::parse();
 
@@ -385,6 +440,9 @@ fn main() {
             user,
             uri,
             folder,
+            secure_note,
+            field,
+            hidden_field,
         } => commands::add(
             &name,
             user.as_deref(),
@@ -394,6 +452,14 @@ fn main() {
                 .map(|uri| (uri.clone(), None))
                 .collect::<Vec<_>>(),
             folder.as_deref(),
+            secure_note,
+            &field
+                .into_iter()
+                .map(|(name, value)| (name, value, rbw::api::FieldType::Text))
+                .chain(hidden_field.into_iter().map(|(name, value)| {
+                    (name, value, rbw::api::FieldType::Hidden)
+                }))
+                .collect::<Vec<_>>(),
         ),
         Opt::Generate {
             len,
@@ -430,10 +496,16 @@ fn main() {
                 ty,
             )
         }
-        Opt::Edit { find_args } => commands::edit(
+        Opt::Edit {
+            find_args,
+            field,
+            create,
+        } => commands::edit(
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
+            field.as_deref(),
+            create,
             find_args.ignorecase,
         ),
         Opt::Remove { find_args } => commands::remove(
@@ -521,5 +593,84 @@ fn main() {
     if let Err(e) = res {
         eprintln!("{e:#}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cli_definition() {
+        Opt::command().debug_assert();
+    }
+
+    #[test]
+    fn test_parse_field() {
+        assert_eq!(
+            parse_field("name=value"),
+            Ok(("name".to_string(), "value".to_string()))
+        );
+        assert_eq!(
+            parse_field("name=a=b"),
+            Ok(("name".to_string(), "a=b".to_string()))
+        );
+        assert_eq!(
+            parse_field("name="),
+            Ok(("name".to_string(), String::new()))
+        );
+        assert!(parse_field("name").is_err());
+        assert!(parse_field("=value").is_err());
+        assert!(parse_field("").is_err());
+    }
+
+    #[test]
+    fn test_add_and_edit_args() {
+        let Ok(Opt::Add {
+            field,
+            hidden_field,
+            secure_note,
+            ..
+        }) = Opt::try_parse_from([
+            "rbw",
+            "add",
+            "entry",
+            "--secure-note",
+            "--field",
+            "a=1",
+            "--hidden-field",
+            "b=2",
+            "--field",
+            "c=3",
+        ])
+        else {
+            panic!("failed to parse");
+        };
+        assert!(secure_note);
+        assert_eq!(
+            field,
+            [
+                ("a".to_string(), "1".to_string()),
+                ("c".to_string(), "3".to_string())
+            ]
+        );
+        assert_eq!(hidden_field, [("b".to_string(), "2".to_string())]);
+
+        let Ok(Opt::Edit { field, create, .. }) = Opt::try_parse_from([
+            "rbw", "edit", "entry", "-f", "password", "--create",
+        ]) else {
+            panic!("failed to parse");
+        };
+        assert_eq!(field.as_deref(), Some("password"));
+        assert!(create);
+
+        for args in [
+            &["rbw", "edit", "entry", "--create"][..],
+            &["rbw", "add", "entry", "user", "--secure-note"][..],
+            &["rbw", "add", "entry", "--secure-note", "--uri", "x"][..],
+            &["rbw", "add", "entry", "--field", "novalue"][..],
+        ] {
+            assert!(Opt::try_parse_from(args).is_err(), "{args:?}");
+        }
     }
 }

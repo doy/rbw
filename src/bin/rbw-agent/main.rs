@@ -7,6 +7,7 @@ mod biometric;
 mod daemon;
 mod debugger;
 mod notifications;
+mod peer;
 #[cfg(target_os = "macos")]
 mod presence;
 mod sock;
@@ -48,8 +49,7 @@ async fn tokio_main(
             unlock_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             #[cfg(target_os = "macos")]
             touch_id_unlock: config.touch_id_unlock,
-            #[cfg(target_os = "macos")]
-            touch_id_ssh: config.touch_id_ssh,
+            ssh_confirm: config.confirms_ssh_signatures(),
             #[cfg(target_os = "macos")]
             biometric_unlock: None,
             last_environment: rbw::protocol::Environment::from_process(),

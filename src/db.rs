@@ -31,6 +31,13 @@ impl Entry {
 pub struct Uri {
     pub uri: String,
     pub match_type: Option<crate::api::UriMatchType>,
+    // the encrypted sha256 of the uri, which the official clients check
+    // before they show the uri of an entry that has its own key. sync
+    // doesn't store it, so that older versions can still read the db: rbw
+    // sets it only on uris it encrypts for a request, and an edit takes the
+    // checksums of unchanged uris from the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uri_checksum: Option<String>,
 }
 
 // backwards compatibility
@@ -60,6 +67,7 @@ impl<'de> serde::Deserialize<'de> for Uri {
                 Ok(Uri {
                     uri: value.to_string(),
                     match_type: None,
+                    uri_checksum: None,
                 })
             }
 
@@ -72,6 +80,7 @@ impl<'de> serde::Deserialize<'de> for Uri {
             {
                 let mut uri = None;
                 let mut match_type = None;
+                let mut uri_checksum = None;
                 while let Some(key) = map.next_key()? {
                     match key {
                         "uri" => {
@@ -92,10 +101,20 @@ impl<'de> serde::Deserialize<'de> for Uri {
                             }
                             match_type = map.next_value()?;
                         }
+                        "uri_checksum" => {
+                            if uri_checksum.is_some() {
+                                return Err(
+                                    serde::de::Error::duplicate_field(
+                                        "uri_checksum",
+                                    ),
+                                );
+                            }
+                            uri_checksum = map.next_value()?;
+                        }
                         _ => {
                             return Err(serde::de::Error::unknown_field(
                                 key,
-                                &["uri", "match_type"],
+                                &["uri", "match_type", "uri_checksum"],
                             ))
                         }
                     }
@@ -103,7 +122,13 @@ impl<'de> serde::Deserialize<'de> for Uri {
 
                 uri.map_or_else(
                     || Err(serde::de::Error::missing_field("uri")),
-                    |uri| Ok(Self::Value { uri, match_type }),
+                    |uri| {
+                        Ok(Self::Value {
+                            uri,
+                            match_type,
+                            uri_checksum,
+                        })
+                    },
                 )
             }
         }
@@ -341,5 +366,33 @@ impl Db {
             || self.iterations.is_none()
             || self.kdf.is_none()
             || self.protected_key.is_none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uri_checksum_stays_out_of_the_db() {
+        let uri = Uri {
+            uri: "2.uri".to_string(),
+            match_type: None,
+            uri_checksum: None,
+        };
+        let json = serde_json::to_string(&uri).unwrap();
+        assert_eq!(json, r#"{"uri":"2.uri","match_type":null}"#);
+        assert_eq!(serde_json::from_str::<Uri>(&json).unwrap(), uri);
+
+        let uri = Uri {
+            uri_checksum: Some("2.checksum".to_string()),
+            ..uri
+        };
+        let json = serde_json::to_string(&uri).unwrap();
+        assert_eq!(serde_json::from_str::<Uri>(&json).unwrap(), uri);
+        assert_eq!(
+            serde_json::from_str::<Uri>(r#""2.uri""#).unwrap().uri,
+            "2.uri"
+        );
     }
 }

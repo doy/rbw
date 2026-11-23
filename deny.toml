@@ -49,6 +49,16 @@ skip = [
     { name = "rand_chacha", version = "0.9.0" },
     { name = "getrandom", version = "0.2.16" },
     { name = "getrandom", version = "0.3.4" },
+    # totp-rs 6 uses the RustCrypto digest 0.11 generation (hmac 0.13, sha1
+    # 0.11, sha2 0.11), while rsa, ssh-key, pbkdf2 and hkdf are still on
+    # digest 0.10
+    { name = "block-buffer", version = "0.10.4" },
+    { name = "cpufeatures", version = "0.2.17" },
+    { name = "crypto-common", version = "0.1.7" },
+    { name = "digest", version = "0.10.7" },
+    { name = "hmac", version = "0.12.1" },
+    { name = "sha1", version = "0.10.7" },
+    { name = "sha2", version = "0.10.9" },
 ]
 
 [licenses]

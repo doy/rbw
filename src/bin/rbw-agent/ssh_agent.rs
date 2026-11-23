@@ -29,41 +29,90 @@ impl SshAgent {
 impl ssh_agent_lib::agent::Agent<tokio::net::UnixListener> for SshAgent {
     fn new_session(
         &mut self,
-        #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
         socket: &tokio::net::UnixStream,
     ) -> impl ssh_agent_lib::agent::Session {
         SshSession {
             state: self.state.clone(),
-            #[cfg(target_os = "macos")]
-            peer: crate::presence::describe_peer(socket),
+            peer: crate::peer::describe(socket),
         }
     }
 }
 
+// One prompt at a time: concurrent requests queue up instead of stacking
+// dialogs the person cannot tell apart.
+static PROMPT_LOCK: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
+// Entry names come from the vault, which can be shared with others.
+const MAX_KEY_NAME_CHARS: usize = 100;
+
 // One connection from an ssh client.
 pub struct SshSession {
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
-    // Who is asking, for the Touch ID prompt.
-    #[cfg(target_os = "macos")]
+    // Who is asking, for the confirmation prompt.
     peer: String,
 }
 
-#[cfg(target_os = "macos")]
 impl SshSession {
+    // With ssh_confirm on, asks the person to approve the signature: Touch
+    // ID, an Apple Watch or the login password on macOS, a pinentry dialog
+    // elsewhere. Anything but an approval refuses the signature.
     async fn confirm_sign(
         &self,
         key_name: &str,
     ) -> Result<(), ssh_agent_lib::error::AgentError> {
-        if !self.state.lock().await.touch_id_ssh {
+        if !self.state.lock().await.ssh_confirm {
             return Ok(());
         }
+        let key_name = crate::peer::printable(key_name, MAX_KEY_NAME_CHARS);
+
+        let _guard = PROMPT_LOCK.lock().await;
+        self.ask(&key_name).await.map_err(|e| {
+            log::warn!("refused to sign with \"{key_name}\": {e:#}");
+            ssh_agent_lib::error::AgentError::Other(e.into())
+        })?;
+
+        // the key was decrypted before the request waited for the prompt
+        // and the ones queued ahead of it, so don't sign if the agent
+        // locked in the meantime
+        let mut state = self.state.lock().await;
+        state.lock_if_expired();
+        if state.needs_unlock() {
+            log::warn!(
+                "refused to sign with \"{key_name}\": the agent locked \
+                 while waiting for approval"
+            );
+            return Err(ssh_agent_lib::error::AgentError::Other(
+                anyhow::anyhow!(
+                    "the agent locked while waiting for approval"
+                )
+                .into(),
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn ask(&self, key_name: &str) -> anyhow::Result<()> {
         // macOS shows this as "rbw-agent is trying to <reason>."
         let reason =
             format!("sign with the SSH key \"{key_name}\" for {}", self.peer);
-        crate::presence::confirm(&reason).await.map_err(|e| {
-            log::warn!("refused to sign with \"{key_name}\": {e}");
-            ssh_agent_lib::error::AgentError::Other(e.into())
-        })
+        crate::presence::confirm(&reason).await?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    async fn ask(&self, key_name: &str) -> anyhow::Result<()> {
+        let pinentry = crate::actions::config_pinentry().await?;
+        // ssh requests carry no environment, so use the last one an rbw
+        // command sent, like the unlock prompt does
+        let environment = self.state.lock().await.last_environment().clone();
+        let desc = format!(
+            "Allow {} to sign with the SSH key \"{key_name}\"?",
+            self.peer
+        );
+        rbw::pinentry::confirm(&pinentry, &desc, &environment).await?;
+        Ok(())
     }
 }
 
@@ -97,10 +146,7 @@ impl ssh_agent_lib::agent::Session for SshSession {
                     ssh_agent_lib::error::AgentError::Other(e.into())
                 })?;
 
-        #[cfg(target_os = "macos")]
         self.confirm_sign(&key_name).await?;
-        #[cfg(not(target_os = "macos"))]
-        let _ = key_name;
 
         match private_key.key_data() {
             ssh_agent_lib::ssh_key::private::KeypairData::Ed25519(key) => key

@@ -19,11 +19,6 @@ const MAX_REASON_LEN: u64 = 1024;
 const PROMPT_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(120);
 
-// One prompt at a time: concurrent requests queue up instead of stacking
-// dialogs the person cannot tell apart.
-static PROMPT_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
-    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
-
 #[derive(Debug, thiserror::Error)]
 pub enum ConfirmError {
     #[error("the request was not approved")]
@@ -32,10 +27,9 @@ pub enum ConfirmError {
     Unavailable(String),
 }
 
+// The caller makes sure only one prompt is up at a time.
 pub async fn confirm(reason: &str) -> Result<(), ConfirmError> {
     use tokio::io::AsyncWriteExt as _;
-
-    let _guard = PROMPT_LOCK.lock().await;
 
     let executable = std::env::current_exe().map_err(unavailable)?;
     let mut child = tokio::process::Command::new(executable)
@@ -130,84 +124,6 @@ fn evaluate(reason: &str) -> i32 {
     }
 }
 
-// The program on the other end of an ssh agent connection, for the prompt,
-// for example "ssh (pid 4242), started by git".
-pub fn describe_peer(socket: &tokio::net::UnixStream) -> String {
-    let Some(pid) = socket.peer_cred().ok().and_then(|cred| cred.pid())
-    else {
-        return "an unknown program".to_string();
-    };
-    let Some((name, parent)) = process_info(pid) else {
-        return format!("process {pid}");
-    };
-    parent.and_then(process_info).map_or_else(
-        || format!("{name} (pid {pid})"),
-        |(parent_name, _)| {
-            format!("{name} (pid {pid}), started by {parent_name}")
-        },
-    )
-}
-
-// Returns the process name and its parent pid.
-fn process_info(pid: libc::pid_t) -> Option<(String, Option<libc::pid_t>)> {
-    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
-    let size =
-        libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>())
-            .ok()?;
-    // SAFETY: the buffer is exactly one proc_bsdinfo, as its size says.
-    let written = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            info.as_mut_ptr().cast(),
-            size,
-        )
-    };
-    if written != size {
-        return None;
-    }
-    // SAFETY: proc_pidinfo filled the whole struct.
-    let info = unsafe { info.assume_init() };
-
-    let name = c_chars_to_string(&info.pbi_name)
-        .filter(|name| !name.is_empty())
-        .or_else(|| c_chars_to_string(&info.pbi_comm))?;
-    let parent = libc::pid_t::try_from(info.pbi_ppid)
-        .ok()
-        .filter(|&ppid| ppid > 1);
-    Some((name, parent))
-}
-
-fn c_chars_to_string(chars: &[libc::c_char]) -> Option<String> {
-    let bytes: Vec<u8> = chars
-        .iter()
-        .take_while(|&&c| c != 0)
-        .map(|&c| c.to_ne_bytes()[0])
-        .collect();
-    String::from_utf8(bytes).ok()
-}
-
 fn unavailable(error: impl std::fmt::Display) -> ConfirmError {
     ConfirmError::Unavailable(error.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn c_chars_stop_at_nul() {
-        let chars: Vec<libc::c_char> = b"ssh\0junk"
-            .iter()
-            .map(|&b| libc::c_char::from_ne_bytes([b]))
-            .collect();
-        assert_eq!(super::c_chars_to_string(&chars).as_deref(), Some("ssh"));
-    }
-
-    #[test]
-    fn own_process_is_described() {
-        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
-        let (name, parent) = super::process_info(pid).unwrap();
-        assert_ne!(name, "");
-        assert!(parent.is_some());
-    }
 }

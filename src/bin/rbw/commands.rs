@@ -1,4 +1,8 @@
-use std::{fmt::Write as _, io::Write as _, os::unix::ffi::OsStrExt as _};
+use std::{
+    fmt::Write as _,
+    io::{IsTerminal as _, Write as _},
+    os::unix::ffi::OsStrExt as _,
+};
 
 use anyhow::Context as _;
 
@@ -1286,19 +1290,29 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             }
             config.touch_id_unlock = enabled;
         }
-        "touch_id_ssh" => {
-            let enabled = value
-                .parse()
-                .context("failed to parse value for touch_id_ssh")?;
-            #[cfg(not(target_os = "macos"))]
-            if enabled {
-                return Err(anyhow::anyhow!(
-                    "touch_id_ssh is only supported on macOS"
-                ));
+        "ssh_confirm" | "touch_id_ssh" => {
+            let enabled = value.parse().with_context(|| {
+                format!("failed to parse value for {key}")
+            })?;
+            if key == "touch_id_ssh" {
+                eprintln!(
+                    "touch_id_ssh is deprecated, setting ssh_confirm instead"
+                );
             }
-            config.touch_id_ssh = enabled;
+            config.set_ssh_confirm(enabled);
         }
-        _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
+        "extra_headers" => return Err(extra_headers_key_error()),
+        _ => {
+            let Some(name) = key.strip_prefix(EXTRA_HEADERS_PREFIX) else {
+                return Err(anyhow::anyhow!("invalid config key: {key}"));
+            };
+            rbw::config::parse_extra_header(name, value)?;
+            // header names are case-insensitive: replace any spelling
+            remove_extra_header(&mut config, name);
+            config
+                .extra_headers
+                .insert(name.to_string(), value.to_string());
+        }
     }
     config.save()?;
 
@@ -1331,8 +1345,14 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.pinentry_timeout = rbw::config::default_pinentry_timeout();
         }
         "touch_id_unlock" => config.touch_id_unlock = false,
-        "touch_id_ssh" => config.touch_id_ssh = false,
-        _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
+        "ssh_confirm" | "touch_id_ssh" => config.set_ssh_confirm(false),
+        "extra_headers" => config.extra_headers.clear(),
+        _ => {
+            let Some(name) = key.strip_prefix(EXTRA_HEADERS_PREFIX) else {
+                return Err(anyhow::anyhow!("invalid config key: {key}"));
+            };
+            remove_extra_header(&mut config, name);
+        }
     }
     config.save()?;
 
@@ -1344,6 +1364,22 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
     stop_agent()?;
 
     Ok(())
+}
+
+// `rbw config set extra_headers.NAME VALUE` sets one header.
+const EXTRA_HEADERS_PREFIX: &str = "extra_headers.";
+
+fn extra_headers_key_error() -> anyhow::Error {
+    anyhow::anyhow!(
+        "set one header at a time with \
+         `rbw config set extra_headers.<name> <value>`"
+    )
+}
+
+fn remove_extra_header(config: &mut rbw::config::Config, name: &str) {
+    config
+        .extra_headers
+        .retain(|existing, _| !existing.eq_ignore_ascii_case(name));
 }
 
 fn clipboard_store(val: &str) -> anyhow::Result<()> {
@@ -1405,11 +1441,10 @@ pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
     unlock()?;
 
     let db = load_db()?;
-    let mut entries: Vec<DecryptedListCipher> = db
-        .entries
-        .iter()
-        .map(|entry| decrypt_list_cipher(entry, &fields))
-        .collect::<anyhow::Result<_>>()?;
+    let mut entries: Vec<DecryptedListCipher> =
+        batch_decrypt(&db.entries, |entry, decryptor| {
+            decrypt_list_cipher(entry, &fields, decryptor)
+        })?;
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     print_entry_list(&entries, &fields, raw)?;
@@ -1534,17 +1569,14 @@ pub fn search(
 
     let db = load_db()?;
 
-    let mut entries: Vec<DecryptedListCipher> = db
-        .entries
-        .iter()
-        .map(decrypt_search_cipher)
-        .filter(|entry| {
-            entry
-                .as_ref()
-                .map_or(true, |entry| entry.search_match(term, folder))
-        })
-        .map(|entry| entry.map(std::convert::Into::into))
-        .collect::<Result<_, anyhow::Error>>()?;
+    let mut entries: Vec<DecryptedListCipher> =
+        batch_decrypt(&db.entries, |entry, decryptor| {
+            decrypt_search_cipher(entry, decryptor)
+        })?
+        .into_iter()
+        .filter(|entry| entry.search_match(term, folder))
+        .map(std::convert::Into::into)
+        .collect();
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
     print_entry_list(&entries, &fields, raw)?;
@@ -1593,7 +1625,11 @@ pub fn add(
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
+    secure_note: bool,
+    fields: &[(String, String, rbw::api::FieldType)],
 ) -> anyhow::Result<()> {
+    check_new_field_names(fields.iter().map(|(name, _, _)| name.as_str()))?;
+
     unlock()?;
 
     let mut db = load_db()?;
@@ -1614,9 +1650,14 @@ pub fn add(
         .map(|username| crate::actions::encrypt(username, None, None))
         .transpose()?;
 
-    let contents = rbw::edit::edit("", HELP_PW)?;
-
-    let (password, notes) = parse_editor(&contents);
+    let (password, notes) = if secure_note {
+        let contents = rbw::edit::edit("", HELP_NOTES)?;
+        // prepend blank line to be parsed as pw by `parse_editor`
+        let (_, notes) = parse_editor(&format!("\n{contents}\n"));
+        (None, notes)
+    } else {
+        parse_editor(&rbw::edit::edit("", HELP_PW)?)
+    };
     let password = password
         .map(|password| crate::actions::encrypt(&password, None, None))
         .transpose()?;
@@ -1625,10 +1666,22 @@ pub fn add(
         .transpose()?;
     let uris: Vec<_> = uris
         .iter()
-        .map(|uri| {
-            Ok(rbw::db::Uri {
-                uri: crate::actions::encrypt(&uri.0, None, None)?,
-                match_type: uri.1,
+        .map(|(uri, match_type)| encrypt_uri(uri, *match_type, None, None))
+        .collect::<anyhow::Result<_>>()?;
+
+    let fields: Vec<_> = fields
+        .iter()
+        .map(|(field_name, value, ty)| {
+            Ok(rbw::db::Field {
+                ty: Some(*ty),
+                name: Some(crate::actions::encrypt(field_name, None, None)?),
+                // the official clients store an empty value as null
+                value: if value.is_empty() {
+                    None
+                } else {
+                    Some(crate::actions::encrypt(value, None, None)?)
+                },
+                linked_id: None,
             })
         })
         .collect::<anyhow::Result<_>>()?;
@@ -1639,13 +1692,7 @@ pub fn add(
             rbw::actions::list_folders(&access_token, &refresh_token)?;
         update_tokens(tokens, &mut access_token, &mut refresh_token);
 
-        let folders: Vec<(String, String)> = folders
-            .iter()
-            .cloned()
-            .map(|(id, name)| {
-                Ok((id, crate::actions::decrypt(&name, None, None)?))
-            })
-            .collect::<anyhow::Result<_>>()?;
+        let folders = decrypt_folder_names(folders)?;
 
         for (id, name) in folders {
             if name == folder_name {
@@ -1663,17 +1710,24 @@ pub fn add(
         }
     }
 
+    let data = if secure_note {
+        rbw::db::EntryData::SecureNote
+    } else {
+        rbw::db::EntryData::Login {
+            username,
+            password,
+            uris,
+            totp: None,
+        }
+    };
+
     rbw::actions::add(
         &access_token,
         &refresh_token,
         &user_id,
         &name,
-        &rbw::db::EntryData::Login {
-            username,
-            password,
-            uris,
-            totp: None,
-        },
+        &data,
+        &fields,
         notes.as_deref(),
         folder_id.as_deref(),
     )?;
@@ -1681,6 +1735,46 @@ pub fn add(
     crate::actions::sync()?;
 
     Ok(())
+}
+
+// `rbw get --field` and `rbw edit --field` can't tell two custom fields with
+// the same name apart, so don't create them
+fn check_new_field_names<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+) -> anyhow::Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for name in names {
+        if !seen.insert(name) {
+            anyhow::bail!("custom field '{name}' is given more than once");
+        }
+    }
+    Ok(())
+}
+
+fn uri_checksum(uri: &str) -> String {
+    use sha2::Digest as _;
+
+    rbw::base64::encode(sha2::Sha256::digest(uri.as_bytes()))
+}
+
+// encrypts a uri together with its checksum (the base64 sha256 of the uri),
+// which the official clients check before showing the uris of an entry
+// that has its own key
+fn encrypt_uri(
+    uri: &str,
+    match_type: Option<rbw::api::UriMatchType>,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<rbw::db::Uri> {
+    Ok(rbw::db::Uri {
+        uri: crate::actions::encrypt(uri, entry_key, org_id)?,
+        match_type,
+        uri_checksum: Some(crate::actions::encrypt(
+            &uri_checksum(uri),
+            entry_key,
+            org_id,
+        )?),
+    })
 }
 
 pub fn generate(
@@ -1717,11 +1811,8 @@ pub fn generate(
         let password = crate::actions::encrypt(&password, None, None)?;
         let uris: Vec<_> = uris
             .iter()
-            .map(|uri| {
-                Ok(rbw::db::Uri {
-                    uri: crate::actions::encrypt(&uri.0, None, None)?,
-                    match_type: uri.1,
-                })
+            .map(|(uri, match_type)| {
+                encrypt_uri(uri, *match_type, None, None)
             })
             .collect::<anyhow::Result<_>>()?;
 
@@ -1731,13 +1822,7 @@ pub fn generate(
                 rbw::actions::list_folders(&access_token, &refresh_token)?;
             update_tokens(tokens, &mut access_token, &mut refresh_token);
 
-            let folders: Vec<(String, String)> = folders
-                .iter()
-                .cloned()
-                .map(|(id, name)| {
-                    Ok((id, crate::actions::decrypt(&name, None, None)?))
-                })
-                .collect::<anyhow::Result<_>>()?;
+            let folders = decrypt_folder_names(folders)?;
 
             for (id, name) in folders {
                 if name == folder_name {
@@ -1766,6 +1851,7 @@ pub fn generate(
                 uris,
                 totp: None,
             },
+            &[],
             None,
             folder_id.as_deref(),
         )?;
@@ -1780,16 +1866,17 @@ pub fn edit(
     name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
+    field: Option<&str>,
+    create: bool,
     ignore_case: bool,
 ) -> anyhow::Result<()> {
     unlock()?;
 
-    let mut db = load_db()?;
-    if db.user_id.is_none() {
-        crate::actions::sync()
-            .context("failed to sync user id before editing entry")?;
-        db = load_db()?;
-    }
+    // the edit sends the rest of the entry from the local copy, so start
+    // from the server's current version instead of overwriting changes made
+    // elsewhere since the last sync. this also fetches the user id.
+    crate::actions::sync().context("failed to sync before editing entry")?;
+    let db = load_db()?;
     let user_id = user_id(&db)?.to_string();
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
@@ -1804,26 +1891,92 @@ pub fn edit(
         find_entry(&db, name, username, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
+    let edited = if let Some(field) = field {
+        edit_field(&entry, &decrypted, field, create)?
+    } else {
+        Some(edit_default(&entry, &decrypted)?)
+    };
+    let Some((name, data, fields, notes, history)) = edited else {
+        eprintln!("'{}' is unchanged, nothing to save", field.unwrap_or(""));
+        return Ok(());
+    };
+
+    rbw::actions::edit(
+        access_token,
+        refresh_token,
+        &user_id,
+        &entry.id,
+        entry.org_id.as_deref(),
+        &name,
+        &data,
+        &fields,
+        notes.as_deref(),
+        entry.folder_id.as_deref(),
+        &history,
+        entry.key.as_deref(),
+    )?;
+
+    crate::actions::sync()?;
+    Ok(())
+}
+
+// what an edit sends: the encrypted name, data, custom fields, notes and
+// password history
+type EditedEntry = (
+    String,
+    rbw::db::EntryData,
+    Vec<rbw::db::Field>,
+    Option<String>,
+    Vec<rbw::db::HistoryEntry>,
+);
+
+// a value that exists but couldn't be decrypted (for example because a
+// master password reprompt was cancelled) would show up empty in the editor,
+// and saving would erase it
+fn ensure_decrypted(
+    encrypted: Option<&str>,
+    decrypted: Option<&str>,
+    what: &str,
+) -> anyhow::Result<()> {
+    if encrypted.is_some() && decrypted.is_none() {
+        anyhow::bail!(
+            "the entry's {what} couldn't be decrypted, so it can't be edited"
+        );
+    }
+    Ok(())
+}
+
+fn edit_default(
+    entry: &rbw::db::Entry,
+    decrypted: &DecryptedCipher,
+) -> anyhow::Result<EditedEntry> {
+    ensure_decrypted(
+        entry.notes.as_deref(),
+        decrypted.notes.as_deref(),
+        "notes",
+    )?;
     let (data, fields, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
+            if let rbw::db::EntryData::Login {
+                password: encrypted,
+                ..
+            } = &entry.data
+            {
+                ensure_decrypted(
+                    encrypted.as_deref(),
+                    password.as_deref(),
+                    "password",
+                )?;
+            }
             let mut contents =
                 format!("{}\n", password.as_deref().unwrap_or(""));
-            if let Some(notes) = decrypted.notes {
+            if let Some(notes) = decrypted.notes.clone() {
                 write!(contents, "\n{notes}\n").unwrap();
             }
 
             let contents = rbw::edit::edit(&contents, HELP_PW)?;
 
-            let (password, notes) = parse_editor(&contents);
-            let password = password
-                .map(|password| {
-                    crate::actions::encrypt(
-                        &password,
-                        entry.key.as_deref(),
-                        entry.org_id.as_deref(),
-                    )
-                })
-                .transpose()?;
+            let (new_password, notes) = parse_editor(&contents);
             let notes = notes
                 .map(|notes| {
                     crate::actions::encrypt(
@@ -1844,15 +1997,13 @@ pub fn edit(
                 unreachable!();
             };
 
-            if let Some(prev_password) = entry_password.clone() {
-                let new_history_entry = rbw::db::HistoryEntry {
-                    last_used_date: format_rfc3339(
-                        std::time::SystemTime::now(),
-                    ),
-                    password: prev_password,
-                };
-                history.insert(0, new_history_entry);
-            }
+            let password = edit_password(
+                entry,
+                entry_password.as_deref(),
+                password.as_deref(),
+                new_password.as_deref(),
+                &mut history,
+            )?;
 
             let data = rbw::db::EntryData::Login {
                 username: entry_username.clone(),
@@ -1860,12 +2011,12 @@ pub fn edit(
                 uris: entry_uris.clone(),
                 totp: entry_totp.clone(),
             };
-            (data, entry.fields, notes, history)
+            (data, entry.fields.clone(), notes, history)
         }
         DecryptedData::SecureNote => {
             let data = rbw::db::EntryData::SecureNote {};
 
-            let editor_content = decrypted.notes.map_or_else(
+            let editor_content = decrypted.notes.clone().map_or_else(
                 || "\n".to_string(),
                 |notes| format!("{notes}\n"),
             );
@@ -1884,7 +2035,7 @@ pub fn edit(
                 })
                 .transpose()?;
 
-            (data, entry.fields, notes, entry.history)
+            (data, entry.fields.clone(), notes, entry.history.clone())
         }
         _ => {
             return Err(anyhow::anyhow!(
@@ -1892,25 +2043,465 @@ pub fn edit(
             ));
         }
     };
+    Ok((entry.name.clone(), data, fields, notes, history))
+}
 
-    rbw::actions::edit(
-        access_token,
-        refresh_token,
-        &user_id,
-        &entry.id,
-        entry.org_id.as_deref(),
-        &entry.name,
-        &data,
-        &fields,
-        notes.as_deref(),
-        entry.folder_id.as_deref(),
-        &history,
-        entry.key.as_deref(),
-    )?;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FieldTarget {
+    Builtin(Field),
+    Custom,
+}
 
-    crate::actions::sync()?;
+fn field_target(field: &str, data: &DecryptedData) -> FieldTarget {
+    match (field.parse::<Field>().ok(), data) {
+        (Some(f @ (Field::Name | Field::Notes)), _)
+        | (
+            Some(
+                f @ (Field::Username
+                | Field::Password
+                | Field::Totp
+                | Field::Uris),
+            ),
+            DecryptedData::Login { .. },
+        ) => FieldTarget::Builtin(f),
+        _ => FieldTarget::Custom,
+    }
+}
+
+fn find_custom_field(
+    names: &[Option<&str>],
+    field: &str,
+) -> anyhow::Result<Option<usize>> {
+    let named = || {
+        names
+            .iter()
+            .enumerate()
+            .filter_map(|(i, name)| name.map(|name| (i, name)))
+    };
+    // unlike `rbw get --field`, don't match part of a name: that would
+    // edit the wrong field when the one asked for doesn't exist, or update
+    // an existing field instead of creating one with --create
+    let lower = field.to_lowercase();
+    let levels: [Vec<(usize, &str)>; 2] = [
+        named().filter(|(_, name)| *name == field).collect(),
+        named()
+            .filter(|(_, name)| name.to_lowercase() == lower)
+            .collect(),
+    ];
+    for matches in levels {
+        match matches.as_slice() {
+            [] => {}
+            [(i, _)] => return Ok(Some(*i)),
+            _ => {
+                let candidates = matches
+                    .iter()
+                    .map(|(_, name)| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                anyhow::bail!(
+                    "field '{field}' is ambiguous, it matches {candidates}; \
+                     use the exact field name"
+                );
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn read_field_value(
+    current: Option<&str>,
+    help: &str,
+) -> anyhow::Result<Option<String>> {
+    if std::io::stdin().is_terminal() {
+        let contents =
+            rbw::edit::edit(&format!("{}\n", current.unwrap_or("")), help)?;
+        Ok(parse_field_value(&contents, help))
+    } else {
+        // taken verbatim on purpose, not run through the editor parser
+        let input = std::io::read_to_string(std::io::stdin())
+            .context("failed to read field value from stdin")?;
+        // empty input is more likely a mistake (a closed or redirected
+        // stdin) than a request to clear the field, which is still possible
+        // by saving an empty value in the editor
+        if input.is_empty() {
+            anyhow::bail!(
+                "no value on stdin; to clear the field, run the command in \
+                 a terminal and save an empty value"
+            );
+        }
+        Ok(parse_piped_field_value(&input))
+    }
+}
+
+fn parse_piped_field_value(input: &str) -> Option<String> {
+    let value = input
+        .strip_suffix('\n')
+        .map_or(input, |v| v.strip_suffix('\r').unwrap_or(v));
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+// what an edit does to the login password
+#[derive(Debug, PartialEq, Eq)]
+enum PasswordChange<'a> {
+    // keep the current ciphertext
+    Unchanged,
+    // the new password, or none to remove it
+    Changed(Option<&'a str>),
+}
+
+fn password_change<'a>(
+    encrypted: Option<&str>,
+    current: Option<&str>,
+    new: Option<&'a str>,
+) -> PasswordChange<'a> {
+    // like the official clients, store an empty password as none
+    let new = new.filter(|password| !password.is_empty());
+    if encrypted.is_none() && new.is_none() {
+        return PasswordChange::Unchanged;
+    }
+    // current is none with a ciphertext when it couldn't be decrypted, and
+    // then it can't be compared
+    if current.is_some() && current == new {
+        return PasswordChange::Unchanged;
+    }
+    PasswordChange::Changed(new)
+}
+
+// returns the encrypted password to send. an unchanged password keeps its
+// ciphertext, so that saving without changes adds nothing to the history and
+// leaves the server's password revision date alone. a changed one moves the
+// old one into the history, as the official clients do.
+fn edit_password(
+    entry: &rbw::db::Entry,
+    encrypted: Option<&str>,
+    current: Option<&str>,
+    new: Option<&str>,
+    history: &mut Vec<rbw::db::HistoryEntry>,
+) -> anyhow::Result<Option<String>> {
+    match password_change(encrypted, current, new) {
+        PasswordChange::Unchanged => Ok(encrypted.map(str::to_string)),
+        PasswordChange::Changed(new) => {
+            if let Some(old) = encrypted {
+                history.insert(
+                    0,
+                    rbw::db::HistoryEntry {
+                        last_used_date: rbw::api::format_rfc3339(
+                            std::time::SystemTime::now(),
+                        ),
+                        password: old.to_string(),
+                    },
+                );
+            }
+            new.map(|new| {
+                crate::actions::encrypt(
+                    new,
+                    entry.key.as_deref(),
+                    entry.org_id.as_deref(),
+                )
+            })
+            .transpose()
+        }
+    }
+}
+
+// one uri per line, ignoring blank lines and surrounding whitespace
+fn parse_uri_lines(value: Option<&str>) -> Vec<&str> {
+    value
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+// checks a new value for a custom field of the given type
+fn check_custom_field_value(
+    field: &str,
+    ty: Option<rbw::api::FieldType>,
+    value: Option<&str>,
+) -> anyhow::Result<()> {
+    if ty == Some(rbw::api::FieldType::Boolean)
+        && !matches!(value, Some("true" | "false"))
+    {
+        anyhow::bail!(
+            "'{field}' is a boolean field, its value must be true or false"
+        );
+    }
     Ok(())
 }
+
+// edits one field of the entry. returns none when the value didn't change,
+// so there is nothing to send.
+fn edit_field(
+    entry: &rbw::db::Entry,
+    decrypted: &DecryptedCipher,
+    field: &str,
+    create: bool,
+) -> anyhow::Result<Option<EditedEntry>> {
+    if field.is_empty() {
+        anyhow::bail!("the field name can't be empty");
+    }
+    if matches!(entry.data, rbw::db::EntryData::SshKey { .. }) {
+        anyhow::bail!("editing SSH key entries is not supported");
+    }
+
+    let encrypt = |plain: &str| {
+        crate::actions::encrypt(
+            plain,
+            entry.key.as_deref(),
+            entry.org_id.as_deref(),
+        )
+    };
+
+    let parsed = match field_target(field, &decrypted.data) {
+        FieldTarget::Builtin(parsed) => parsed,
+        FieldTarget::Custom => {
+            // match decrypted names; indices line up with entry.fields
+            let names: Vec<Option<&str>> =
+                decrypted.fields.iter().map(|f| f.name.as_deref()).collect();
+            let idx = find_custom_field(&names, field)?;
+            let ty = match idx {
+                Some(i) => entry.fields[i].ty,
+                None if create => Some(rbw::api::FieldType::Hidden),
+                None if field.parse::<Field>().is_ok() => anyhow::bail!(
+                    "field '{field}' can't be edited on this entry type \
+                     and no custom field with that name exists \
+                     (use --create to add one)"
+                ),
+                None => anyhow::bail!(
+                    "no field named '{field}' found on this entry \
+                     (use --create to add it)"
+                ),
+            };
+            if ty == Some(rbw::api::FieldType::Linked) {
+                anyhow::bail!(
+                    "'{field}' is a linked field, which shows another \
+                     field of the entry and has no value of its own"
+                );
+            }
+
+            let current =
+                idx.and_then(|i| decrypted.fields[i].value.as_deref());
+            if let Some(i) = idx {
+                ensure_decrypted(
+                    entry.fields[i].value.as_deref(),
+                    current,
+                    &format!("field '{field}'"),
+                )?;
+            }
+            let new_value = read_field_value(current, HELP_FIELD)?;
+            check_custom_field_value(field, ty, new_value.as_deref())?;
+            if idx.is_some() && new_value.as_deref() == current {
+                return Ok(None);
+            }
+            let value = new_value.as_deref().map(encrypt).transpose()?;
+
+            let mut fields = entry.fields.clone();
+            if let Some(i) = idx {
+                fields[i].value = value;
+            } else {
+                if value.is_none() {
+                    anyhow::bail!(
+                        "refusing to create field '{field}' with an empty \
+                         value"
+                    );
+                }
+                fields.push(rbw::db::Field {
+                    ty,
+                    name: Some(encrypt(field)?),
+                    value,
+                    linked_id: None,
+                });
+            }
+            return Ok(Some((
+                entry.name.clone(),
+                entry.data.clone(),
+                fields,
+                entry.notes.clone(),
+                entry.history.clone(),
+            )));
+        }
+    };
+
+    let encrypted = match (parsed, &entry.data) {
+        (Field::Notes, _) => entry.notes.as_deref(),
+        (
+            Field::Username,
+            rbw::db::EntryData::Login {
+                username: value, ..
+            },
+        )
+        | (
+            Field::Password,
+            rbw::db::EntryData::Login {
+                password: value, ..
+            },
+        )
+        | (Field::Totp, rbw::db::EntryData::Login { totp: value, .. }) => {
+            value.as_deref()
+        }
+        _ => None,
+    };
+    let current = match (parsed, &decrypted.data) {
+        (Field::Name, _) => Some(decrypted.name.clone()),
+        (Field::Notes, _) => decrypted.notes.clone(),
+        (Field::Username, DecryptedData::Login { username, .. }) => {
+            username.clone()
+        }
+        (Field::Password, DecryptedData::Login { password, .. }) => {
+            password.clone()
+        }
+        (Field::Totp, DecryptedData::Login { totp, .. }) => totp.clone(),
+        (Field::Uris, DecryptedData::Login { uris, .. }) => {
+            // a uri that can't be decrypted would be dropped from the
+            // edited list
+            let uris = uris.as_ref().context(
+                "some of the entry's uris couldn't be decrypted, so they \
+                 can't be edited",
+            )?;
+            if uris.is_empty() {
+                None
+            } else {
+                Some(
+                    uris.iter()
+                        .map(|u| u.uri.clone())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            }
+        }
+        _ => unreachable!("field_target only returns editable built-ins"),
+    };
+
+    ensure_decrypted(encrypted, current.as_deref(), &parsed.to_string())?;
+    let help = if parsed == Field::Uris {
+        HELP_URIS
+    } else {
+        HELP_FIELD
+    };
+    let new_value = read_field_value(current.as_deref(), help)?;
+    if parsed == Field::Name && new_value.is_none() {
+        anyhow::bail!("the entry name can't be empty");
+    }
+    let unchanged = if parsed == Field::Uris {
+        parse_uri_lines(new_value.as_deref())
+            == parse_uri_lines(current.as_deref())
+    } else {
+        new_value == current
+    };
+    if unchanged {
+        return Ok(None);
+    }
+
+    let mut name = entry.name.clone();
+    let mut notes = entry.notes.clone();
+    let mut history = entry.history.clone();
+    let mut data = entry.data.clone();
+
+    match (parsed, &mut data) {
+        (Field::Name, _) => {
+            // checked above that there is a new name
+            name = encrypt(new_value.as_deref().unwrap_or_default())?;
+        }
+        (Field::Notes, _) => {
+            notes = new_value.as_deref().map(encrypt).transpose()?;
+        }
+        (
+            Field::Password,
+            rbw::db::EntryData::Login {
+                password: entry_password,
+                ..
+            },
+        ) => {
+            *entry_password = edit_password(
+                entry,
+                entry_password.as_deref(),
+                current.as_deref(),
+                new_value.as_deref(),
+                &mut history,
+            )?;
+        }
+        (Field::Username, rbw::db::EntryData::Login { username, .. }) => {
+            *username = new_value.as_deref().map(encrypt).transpose()?;
+        }
+        (Field::Totp, rbw::db::EntryData::Login { totp, .. }) => {
+            *totp = new_value.as_deref().map(encrypt).transpose()?;
+        }
+        (Field::Uris, rbw::db::EntryData::Login { uris, .. }) => {
+            let DecryptedData::Login {
+                uris: Some(decrypted_uris),
+                ..
+            } = &decrypted.data
+            else {
+                unreachable!("checked above");
+            };
+            // the decrypted uris line up with the entry's. a uri that is
+            // still in the list keeps its ciphertext and match type, so
+            // the server's checksum for it stays valid.
+            let old: Vec<(&str, &rbw::db::Uri)> = decrypted_uris
+                .iter()
+                .map(|u| u.uri.as_str())
+                .zip(uris.iter())
+                .collect();
+            *uris = parse_uri_lines(new_value.as_deref())
+                .into_iter()
+                .map(|uri| {
+                    old.iter().find(|(plain, _)| *plain == uri).map_or_else(
+                        || {
+                            encrypt_uri(
+                                uri,
+                                None,
+                                entry.key.as_deref(),
+                                entry.org_id.as_deref(),
+                            )
+                        },
+                        |(_, old)| Ok((*old).clone()),
+                    )
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+        }
+        _ => unreachable!("field_target only returns editable built-ins"),
+    }
+
+    Ok(Some((name, data, entry.fields.clone(), notes, history)))
+}
+
+// removes the help text the editor was given, and nothing else: a value can
+// start with '#', like a password or a markdown heading in the notes
+fn parse_field_value(contents: &str, help: &str) -> Option<String> {
+    let help_lines: Vec<&str> =
+        help.lines().filter(|line| line.starts_with('#')).collect();
+    let mut value = contents
+        .lines()
+        .filter(|line| !help_lines.contains(line))
+        .fold(String::new(), |mut acc, line| {
+            acc.push_str(line);
+            acc.push('\n');
+            acc
+        });
+    while value.ends_with('\n') {
+        value.pop();
+    }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+const HELP_FIELD: &str = r"
+# The content of this file will be saved as the new field value.
+# These two help lines are removed before saving.
+";
+
+const HELP_URIS: &str = r"
+# Put one URI per line. Blank lines and lines with leading # will be
+# ignored.
+";
 
 pub fn remove(
     name: Needle,
@@ -2052,23 +2643,20 @@ fn find_entry(
     if let Needle::Uuid(uuid, s) = needle {
         for cipher in &db.entries {
             if uuid::Uuid::parse_str(&cipher.id) == Ok(uuid) {
-                return Ok((cipher.clone(), decrypt_cipher(cipher)?));
+                return Ok((cipher.clone(), decrypt_cipher_batched(cipher)?));
             }
         }
         needle = Needle::Name(s);
     }
 
-    let ciphers: Vec<(rbw::db::Entry, DecryptedSearchCipher)> = db
-        .entries
-        .iter()
-        .map(|entry| {
-            decrypt_search_cipher(entry)
-                .map(|decrypted| (entry.clone(), decrypted))
-        })
-        .collect::<anyhow::Result<_>>()?;
+    let decrypted = batch_decrypt(&db.entries, |entry, decryptor| {
+        decrypt_search_cipher(entry, decryptor)
+    })?;
+    let ciphers: Vec<(rbw::db::Entry, DecryptedSearchCipher)> =
+        db.entries.iter().cloned().zip(decrypted).collect();
     let (entry, _) =
         find_entry_raw(&ciphers, &needle, username, folder, ignore_case)?;
-    let decrypted_entry = decrypt_cipher(&entry)?;
+    let decrypted_entry = decrypt_cipher_batched(&entry)?;
     Ok((entry, decrypted_entry))
 }
 
@@ -2135,15 +2723,176 @@ fn find_entry_raw(
     }
 }
 
+// decrypting an entry takes one agent round trip per field, which adds up
+// fast when looking at the whole vault (e.g. finding an entry by name). to
+// batch these into a single round trip, the per-entry decryption functions
+// go through an EntryDecryptor: a recording pass first collects every
+// cipherstring they would want if every decryption succeeded, then the whole
+// batch is decrypted with one agent request, and a replay pass runs the same
+// functions again and hands each of them the result for its request. their
+// control flow depends on the entry structure and on which decryptions
+// failed, never on decrypted values, so the replay only asks for values the
+// recording pass saw.
+trait EntryDecryptor {
+    fn decrypt(
+        &self,
+        cipherstring: &str,
+        entry_key: Option<&str>,
+        org_id: Option<&str>,
+    ) -> anyhow::Result<String>;
+}
+
+#[derive(Default)]
+struct RecordingDecryptor(
+    std::cell::RefCell<Vec<rbw::protocol::DecryptItem>>,
+);
+
+impl EntryDecryptor for RecordingDecryptor {
+    fn decrypt(
+        &self,
+        cipherstring: &str,
+        entry_key: Option<&str>,
+        org_id: Option<&str>,
+    ) -> anyhow::Result<String> {
+        self.0.borrow_mut().push(rbw::protocol::DecryptItem {
+            cipherstring: cipherstring.to_string(),
+            entry_key: entry_key.map(std::string::ToString::to_string),
+            org_id: org_id.map(std::string::ToString::to_string),
+        });
+        Ok(String::new())
+    }
+}
+
+// hands out the agent's results during the replay pass. results are looked
+// up by the request that produced them rather than by position: a failed
+// decryption can make the replay skip later requests (for example, one
+// unreadable uri ends the uri list in decrypt_cipher), and a positional
+// replay would then hand every following result to the wrong field.
+// requesting anything that wasn't recorded is an error.
+struct ReplayingDecryptor(
+    std::collections::HashMap<
+        rbw::protocol::DecryptItem,
+        Result<String, String>,
+    >,
+);
+
+impl EntryDecryptor for ReplayingDecryptor {
+    fn decrypt(
+        &self,
+        cipherstring: &str,
+        entry_key: Option<&str>,
+        org_id: Option<&str>,
+    ) -> anyhow::Result<String> {
+        let item = rbw::protocol::DecryptItem {
+            cipherstring: cipherstring.to_string(),
+            entry_key: entry_key.map(std::string::ToString::to_string),
+            org_id: org_id.map(std::string::ToString::to_string),
+        };
+        self.0
+            .get(&item)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "batch decryption asked for a value it didn't record"
+                )
+            })?
+            .clone()
+            .map_err(|e| anyhow::anyhow!("failed to decrypt: {e}"))
+    }
+}
+
+fn record_batch<T>(
+    entries: &[rbw::db::Entry],
+    each: &impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
+) -> Vec<rbw::protocol::DecryptItem> {
+    let recorder = RecordingDecryptor::default();
+    for entry in entries {
+        // the recording decryptor never fails, and these functions have no
+        // other failure modes; anything real will surface during replay
+        let _ = each(entry, &recorder);
+    }
+    recorder.0.into_inner()
+}
+
+fn replay_batch<T>(
+    entries: &[rbw::db::Entry],
+    each: &impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
+    items: Vec<rbw::protocol::DecryptItem>,
+    results: Vec<Result<String, String>>,
+) -> anyhow::Result<Vec<T>> {
+    if items.len() != results.len() {
+        return Err(anyhow::anyhow!(
+            "agent returned {} decryption results for {} values",
+            results.len(),
+            items.len()
+        ));
+    }
+    let replayer =
+        ReplayingDecryptor(items.into_iter().zip(results).collect());
+    entries.iter().map(|entry| each(entry, &replayer)).collect()
+}
+
+fn batch_decrypt<T>(
+    entries: &[rbw::db::Entry],
+    each: impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
+) -> anyhow::Result<Vec<T>> {
+    let items = record_batch(entries, &each);
+    // the request takes the items, and the replay needs them to match up
+    // the results, so send a copy
+    let results = crate::actions::decrypt_many(items.clone())?;
+    replay_batch(entries, &each, items, results)
+}
+
+// decrypts folder names from the server with one agent request. any failure
+// is fatal, as it was when each name took its own request.
+fn decrypt_folder_names(
+    folders: Vec<(String, String)>,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let items = folders
+        .iter()
+        .map(|(_, name)| rbw::protocol::DecryptItem {
+            cipherstring: name.clone(),
+            entry_key: None,
+            org_id: None,
+        })
+        .collect();
+    let names = crate::actions::decrypt_many(items)?;
+    if names.len() != folders.len() {
+        return Err(anyhow::anyhow!(
+            "agent returned {} decryption results for {} folders",
+            names.len(),
+            folders.len()
+        ));
+    }
+    folders
+        .into_iter()
+        .zip(names)
+        .map(|((id, _), name)| {
+            name.map(|name| (id, name))
+                .map_err(|e| anyhow::anyhow!("failed to decrypt: {e}"))
+        })
+        .collect()
+}
+
+fn decrypt_cipher_batched(
+    entry: &rbw::db::Entry,
+) -> anyhow::Result<DecryptedCipher> {
+    batch_decrypt(std::slice::from_ref(entry), |entry, decryptor| {
+        decrypt_cipher(entry, decryptor)
+    })?
+    .pop()
+    .ok_or_else(|| anyhow::anyhow!("no decryption result"))
+}
+
 fn decrypt_field(
     name: Field,
     field: Option<&str>,
     entry_key: Option<&str>,
     org_id: Option<&str>,
+    decryptor: &dyn EntryDecryptor,
 ) -> Option<String> {
     let field = field
         .as_ref()
-        .map(|field| crate::actions::decrypt(field, entry_key, org_id))
+        .map(|field| decryptor.decrypt(field, entry_key, org_id))
         .transpose();
     match field {
         Ok(field) => field,
@@ -2157,10 +2906,11 @@ fn decrypt_field(
 fn decrypt_list_cipher(
     entry: &rbw::db::Entry,
     fields: &[ListField],
+    decryptor: &dyn EntryDecryptor,
 ) -> anyhow::Result<DecryptedListCipher> {
     let id = entry.id.clone();
     let name = if fields.contains(&ListField::Name) {
-        Some(crate::actions::decrypt(
+        Some(decryptor.decrypt(
             &entry.name,
             entry.key.as_deref(),
             entry.org_id.as_deref(),
@@ -2175,6 +2925,7 @@ fn decrypt_list_cipher(
                 username.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             _ => None,
         }
@@ -2187,7 +2938,7 @@ fn decrypt_list_cipher(
         entry
             .folder
             .as_ref()
-            .map(|folder| crate::actions::decrypt(folder, None, None))
+            .map(|folder| decryptor.decrypt(folder, None, None))
             .transpose()?
     } else {
         None
@@ -2202,6 +2953,7 @@ fn decrypt_list_cipher(
                             Some(&s.uri),
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
+                            decryptor,
                         )
                     })
                     .collect(),
@@ -2234,9 +2986,10 @@ fn decrypt_list_cipher(
 
 fn decrypt_search_cipher(
     entry: &rbw::db::Entry,
+    decryptor: &dyn EntryDecryptor,
 ) -> anyhow::Result<DecryptedSearchCipher> {
     let id = entry.id.clone();
-    let name = crate::actions::decrypt(
+    let name = decryptor.decrypt(
         &entry.name,
         entry.key.as_deref(),
         entry.org_id.as_deref(),
@@ -2247,6 +3000,7 @@ fn decrypt_search_cipher(
             username.as_deref(),
             entry.key.as_deref(),
             entry.org_id.as_deref(),
+            decryptor,
         ),
         _ => None,
     };
@@ -2255,13 +3009,13 @@ fn decrypt_search_cipher(
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None, None))
+        .map(|folder| decryptor.decrypt(folder, None, None))
         .transpose()?;
     let notes = entry
         .notes
         .as_ref()
         .map(|notes| {
-            crate::actions::decrypt(
+            decryptor.decrypt(
                 notes,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2276,6 +3030,7 @@ fn decrypt_search_cipher(
                     Some(&s.uri),
                     entry.key.as_deref(),
                     entry.org_id.as_deref(),
+                    decryptor,
                 )
                 .map(|uri| (uri, s.match_type))
             })
@@ -2294,7 +3049,7 @@ fn decrypt_search_cipher(
             }
         })
         .map(|value| {
-            crate::actions::decrypt(
+            decryptor.decrypt(
                 value,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2329,13 +3084,16 @@ fn decrypt_search_cipher(
     })
 }
 
-fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
+fn decrypt_cipher(
+    entry: &rbw::db::Entry,
+    decryptor: &dyn EntryDecryptor,
+) -> anyhow::Result<DecryptedCipher> {
     // folder name should always be decrypted with the local key because
     // folders are local to a specific user's vault, not the organization
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None, None))
+        .map(|folder| decryptor.decrypt(folder, None, None))
         .transpose();
     let folder = match folder {
         Ok(folder) => folder,
@@ -2353,7 +3111,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .name
                     .as_ref()
                     .map(|name| {
-                        crate::actions::decrypt(
+                        decryptor.decrypt(
                             name,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
@@ -2364,7 +3122,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .value
                     .as_ref()
                     .map(|value| {
-                        crate::actions::decrypt(
+                        decryptor.decrypt(
                             value,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
@@ -2379,7 +3137,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .notes
         .as_ref()
         .map(|notes| {
-            crate::actions::decrypt(
+            decryptor.decrypt(
                 notes,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2399,7 +3157,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .map(|history_entry| {
             Ok(DecryptedHistoryEntry {
                 last_used_date: history_entry.last_used_date.clone(),
-                password: crate::actions::decrypt(
+                password: decryptor.decrypt(
                     &history_entry.password,
                     entry.key.as_deref(),
                     entry.org_id.as_deref(),
@@ -2420,18 +3178,21 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 username.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             password: decrypt_field(
                 Field::Password,
                 password.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             totp: decrypt_field(
                 Field::Totp,
                 totp.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             uris: uris
                 .iter()
@@ -2441,6 +3202,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                         Some(&s.uri),
                         entry.key.as_deref(),
                         entry.org_id.as_deref(),
+                        decryptor,
                     )
                     .map(|uri| DecryptedUri {
                         uri,
@@ -2462,36 +3224,42 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 cardholder_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             number: decrypt_field(
                 Field::CardNumber,
                 number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             brand: decrypt_field(
                 Field::Brand,
                 brand.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             exp_month: decrypt_field(
                 Field::ExpMonth,
                 exp_month.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             exp_year: decrypt_field(
                 Field::ExpYear,
                 exp_year.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             code: decrypt_field(
                 Field::Cvv,
                 code.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
         },
         rbw::db::EntryData::Identity {
@@ -2518,102 +3286,119 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 title.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             first_name: decrypt_field(
                 Field::FirstName,
                 first_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             middle_name: decrypt_field(
                 Field::MiddleName,
                 middle_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             last_name: decrypt_field(
                 Field::LastName,
                 last_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             address1: decrypt_field(
                 Field::Address1,
                 address1.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             address2: decrypt_field(
                 Field::Address2,
                 address2.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             address3: decrypt_field(
                 Field::Address3,
                 address3.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             city: decrypt_field(
                 Field::City,
                 city.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             state: decrypt_field(
                 Field::State,
                 state.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             postal_code: decrypt_field(
                 Field::PostalCode,
                 postal_code.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             country: decrypt_field(
                 Field::Country,
                 country.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             phone: decrypt_field(
                 Field::Phone,
                 phone.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             email: decrypt_field(
                 Field::Email,
                 email.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             ssn: decrypt_field(
                 Field::Ssn,
                 ssn.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             license_number: decrypt_field(
                 Field::License,
                 license_number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             passport_number: decrypt_field(
                 Field::Passport,
                 passport_number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             username: decrypt_field(
                 Field::Username,
                 username.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
         },
         rbw::db::EntryData::SecureNote => DecryptedData::SecureNote {},
@@ -2627,18 +3412,21 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 public_key.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             fingerprint: decrypt_field(
                 Field::Fingerprint,
                 fingerprint.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
             private_key: decrypt_field(
                 Field::PrivateKey,
                 private_key.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
+                decryptor,
             ),
         },
     };
@@ -2646,7 +3434,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
     Ok(DecryptedCipher {
         id: entry.id.clone(),
         folder,
-        name: crate::actions::decrypt(
+        name: decryptor.decrypt(
             &entry.name,
             entry.key.as_deref(),
             entry.org_id.as_deref(),
@@ -2724,7 +3512,7 @@ fn remove_db() -> anyhow::Result<()> {
 struct TotpParams {
     secret: Vec<u8>,
     algorithm: String,
-    digits: usize,
+    digits: u8,
     period: u64,
 }
 
@@ -2778,6 +3566,22 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                     }
                     None => TOTP_DEFAULT_STEP,
                 };
+                // a code is the HOTP value modulo 10^digits, which has to
+                // fit in 32 bits
+                let digits = u8::try_from(digits)
+                    .ok()
+                    .filter(|digits| (1..=9).contains(digits))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "digits parameter in totp url must be between 1 \
+                             and 9"
+                        )
+                    })?;
+                if period == 0 {
+                    return Err(anyhow::anyhow!(
+                        "period parameter in totp url must be greater than 0"
+                    ));
+                }
 
                 Ok(TotpParams {
                     secret,
@@ -2787,7 +3591,9 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                 })
             }
             "steam" => {
-                let steam_secret = u.host_str().unwrap();
+                let steam_secret = u.host_str().ok_or_else(|| {
+                    anyhow::anyhow!("steam totp url must have a secret")
+                })?;
 
                 Ok(TotpParams {
                     secret: decode_totp_secret(steam_secret)?,
@@ -2825,50 +3631,41 @@ fn generate_totp_algorithm_type(
 }
 
 fn generate_totp(secret: &str) -> anyhow::Result<String> {
-    let totp_params = parse_totp_secret(secret)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("the system clock is set before 1970")?
+        .as_secs();
+    generate_totp_at(parse_totp_secret(secret)?, now)
+}
+
+// The code for the given Unix time, in seconds.
+fn generate_totp_at(
+    totp_params: TotpParams,
+    time: u64,
+) -> anyhow::Result<String> {
     let alg = totp_params.algorithm.as_str();
 
     match alg {
-        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::TOTP::new_unchecked(
-            generate_totp_algorithm_type(alg)?,
-            totp_params.digits,
-            1, // the library docs say this should be a 1
-            totp_params.period,
-            totp_params.secret,
-        )
-        .generate_current()?),
-        "STEAM" => Ok(totp_rs::TOTP::new_steam(totp_params.secret)
-            .generate_current()?),
+        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::Builder::new()
+            .with_algorithm(generate_totp_algorithm_type(alg)?)
+            .with_digits(totp_params.digits)
+            .with_skew(1) // the library docs say this should be a 1
+            .with_step_duration(totp_params.period)
+            .with_secret(totp_params.secret)
+            .build_noncompliant()
+            .generate(time)
+            .to_string()),
+        // build() would refuse secrets shorter than 128 bits, which
+        // totp-rs 5 accepted
+        "STEAM" => Ok(totp_rs::Builder::new_steam()
+            .with_secret(totp_params.secret)
+            .build_noncompliant()
+            .generate(time)
+            .to_string()),
         _ => Err(anyhow::anyhow!(format!(
             "{alg} is not a valid totp algorithm"
         ))),
     }
-}
-
-/// Formats a time as RFC 3339 in UTC with second precision, for example
-/// `2026-11-23T09:41:07Z`.
-fn format_rfc3339(time: std::time::SystemTime) -> String {
-    let secs = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let days = i64::try_from(secs / 86_400).unwrap_or(i64::MAX);
-    let rem = secs % 86_400;
-    let (hour, minute, second) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-
-    // Howard Hinnant's civil_from_days algorithm.
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
-    )
 }
 
 fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
@@ -2880,21 +3677,184 @@ fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
     #[test]
-    fn test_format_rfc3339() {
-        let at = |secs| {
-            super::format_rfc3339(
-                std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
-            )
-        };
-        assert_eq!(at(0), "1970-01-01T00:00:00Z");
-        assert_eq!(at(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(at(1_709_164_799), "2024-02-28T23:59:59Z");
-        assert_eq!(at(1_795_513_267), "2026-11-24T09:41:07Z");
-        assert_eq!(at(4_102_444_800), "2100-01-01T00:00:00Z");
+    fn test_uri_checksum() {
+        // the base64 sha256, as the official clients compute it. test
+        // vectors from the Bitwarden SDK (bitwarden-vault, cipher/login.rs)
+        assert_eq!(
+            uri_checksum("https://example.com"),
+            "EAaArVRs5qV39C9S3zO0z9ynVoWeZkuNfeMpsVDQnOk="
+        );
+        assert_eq!(
+            uri_checksum("https://test.com"),
+            "OWk2vQvwYD1nhLZdA+ltrpBWbDa2JmHyjUEWxRZSS8w="
+        );
     }
 
-    use super::*;
+    #[test]
+    fn test_password_change() {
+        use PasswordChange::{Changed, Unchanged};
+        // no password before or after
+        assert_eq!(password_change(None, None, None), Unchanged);
+        assert_eq!(password_change(None, None, Some("")), Unchanged);
+        // the same password
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), Some("a")),
+            Unchanged
+        );
+        // a new, changed or removed password
+        assert_eq!(
+            password_change(None, None, Some("a")),
+            Changed(Some("a"))
+        );
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), Some("b")),
+            Changed(Some("b"))
+        );
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), None),
+            Changed(None)
+        );
+        assert_eq!(
+            password_change(Some("2.a"), Some("a"), Some("")),
+            Changed(None)
+        );
+        // a password that couldn't be decrypted can't be compared
+        assert_eq!(
+            password_change(Some("2.a"), None, Some("a")),
+            Changed(Some("a"))
+        );
+        assert_eq!(password_change(Some("2.a"), None, None), Changed(None));
+    }
+
+    #[test]
+    fn test_parse_uri_lines() {
+        assert_eq!(parse_uri_lines(None), Vec::<&str>::new());
+        assert_eq!(
+            parse_uri_lines(Some(" https://a \n\n\thttps://b\r\n")),
+            ["https://a", "https://b"]
+        );
+    }
+
+    #[test]
+    fn test_check_custom_field_value() {
+        use rbw::api::FieldType;
+        for ty in [None, Some(FieldType::Text), Some(FieldType::Hidden)] {
+            assert!(check_custom_field_value("f", ty, Some("yes")).is_ok());
+            assert!(check_custom_field_value("f", ty, None).is_ok());
+        }
+        let boolean = Some(FieldType::Boolean);
+        assert!(check_custom_field_value("f", boolean, Some("true")).is_ok());
+        assert!(check_custom_field_value("f", boolean, Some("false")).is_ok());
+        assert!(check_custom_field_value("f", boolean, Some("yes")).is_err());
+        assert!(check_custom_field_value("f", boolean, None).is_err());
+    }
+
+    #[test]
+    fn test_check_new_field_names() {
+        assert!(check_new_field_names([]).is_ok());
+        assert!(check_new_field_names(["a", "b", "A"]).is_ok());
+        let err = check_new_field_names(["a", "b", "a"]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "custom field 'a' is given more than once"
+        );
+    }
+
+    #[test]
+    fn test_parse_piped_field_value() {
+        assert_eq!(
+            parse_piped_field_value("s3cr3t\n"),
+            Some("s3cr3t".into())
+        );
+        assert_eq!(
+            parse_piped_field_value("s3cr3t\r\n"),
+            Some("s3cr3t".into())
+        );
+        assert_eq!(parse_piped_field_value("s3cr3t"), Some("s3cr3t".into()));
+        assert_eq!(parse_piped_field_value("#abc\n"), Some("#abc".into()));
+        assert_eq!(
+            parse_piped_field_value("line1\n# line2\n"),
+            Some("line1\n# line2".into())
+        );
+        assert_eq!(parse_piped_field_value("a\n\n"), Some("a\n".into()));
+        assert_eq!(parse_piped_field_value("\n"), None);
+        assert_eq!(parse_piped_field_value(""), None);
+    }
+
+    #[test]
+    fn test_find_custom_field() {
+        let names = [
+            Some("DB_PASSWORD_RO"),
+            Some("DB_PASSWORD"),
+            None,
+            Some("api_key"),
+            Some("Token"),
+            Some("token"),
+        ];
+        assert_eq!(
+            find_custom_field(&names, "DB_PASSWORD").unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            find_custom_field(&names, "DB_PASSWORD_RO").unwrap(),
+            Some(0)
+        );
+        assert_eq!(find_custom_field(&names, "API_KEY").unwrap(), Some(3));
+        assert_eq!(find_custom_field(&names, "token").unwrap(), Some(5));
+        assert!(find_custom_field(&names, "TOKEN").is_err());
+        assert_eq!(find_custom_field(&names, "api").unwrap(), None);
+        assert_eq!(find_custom_field(&names, "db_pass").unwrap(), None);
+        assert_eq!(find_custom_field(&names, "missing").unwrap(), None);
+    }
+
+    #[test]
+    fn test_field_target() {
+        let login = DecryptedData::Login {
+            username: None,
+            password: None,
+            totp: None,
+            uris: None,
+        };
+        let note = DecryptedData::SecureNote;
+        assert_eq!(
+            field_target("password", &login),
+            FieldTarget::Builtin(Field::Password)
+        );
+        assert_eq!(
+            field_target("notes", &note),
+            FieldTarget::Builtin(Field::Notes)
+        );
+        assert_eq!(
+            field_target("name", &note),
+            FieldTarget::Builtin(Field::Name)
+        );
+        assert_eq!(field_target("PASSWORD", &note), FieldTarget::Custom);
+        assert_eq!(field_target("email", &login), FieldTarget::Custom);
+        assert_eq!(field_target("DB_PASSWORD", &login), FieldTarget::Custom);
+    }
+
+    #[test]
+    fn test_parse_field_value() {
+        fn parse(contents: &str) -> Option<String> {
+            parse_field_value(contents, HELP_FIELD)
+        }
+        assert_eq!(parse("hello\n"), Some("hello".into()));
+        assert_eq!(parse("line1\nline2\n"), Some("line1\nline2".into()));
+        // what the editor holds before any change
+        assert_eq!(
+            parse(&format!("#Xk9-secret\n{HELP_FIELD}")),
+            Some("#Xk9-secret".into())
+        );
+        assert_eq!(
+            parse(&format!("# Heading\ntext\n{HELP_FIELD}")),
+            Some("# Heading\ntext".into())
+        );
+        assert_eq!(parse(&format!("\n{HELP_FIELD}")), None);
+        assert_eq!(parse(""), None);
+    }
 
     #[test]
     fn test_find_entry() {
@@ -4132,6 +5092,196 @@ mod test {
     }
 
     #[track_caller]
+    fn totp_at(secret: &str, time: u64) -> String {
+        generate_totp_at(parse_totp_secret(secret).unwrap(), time).unwrap()
+    }
+
+    // The test vectors of RFC 6238, appendix B: the ASCII secret
+    // "12345678901234567890" repeated to the hash's block size, 8 digits,
+    // 30 second steps.
+    const RFC6238_SHA1: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    const RFC6238_SHA256: &str =
+        "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA";
+    const RFC6238_SHA512: &str =
+        "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\
+         GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA";
+    const RFC6238_VECTORS: &[(u64, &str, &str, &str)] = &[
+        (59, "94287082", "46119246", "90693936"),
+        (1_111_111_109, "07081804", "68084774", "25091201"),
+        (1_111_111_111, "14050471", "67062674", "99943326"),
+        (1_234_567_890, "89005924", "91819424", "93441116"),
+        (2_000_000_000, "69279037", "90698825", "38618901"),
+        (20_000_000_000, "65353130", "77737706", "47863826"),
+    ];
+
+    #[test]
+    fn test_totp_rfc6238_vectors() {
+        for &(time, sha1, sha256, sha512) in RFC6238_VECTORS {
+            let url = |alg: &str, secret: &str| {
+                format!(
+                    "otpauth://totp/rbw?secret={secret}&algorithm={alg}\
+                     &digits=8&period=30"
+                )
+            };
+            assert_eq!(totp_at(&url("SHA1", RFC6238_SHA1), time), sha1);
+            assert_eq!(totp_at(&url("SHA256", RFC6238_SHA256), time), sha256);
+            assert_eq!(totp_at(&url("SHA512", RFC6238_SHA512), time), sha512);
+        }
+    }
+
+    #[test]
+    fn test_totp_plain_secret_forms() {
+        // a bare secret means SHA1, 6 digits and 30 second steps, which
+        // are the last 6 digits of the 8 digit SHA1 vectors
+        for &(time, sha1, _, _) in RFC6238_VECTORS {
+            let want = &sha1[2..];
+            for secret in [
+                "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+                "gezdgnbvgy3tqojqgezdgnbvgy3tqojq",
+                "GEZD GNBV GY3T QOJQ GEZD GNBV GY3T QOJQ",
+                "  gezd gnbv gy3t qojq gezd gnbv gy3t qojq\n",
+            ] {
+                assert_eq!(totp_at(secret, time), want, "{secret:?}");
+            }
+        }
+
+        // padded and unpadded base32
+        let time = 1_234_567_890;
+        let padded =
+            "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA====";
+        assert_eq!(totp_at(padded, time), "012961");
+        assert_eq!(totp_at(padded.trim_end_matches('='), time), "012961");
+        assert_eq!(
+            totp_at(&padded.to_lowercase(), time),
+            totp_at(padded, time)
+        );
+
+        // secrets shorter than the 128 bits RFC 4226 asks for still work
+        assert_eq!(totp_at("GAYTEMZUGU3DOOBZ", time), "625421");
+        // and so does an empty one
+        assert_eq!(totp_at("", time), "712049");
+    }
+
+    #[test]
+    fn test_totp_otpauth_parameters() {
+        let time = 1_234_567_890;
+        // defaults: SHA1, 6 digits, 30 seconds
+        assert_eq!(
+            totp_at(
+                &format!("otpauth://totp/rbw?secret={RFC6238_SHA1}"),
+                time
+            ),
+            "005924"
+        );
+        // lowercase secret, label with an issuer, other parameters
+        assert_eq!(
+            totp_at(
+                "otpauth://totp/Example:alice@example.com?\
+                 secret=gezdgnbvgy3tqojqgezdgnbvgy3tqojq&issuer=Example",
+                time
+            ),
+            "005924"
+        );
+        // 7 and 9 digits, 60 second steps
+        assert_eq!(
+            totp_at(
+                &format!(
+                    "otpauth://totp/rbw?secret={RFC6238_SHA256}\
+                     &algorithm=SHA256&digits=7&period=60"
+                ),
+                time
+            ),
+            "6450756"
+        );
+        assert_eq!(
+            totp_at(
+                &format!("otpauth://totp/rbw?secret={RFC6238_SHA1}&digits=9"),
+                time
+            ),
+            "689005924"
+        );
+        // a 60 second step is the 30 second code of half the time
+        assert_eq!(
+            totp_at(
+                &format!(
+                    "otpauth://totp/rbw?secret={RFC6238_SHA1}&digits=8\
+                     &period=60"
+                ),
+                118
+            ),
+            "94287082"
+        );
+        // spaces in the secret, encoded as + or %20
+        assert_eq!(
+            totp_at(
+                "otpauth://totp/rbw?secret=GEZD+GNBV%20GY3T+QOJQ\
+                 +GEZDGNBVGY3TQOJQ",
+                time
+            ),
+            "005924"
+        );
+    }
+
+    #[test]
+    fn test_totp_steam() {
+        // computed independently: the SHA1 HOTP value written in Steam's
+        // 26 character alphabet, 5 characters
+        let steam = [
+            (59, "PV9M4"),
+            (1_111_111_109, "PY4YB"),
+            (1_111_111_111, "5PP3V"),
+            (1_234_567_890, "VHHQY"),
+            (2_000_000_000, "9N776"),
+            (20_000_000_000, "R5DMB"),
+        ];
+        // a secret shorter than RFC 4226 asks for, as for the other
+        // algorithms
+        assert_eq!(totp_at("steam://GAYTEMZUGU3DOOBZ", 59), "CDH7P");
+        for (time, want) in steam {
+            assert_eq!(
+                totp_at(&format!("steam://{RFC6238_SHA1}"), time),
+                want
+            );
+            assert_eq!(
+                totp_at(
+                    &format!(
+                        "otpauth://totp/Steam:alice?secret={RFC6238_SHA1}\
+                         &algorithm=STEAM"
+                    ),
+                    time
+                ),
+                want
+            );
+        }
+    }
+
+    #[test]
+    fn test_totp_rejected_secrets() {
+        for secret in [
+            "not base32!",
+            "otpauth://hotp/rbw?secret=GEZDGNBV",
+            "otpauth://totp/rbw",
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=six",
+            "otpauth://totp/rbw?secret=GEZDGNBV&period=-30",
+            "otpauth://totp/rbw?secret=GEZDGNBV&algorithm=MD5",
+            "https://example.com/?secret=GEZDGNBV",
+            // these used to panic or give a code of the wrong length
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=0",
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=10",
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=300",
+            "otpauth://totp/rbw?secret=GEZDGNBV&period=0",
+            "steam:GEZDGNBV",
+        ] {
+            assert!(
+                parse_totp_secret(secret)
+                    .and_then(|params| generate_totp_at(params, 59))
+                    .is_err(),
+                "{secret:?}"
+            );
+        }
+    }
+
+    #[track_caller]
     fn one_match(
         entries: &[(rbw::db::Entry, DecryptedSearchCipher)],
         needle: &str,
@@ -4205,6 +5355,319 @@ mod test {
         a.0 == b.0 && a.1 == b.1
     }
 
+    // an entry exercising every decryption site: login with username,
+    // password, totp, uris, custom fields (text and hidden), notes,
+    // history, folder, and an individual entry key. every "cipherstring"
+    // starts with the given prefix, so results can be traced back to the
+    // entry they came from.
+    fn make_full_entry(prefix: &str) -> rbw::db::Entry {
+        let s = |field: &str| format!("{prefix} {field}");
+        rbw::db::Entry {
+            id: uuid::Uuid::new_v4().to_string(),
+            org_id: Some("org".to_string()),
+            folder: Some(s("folder")),
+            folder_id: None,
+            name: s("name"),
+            data: rbw::db::EntryData::Login {
+                username: Some(s("username")),
+                password: Some(s("password")),
+                totp: Some(s("totp")),
+                uris: vec![
+                    rbw::db::Uri {
+                        uri: s("uri 1"),
+                        match_type: None,
+                        uri_checksum: None,
+                    },
+                    rbw::db::Uri {
+                        uri: s("uri 2"),
+                        match_type: None,
+                        uri_checksum: None,
+                    },
+                ],
+            },
+            fields: vec![
+                rbw::db::Field {
+                    ty: Some(rbw::api::FieldType::Text),
+                    name: Some(s("field name")),
+                    value: Some(s("field value")),
+                    linked_id: None,
+                },
+                rbw::db::Field {
+                    ty: Some(rbw::api::FieldType::Hidden),
+                    name: Some(s("hidden name")),
+                    value: Some(s("hidden value")),
+                    linked_id: None,
+                },
+            ],
+            notes: Some(s("notes")),
+            history: vec![rbw::db::HistoryEntry {
+                last_used_date: "2020-01-01".to_string(),
+                password: s("old password"),
+            }],
+            key: Some("entry key".to_string()),
+            master_password_reprompt: rbw::api::CipherRepromptType::None,
+        }
+    }
+
+    // stands in for the agent: "decrypts" by adding a marker, and fails the
+    // cipherstrings for which fail returns true
+    fn fake_agent(
+        items: &[rbw::protocol::DecryptItem],
+        fail: impl Fn(&str) -> bool,
+    ) -> Vec<Result<String, String>> {
+        items
+            .iter()
+            .map(|item| {
+                if fail(&item.cipherstring) {
+                    Err(format!("cannot decrypt {}", item.cipherstring))
+                } else {
+                    Ok(format!("plain {}", item.cipherstring))
+                }
+            })
+            .collect()
+    }
+
+    fn replay_with<T>(
+        entries: &[rbw::db::Entry],
+        each: impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
+        fail: impl Fn(&str) -> bool,
+    ) -> anyhow::Result<Vec<T>> {
+        let items = record_batch(entries, &each);
+        let results = fake_agent(&items, fail);
+        replay_batch(entries, &each, items, results)
+    }
+
+    #[test]
+    fn test_batch_decrypt_record_replay() {
+        // the replay pass must only ask for decryptions the recording pass
+        // saw, and a result count that doesn't match what was recorded is
+        // an error
+        fn check<T>(
+            entries: &[rbw::db::Entry],
+            each: impl Fn(
+                &rbw::db::Entry,
+                &dyn EntryDecryptor,
+            ) -> anyhow::Result<T>,
+        ) -> Vec<rbw::protocol::DecryptItem> {
+            let items = record_batch(entries, &each);
+            assert_ne!(items.len(), 0);
+            let results = fake_agent(&items, |_| false);
+            replay_batch(entries, &each, items.clone(), results).unwrap();
+            let mut results = fake_agent(&items, |_| false);
+            results.push(Ok(String::new()));
+            assert!(
+                replay_batch(entries, &each, items.clone(), results).is_err()
+            );
+            let mut results = fake_agent(&items, |_| false);
+            results.pop();
+            assert!(
+                replay_batch(entries, &each, items.clone(), results).is_err()
+            );
+            items
+        }
+
+        let entries = vec![make_full_entry("a"), make_full_entry("b")];
+
+        let search_items = check(&entries, |entry, decryptor| {
+            decrypt_search_cipher(entry, decryptor)
+        });
+        // search must never ask for hidden field values (they could
+        // trigger master password reprompt)
+        assert!(!search_items
+            .iter()
+            .any(|item| item.cipherstring.ends_with("hidden value")));
+
+        check(&entries, |entry, decryptor| {
+            decrypt_cipher(entry, decryptor)
+        });
+        let list_items = check(&entries, |entry, decryptor| {
+            decrypt_list_cipher(entry, &ListField::all(), decryptor)
+        });
+        assert!(!list_items
+            .iter()
+            .any(|item| item.cipherstring.ends_with("password")));
+
+        // folders are always decrypted with the user's own key
+        for item in &list_items {
+            if item.cipherstring.ends_with("folder") {
+                assert_eq!(item.entry_key, None);
+                assert_eq!(item.org_id, None);
+            } else {
+                assert_eq!(item.entry_key.as_deref(), Some("entry key"));
+                assert_eq!(item.org_id.as_deref(), Some("org"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_batch_decrypt_results_land_in_their_fields() {
+        let entries = vec![make_full_entry("a"), make_full_entry("b")];
+        let decrypted = replay_with(
+            &entries,
+            |entry, decryptor| decrypt_cipher(entry, decryptor),
+            |_| false,
+        )
+        .unwrap();
+        for (prefix, cipher) in ["a", "b"].iter().zip(&decrypted) {
+            let p = |field: &str| format!("plain {prefix} {field}");
+            assert_eq!(cipher.name, p("name"));
+            assert_eq!(cipher.folder, Some(p("folder")));
+            assert_eq!(cipher.notes, Some(p("notes")));
+            assert_eq!(cipher.history[0].password, p("old password"));
+            assert_eq!(cipher.fields[1].name, Some(p("hidden name")));
+            assert_eq!(cipher.fields[1].value, Some(p("hidden value")));
+            let DecryptedData::Login {
+                username,
+                password,
+                totp,
+                uris,
+            } = &cipher.data
+            else {
+                panic!("not a login");
+            };
+            assert_eq!(username, &Some(p("username")));
+            assert_eq!(password, &Some(p("password")));
+            assert_eq!(totp, &Some(p("totp")));
+            let uris: Vec<_> =
+                uris.iter().flatten().map(|u| u.uri.clone()).collect();
+            assert_eq!(uris, vec![p("uri 1"), p("uri 2")]);
+        }
+    }
+
+    #[test]
+    fn test_batch_decrypt_keeps_per_field_failure_handling() {
+        let entries = vec![make_full_entry("a"), make_full_entry("b")];
+
+        // failures in optional fields only drop those fields, in this entry
+        let decrypted = replay_with(
+            &entries,
+            |entry, decryptor| decrypt_cipher(entry, decryptor),
+            |c| {
+                c.starts_with("a ")
+                    && ["folder", "notes", "password", "totp", "uri 1"]
+                        .iter()
+                        .any(|field| c.ends_with(field))
+                    && !c.ends_with("old password")
+            },
+        )
+        .unwrap();
+        assert_eq!(decrypted[0].folder, None);
+        assert_eq!(decrypted[0].notes, None);
+        let DecryptedData::Login {
+            username,
+            password,
+            totp,
+            uris,
+        } = &decrypted[0].data
+        else {
+            panic!("not a login");
+        };
+        assert_eq!(username, &Some("plain a username".to_string()));
+        assert_eq!(password, &None);
+        assert_eq!(totp, &None);
+        // as before batching, one unreadable uri drops the whole list here
+        assert!(uris.is_none());
+        assert_eq!(decrypted[1].folder, Some("plain b folder".to_string()));
+        assert_eq!(decrypted[1].notes, Some("plain b notes".to_string()));
+
+        // the entry name, custom fields and history are required
+        for required in ["b name", "b hidden value", "b old password"] {
+            let err = replay_with(
+                &entries,
+                |entry, decryptor| decrypt_cipher(entry, decryptor),
+                |c| c == required,
+            )
+            .err()
+            .unwrap();
+            assert!(format!("{err:#}").contains(required), "{err:#}");
+        }
+
+        // list and search tolerate the same fields as before: user and uris
+        // in both, and notes in search
+        let listed = replay_with(
+            &entries,
+            |entry, decryptor| {
+                decrypt_list_cipher(entry, &ListField::all(), decryptor)
+            },
+            |c| c.ends_with("username") || c.ends_with("uri 1"),
+        )
+        .unwrap();
+        assert_eq!(listed[0].user, None);
+        assert_eq!(listed[0].uris, Some(vec!["plain a uri 2".to_string()]));
+        assert!(replay_with(
+            &entries,
+            |entry, decryptor| {
+                decrypt_list_cipher(entry, &ListField::all(), decryptor)
+            },
+            |c| c.ends_with("folder"),
+        )
+        .is_err());
+        let found = replay_with(
+            &entries,
+            |entry, decryptor| decrypt_search_cipher(entry, decryptor),
+            |c| c.ends_with("username") || c.ends_with("notes"),
+        )
+        .unwrap();
+        assert_eq!(found[1].user, None);
+        assert_eq!(found[1].notes, None);
+        assert!(replay_with(
+            &entries,
+            |entry, decryptor| decrypt_search_cipher(entry, decryptor),
+            |c| c.ends_with("name"),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_batch_decrypt_rejects_unrecorded_requests() {
+        let entries = vec![make_full_entry("a")];
+        let each = |entry: &rbw::db::Entry,
+                    decryptor: &dyn EntryDecryptor| {
+            decrypt_cipher(entry, decryptor)
+        };
+        let mut items = record_batch(&entries, &each);
+        let results = fake_agent(&items, |_| false);
+        // the entry name is required, so this has to fail the replay
+        let name = items
+            .iter_mut()
+            .find(|item| item.cipherstring == "a name")
+            .unwrap();
+        name.cipherstring.push_str(" changed");
+        assert!(replay_batch(&entries, &each, items, results).is_err());
+    }
+
+    #[test]
+    fn test_old_agent_rejects_decrypt_many_recognizably() {
+        // decrypt_many falls back to single requests when the agent's error
+        // contains this text, which is what serde says when an agent built
+        // before DecryptMany existed parses the request
+        #[derive(serde::Deserialize, Debug)]
+        #[serde(tag = "type")]
+        #[allow(dead_code)]
+        enum OldAction {
+            Decrypt {
+                cipherstring: String,
+                entry_key: Option<String>,
+                org_id: Option<String>,
+            },
+            Version,
+        }
+        let request =
+            serde_json::to_string(&rbw::protocol::Action::DecryptMany {
+                items: vec![rbw::protocol::DecryptItem {
+                    cipherstring: "2.x|y|z".to_string(),
+                    entry_key: None,
+                    org_id: None,
+                }],
+            })
+            .unwrap();
+        let err = serde_json::from_str::<OldAction>(&request).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown variant `DecryptMany`"),
+            "{err}"
+        );
+    }
+
     fn make_entry(
         name: &str,
         username: Option<&str>,
@@ -4229,6 +5692,7 @@ mod test {
                         .map(|(_, match_type)| rbw::db::Uri {
                             uri: "this is the encrypted uri".to_string(),
                             match_type: *match_type,
+                            uri_checksum: None,
                         })
                         .collect(),
                     totp: None,

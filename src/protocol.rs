@@ -12,9 +12,11 @@ pub const VERSION: u32 = {
     let minor = env!("CARGO_PKG_VERSION_MINOR");
     let patch = env!("CARGO_PKG_VERSION_PATCH");
 
+    // the client restarts an agent that reports a different version, so
+    // different releases must never map to the same number
     unwrap(&u32::from_str_radix(major, 10)) * 1_000_000
-        + unwrap(&u32::from_str_radix(minor, 10)) * 1_000_000
-        + unwrap(&u32::from_str_radix(patch, 10)) * 1_000_000
+        + unwrap(&u32::from_str_radix(minor, 10)) * 1_000
+        + unwrap(&u32::from_str_radix(patch, 10))
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -158,6 +160,16 @@ impl Environment {
         }
     }
 
+    // The same environment without a terminal, for prompts that must not
+    // appear in one.
+    #[must_use]
+    pub fn without_tty(&self) -> Self {
+        Self {
+            tty: None,
+            env_vars: self.env_vars.clone(),
+        }
+    }
+
     pub fn tty(&self) -> Option<&std::ffi::OsStr> {
         self.tty.as_ref().map(|tty| tty.0.as_os_str())
     }
@@ -188,6 +200,11 @@ pub enum Action {
         entry_key: Option<String>,
         org_id: Option<String>,
     },
+    // decrypt a batch of cipherstrings with a single round trip; per-item
+    // failures are reported per item instead of failing the whole batch
+    DecryptMany {
+        items: Vec<DecryptItem>,
+    },
     Encrypt {
         plaintext: String,
         entry_key: Option<String>,
@@ -200,12 +217,32 @@ pub enum Action {
     Version,
 }
 
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, Hash,
+)]
+pub struct DecryptItem {
+    pub cipherstring: String,
+    pub entry_key: Option<String>,
+    pub org_id: Option<String>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum Response {
     Ack,
-    Error { error: String },
-    Decrypt { plaintext: String },
-    Encrypt { cipherstring: String },
-    Version { version: u32 },
+    Error {
+        error: String,
+    },
+    Decrypt {
+        plaintext: String,
+    },
+    DecryptMany {
+        plaintexts: Vec<Result<String, String>>,
+    },
+    Encrypt {
+        cipherstring: String,
+    },
+    Version {
+        version: u32,
+    },
 }

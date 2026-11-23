@@ -29,11 +29,15 @@ Compared to `rbw` 1.15.0, it adds:
 
 * Touch ID unlock on macOS, backed by a Secure Enclave key that never leaves
   the chip (see [Touch ID](#touch-id)).
-* Touch ID approval before each SSH signature on macOS, with the requesting
-  program named in the prompt.
+* Approval before each SSH signature, with Touch ID on macOS and a pinentry
+  dialog elsewhere, naming the key and the requesting program (see
+  [Approving SSH signatures](#approving-ssh-signatures)).
 * Fixes for `rbw edit` corrupting items that have their own encryption key,
   for edits refused by the server, for `rbw add` and `rbw edit` on
   Vaultwarden 1.37, and for requests that ignored `client_cert_path`.
+* `rbw add --secure-note`, custom fields on new entries, and `rbw edit
+  --field` to change a single field (see [Adding and editing
+  entries](#adding-and-editing-entries)).
 * Dependency updates for the RustSec advisories open against `rbw`.
 
 The full list is in the [changelog](CHANGELOG.md). Bug reports and pull
@@ -94,10 +98,61 @@ configuration options:
   after the master password has unlocked it once in the current agent process.
   The Secure Enclave key and wrapped vault key are kept only in memory and are
   discarded when the agent exits. Defaults to `false`.
-* `touch_id_ssh`: On macOS, ask for Touch ID before the SSH agent signs
-  anything. Defaults to `false`.
+* `ssh_confirm`: Ask before the SSH agent signs anything, with Touch ID on
+  macOS and a pinentry dialog elsewhere. See [Approving SSH
+  signatures](#approving-ssh-signatures). Defaults to `false`.
+* `touch_id_ssh`: Deprecated name for `ssh_confirm`, from 1.17.0. A config
+  file with `touch_id_ssh` set to `true` keeps asking, now on every platform.
+  `rbw config` keeps it equal to `ssh_confirm`, so going back to 1.17.0 keeps
+  asking too.
 * `client_cert_path`: Path to a PEM file holding a client certificate and its
   private key, for servers that require mutual TLS. Unset by default.
+* `extra_headers`: HTTP headers to send with every request to the server,
+  for a server behind Cloudflare Access or another proxy that checks a
+  header. See [Extra HTTP headers](#extra-http-headers). Unset by default.
+
+### Extra HTTP headers
+
+`extra_headers` adds headers to every request `rbw` sends to the server: the
+API, identity and notifications URLs, including the notifications websocket.
+The SSO login page opens in your browser, which doesn't send them. Set one
+header per command:
+
+```sh
+rbw config set extra_headers.CF-Access-Client-Id 0123abcd.access
+rbw config set extra_headers.CF-Access-Client-Secret 0123456789abcdef
+rbw config unset extra_headers.CF-Access-Client-Secret  # remove one
+rbw config unset extra_headers                          # remove all
+```
+
+In the config file they are an object of names and values:
+
+```json
+"extra_headers": {
+  "CF-Access-Client-Id": "0123abcd.access",
+  "CF-Access-Client-Secret": "0123456789abcdef"
+}
+```
+
+With extra headers set, `rbw` follows HTTP redirects only within the same
+host, because a redirect to another host would receive the headers too.
+
+Header names are case-insensitive, so setting a header again under another
+spelling replaces it. Headers that `rbw` sets itself or that belong to the
+connection can't be set: `Authorization`, `Auth-Email`, `Content-Type`,
+`Content-Length`, `Device-Type`, `Host`, `User-Agent`, `Bitwarden-*`, the
+connection headers (`Connection`, `Keep-Alive`, `Proxy-Connection`, `TE`,
+`Trailer`, `Transfer-Encoding`, `Upgrade`) and `Sec-WebSocket-*`. A proxy that
+wants HTTP basic authentication in `Authorization` can't work, since the
+Bitwarden API uses that header; `Proxy-Authorization` and `Cookie` are allowed.
+An invalid or reserved header is refused by `rbw config set`, and if one is
+written into the file by hand, commands that contact the server fail with an
+error naming it.
+
+The values are stored in plain text in the config file, like the rest of the
+configuration, and `rbw config show` prints them. `rbw` makes the config file
+readable only by its owner once it holds extra headers. A value given to
+`rbw config set` also ends up in your shell history.
 
 ### Profiles
 
@@ -148,18 +203,8 @@ master password or additional vault key material is written to disk. Entries
 configured to require master password reprompt continue to require the master
 password.
 
-The SSH agent can also ask before every signature:
-
-```sh
-rbw config set touch_id_ssh true
-```
-
-The prompt names the key and the program asking for it, for example "sign
-with the SSH key "github" for ssh (pid 4242), started by git". Touch ID, a
-paired Apple Watch or the login password can approve it, so this also works
-with the lid closed. If nobody approves, the signature is refused. With both
-settings on and a locked database, the first signature asks twice: once to
-unlock the database and once to approve the signature.
+The SSH agent can also ask for Touch ID before every signature, see
+[Approving SSH signatures](#approving-ssh-signatures).
 
 Run `rbw get <name>` to get your passwords. If you also want to get the username
 or the note associated, you can use the flag `--full`. You can also use the flag
@@ -175,6 +220,47 @@ order to use `rbw` with the official Bitwarden server, you will need to first
 run `rbw register` to register each device using `rbw` with the Bitwarden
 server. This will prompt you for your personal API key which you can find using
 the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
+
+### Adding and editing entries
+
+`rbw add <name> [user]` creates a login. It opens the editor for the password
+(the first line) and notes (the rest), or reads them from stdin when stdin is
+not a terminal. `--uri` (repeatable) and `--folder` set the login's URIs and
+folder. With `--secure-note`, it creates a secure note instead, and the editor
+contents or stdin become the note; a secure note has no username or URIs, so
+`--secure-note` can't be combined with them.
+
+`--field NAME=VALUE` adds a text custom field and `--hidden-field NAME=VALUE` a
+hidden one. Both can be repeated. The name ends at the first `=`, so values can
+contain `=`, and each name can only be given once.
+
+Values given as arguments end up in your shell history and, while `rbw` runs,
+are visible to other users of the machine through `ps`. For secrets, create the
+entry first and then add the field with `rbw edit --field`, which reads the
+value from the editor or stdin:
+
+```sh
+rbw add example
+rbw edit example --field api_token --create   # opens the editor
+printf '%s' "$TOKEN" | rbw edit example --field api_token --create
+```
+
+`rbw edit <name>` opens the editor with the password and notes of a login, or
+the notes of a secure note. `rbw edit <name> --field <field>` changes one field
+instead: `name`, `notes`, a login's `username`, `password`, `totp` or `uris`
+(one per line), or a custom field of any entry except an SSH key. A custom
+field is found by its exact name, or else by a name that differs only in case;
+the built-in names take precedence, as with `rbw get --field`. When stdin is a
+terminal, the editor opens with the current value; otherwise the value is read
+from stdin as is, without one trailing newline. `--create` adds the custom
+field as a hidden field if the entry doesn't have it. Boolean fields take
+`true` or `false`, and linked fields can't be edited.
+
+Changing a password moves the old one to the password history (`rbw history`).
+Before saving an edit, `rbw` fetches the entry from the server and keeps what
+it doesn't manage itself, such as the favorite and master password reprompt
+settings, passkeys and URI checksums. `rbw edit` syncs before opening the
+editor, so it starts from the entry's current version.
 
 ### SSH Agent
 
@@ -198,7 +284,35 @@ directory instead:
 export SSH_AUTH_SOCK="${TMPDIR%/}/rbw-$(id -u)/ssh-agent-socket"
 ```
 
-To approve each signature with Touch ID, see [Touch ID](#touch-id).
+#### Approving SSH signatures
+
+The SSH agent can ask before every signature, so a program that reaches the
+agent socket (or a forwarded agent on another machine) can't use your keys
+without you noticing:
+
+```sh
+rbw config set ssh_confirm true
+```
+
+The prompt names the key, after its entry in the vault, and the program asking
+for it, for example "Allow ssh (pid 4242), started by git to sign with the SSH
+key "github"?". The program name comes from the process itself, which can call
+itself anything, so take it as a hint rather than proof.
+
+On macOS, Touch ID, a paired Apple Watch or the login password approves the
+signature, so this also works with the lid closed. Elsewhere, the configured
+`pinentry` shows an Allow/Deny dialog on the display of the last `rbw`
+command. It needs a graphical pinentry: the dialog is never shown in a
+terminal, where an Enter typed for the shell could approve it, so with a
+terminal-only pinentry such as `pinentry-curses` every signature is refused.
+The dialog is dismissed after `pinentry_timeout` seconds, or 120 seconds when
+that is `0`, so one unanswered request can't hold up the ones after it.
+
+Only an explicit approval signs. Denying, closing the dialog, a timeout, or a
+pinentry that can't be shown refuse the signature, and the SSH client reports
+that the agent refused. Requests that arrive while a prompt is open wait for
+it, one prompt at a time. With a locked database, the first signature asks
+twice: once to unlock the database and once to approve the signature.
 
 ### 2FA support
 
