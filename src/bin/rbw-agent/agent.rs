@@ -1,4 +1,3 @@
-use anyhow::Context as _;
 use futures_util::StreamExt as _;
 
 pub struct Agent {
@@ -67,9 +66,24 @@ impl Agent {
         while let Some(event) = stream.next().await {
             match event {
                 Event::Request(res) => {
-                    let mut sock = crate::sock::Sock::new(
-                        res.context("failed to accept incoming connection")?,
-                    );
+                    // a failed accept (for example from running out of file
+                    // descriptors) only affects that client, so keep serving
+                    // instead of exiting and losing the unlocked state
+                    let stream = match res {
+                        Ok(stream) => stream,
+                        Err(e) => {
+                            log::warn!(
+                                "failed to accept incoming connection: {e}"
+                            );
+                            // don't spin while the condition lasts
+                            tokio::time::sleep(
+                                std::time::Duration::from_millis(100),
+                            )
+                            .await;
+                            continue;
+                        }
+                    };
+                    let mut sock = crate::sock::Sock::new(stream);
                     let state = self.state.clone();
                     tokio::spawn(async move {
                         let res =
