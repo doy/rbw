@@ -158,7 +158,9 @@ enum Opt {
             long,
             value_name = "NAME=VALUE",
             value_parser = parse_field,
-            help = "Add a hidden custom field (may be repeated)",
+            help = "Add a hidden custom field (may be repeated). The value \
+                    ends up in shell history and is visible to other \
+                    processes",
             number_of_values = 1
         )]
         hidden_field: Vec<(String, String)>,
@@ -330,11 +332,14 @@ impl Config {
     }
 }
 
+// the name ends at the first '=', so values can contain '=' but names can't
 fn parse_field(s: &str) -> Result<(String, String), String> {
     s.split_once('=')
         .filter(|(name, _)| !name.is_empty())
         .map(|(name, value)| (name.to_string(), value.to_string()))
-        .ok_or_else(|| format!("expected NAME=VALUE, got '{s}'"))
+        .ok_or_else(|| {
+            "expected NAME=VALUE with a non-empty NAME".to_string()
+        })
 }
 
 fn main() {
@@ -562,5 +567,75 @@ fn main() {
     if let Err(e) = res {
         eprintln!("{e:#}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cli_definition() {
+        Opt::command().debug_assert();
+    }
+
+    #[test]
+    fn test_parse_field() {
+        assert_eq!(
+            parse_field("name=value"),
+            Ok(("name".to_string(), "value".to_string()))
+        );
+        assert_eq!(
+            parse_field("name=a=b"),
+            Ok(("name".to_string(), "a=b".to_string()))
+        );
+        assert_eq!(
+            parse_field("name="),
+            Ok(("name".to_string(), String::new()))
+        );
+        assert!(parse_field("name").is_err());
+        assert!(parse_field("=value").is_err());
+        assert!(parse_field("").is_err());
+    }
+
+    #[test]
+    fn test_add_args() {
+        let Ok(Opt::Add {
+            field,
+            hidden_field,
+            secure_note,
+            ..
+        }) = Opt::try_parse_from([
+            "rbw",
+            "add",
+            "entry",
+            "--secure-note",
+            "--field",
+            "a=1",
+            "--hidden-field",
+            "b=2",
+            "--field",
+            "c=3",
+        ])
+        else {
+            panic!("failed to parse");
+        };
+        assert!(secure_note);
+        assert_eq!(
+            field,
+            [
+                ("a".to_string(), "1".to_string()),
+                ("c".to_string(), "3".to_string())
+            ]
+        );
+        assert_eq!(hidden_field, [("b".to_string(), "2".to_string())]);
+
+        for args in [
+            &["rbw", "add", "entry", "user", "--secure-note"][..],
+            &["rbw", "add", "entry", "--secure-note", "--uri", "x"][..],
+            &["rbw", "add", "entry", "--field", "novalue"][..],
+        ] {
+            assert!(Opt::try_parse_from(args).is_err(), "{args:?}");
+        }
     }
 }

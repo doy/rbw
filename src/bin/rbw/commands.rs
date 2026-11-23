@@ -1592,6 +1592,8 @@ pub fn add(
     secure_note: bool,
     fields: &[(String, String, rbw::api::FieldType)],
 ) -> anyhow::Result<()> {
+    check_new_field_names(fields.iter().map(|(name, _, _)| name.as_str()))?;
+
     unlock()?;
 
     let mut db = load_db()?;
@@ -1642,7 +1644,12 @@ pub fn add(
             Ok(rbw::db::Field {
                 ty: Some(*ty),
                 name: Some(crate::actions::encrypt(field_name, None, None)?),
-                value: Some(crate::actions::encrypt(value, None, None)?),
+                // the official clients store an empty value as null
+                value: if value.is_empty() {
+                    None
+                } else {
+                    Some(crate::actions::encrypt(value, None, None)?)
+                },
                 linked_id: None,
             })
         })
@@ -1696,6 +1703,20 @@ pub fn add(
 
     crate::actions::sync()?;
 
+    Ok(())
+}
+
+// `rbw get --field` and `rbw edit --field` can't tell two custom fields with
+// the same name apart, so don't create them
+fn check_new_field_names<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+) -> anyhow::Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for name in names {
+        if !seen.insert(name) {
+            anyhow::bail!("custom field '{name}' is given more than once");
+        }
+    }
     Ok(())
 }
 
@@ -3103,6 +3124,17 @@ mod test {
     }
 
     use super::*;
+
+    #[test]
+    fn test_check_new_field_names() {
+        assert!(check_new_field_names([]).is_ok());
+        assert!(check_new_field_names(["a", "b", "A"]).is_ok());
+        let err = check_new_field_names(["a", "b", "a"]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "custom field 'a' is given more than once"
+        );
+    }
 
     #[test]
     fn test_find_entry() {

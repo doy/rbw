@@ -200,7 +200,15 @@ fn add_once(
     folder_id: Option<&str>,
 ) -> Result<()> {
     let (client, _) = api_client()?;
-    client.add(access_token, user_id, name, data, fields, notes, folder_id)?;
+    client.add(
+        access_token,
+        user_id,
+        name,
+        data,
+        fields,
+        notes,
+        folder_id,
+    )?;
     Ok(())
 }
 
