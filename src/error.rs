@@ -238,6 +238,9 @@ pub enum Error {
     #[error("new device verification required")]
     NewDeviceVerificationRequired,
 
+    #[error("the server rejected this device: {message}")]
+    DeviceRejected { message: String },
+
     #[error("unimplemented cipherstring type: {ty}")]
     UnimplementedCipherStringType { ty: String },
 

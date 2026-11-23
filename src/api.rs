@@ -61,8 +61,8 @@ pub enum TwoFactorProviderType {
 }
 
 impl TwoFactorProviderType {
-    pub fn message(&self) -> &str {
-        match *self {
+    pub const fn message(self) -> &'static str {
+        match self {
             Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
             Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
@@ -70,8 +70,8 @@ impl TwoFactorProviderType {
         }
     }
 
-    pub fn header(&self) -> &str {
-        match *self {
+    pub const fn header(self) -> &'static str {
+        match self {
             Self::Authenticator => "Authenticator App",
             Self::Yubikey => "Yubikey",
             Self::Email => "Email Code",
@@ -82,6 +82,19 @@ impl TwoFactorProviderType {
     pub fn grab(&self) -> bool {
         !matches!(self, Self::Email)
     }
+}
+
+// A code the user typed to finish logging in.
+#[derive(Debug, Clone, Copy)]
+pub enum LoginCode<'a> {
+    // A two-step login code from one of the account's providers.
+    TwoFactor {
+        provider: TwoFactorProviderType,
+        token: &'a str,
+    },
+    // The one-time code Bitwarden emails to approve a device it has not
+    // seen before, for accounts without two-step login.
+    NewDevice(&'a str),
 }
 
 impl<'de> serde::Deserialize<'de> for TwoFactorProviderType {
@@ -309,7 +322,7 @@ struct ConnectTokenReq {
         rename = "newDeviceOtp",
         skip_serializing_if = "Option::is_none"
     )]
-    device_verification_code: Option<String>,
+    new_device_otp: Option<String>,
     #[serde(flatten)]
     auth: ConnectTokenAuth,
 }
@@ -982,7 +995,7 @@ impl Client {
             device_push_token: String::new(),
             two_factor_token: None,
             two_factor_provider: None,
-            device_verification_code: None,
+            new_device_otp: None,
         };
         let client = self.reqwest_client().await?;
         let res = client
@@ -1017,10 +1030,18 @@ impl Client {
         sso_id: Option<&str>,
         device_id: &str,
         password_hash: &crate::locked::PasswordHash,
-        two_factor_token: Option<&str>,
-        two_factor_provider: Option<TwoFactorProviderType>,
-        device_verification_code: Option<&str>,
+        code: Option<LoginCode<'_>>,
     ) -> Result<(String, String, String)> {
+        let (two_factor_token, two_factor_provider, new_device_otp) =
+            match code {
+                Some(LoginCode::TwoFactor { provider, token }) => {
+                    (Some(token.to_string()), Some(provider as u32), None)
+                }
+                Some(LoginCode::NewDevice(otp)) => {
+                    (None, None, Some(otp.to_string()))
+                }
+                None => (None, None, None),
+            };
         let connect_req = match sso_id {
             Some(sso_id) => {
                 let (sso_code, sso_code_verifier, callback_url) =
@@ -1039,12 +1060,9 @@ impl Client {
                     device_identifier: device_id.to_string(),
                     device_name: "rbw".to_string(),
                     device_push_token: String::new(),
-                    two_factor_token: two_factor_token
-                        .map(std::string::ToString::to_string),
-                    two_factor_provider: two_factor_provider
-                        .map(|ty| ty as u32),
-                    device_verification_code: device_verification_code
-                        .map(std::string::ToString::to_string),
+                    two_factor_token,
+                    two_factor_provider,
+                    new_device_otp,
                 }
             }
             None => ConnectTokenReq {
@@ -1060,11 +1078,9 @@ impl Client {
                 device_identifier: device_id.to_string(),
                 device_name: "rbw".to_string(),
                 device_push_token: String::new(),
-                two_factor_token: two_factor_token
-                    .map(std::string::ToString::to_string),
-                two_factor_provider: two_factor_provider.map(|ty| ty as u32),
-                device_verification_code: device_verification_code
-                    .map(std::string::ToString::to_string),
+                two_factor_token,
+                two_factor_provider,
+                new_device_otp,
             },
         };
 
@@ -1791,8 +1807,28 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "invalid_client" => {
             return Error::IncorrectApiKey;
         }
+        // Bitwarden uses device_error for several unrelated failures and
+        // tells them apart only through the ErrorModel message, which its
+        // own clients match on as well.
         "device_error" => {
-            return Error::NewDeviceVerificationRequired;
+            let message = error_res
+                .error_model
+                .as_ref()
+                .map(|error_model| error_model.message.as_str());
+            return match message {
+                Some("new device verification required") => {
+                    Error::NewDeviceVerificationRequired
+                }
+                Some("invalid new device otp") => Error::IncorrectPassword {
+                    message: "The verification code is incorrect".to_string(),
+                },
+                _ => Error::DeviceRejected {
+                    message: message
+                        .or(error_desc)
+                        .unwrap_or("unknown device error")
+                        .to_string(),
+                },
+            };
         }
         // bitwarden_rs returns an empty error and error_description for
         // this case, for some reason
@@ -1817,4 +1853,69 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device_error(message: &str) -> Error {
+        let body = format!(
+            r#"{{"error":"device_error","error_description":"x","ErrorModel":{{"Message":"{message}","Object":"error"}}}}"#
+        );
+        let res: ConnectErrorRes = serde_json::from_str(&body).unwrap();
+        classify_login_error(&res, 400)
+    }
+
+    #[test]
+    fn device_errors_are_told_apart() {
+        assert!(matches!(
+            device_error("new device verification required"),
+            Error::NewDeviceVerificationRequired
+        ));
+        assert!(matches!(
+            device_error("invalid new device otp"),
+            Error::IncorrectPassword { .. }
+        ));
+        assert!(matches!(
+            device_error("no device information provided"),
+            Error::DeviceRejected { message }
+                if message == "no device information provided"
+        ));
+    }
+
+    #[test]
+    fn login_code_fills_the_matching_form_fields() {
+        let form = |two_factor_token, two_factor_provider, new_device_otp| {
+            let req = ConnectTokenReq {
+                auth: ConnectTokenAuth::Password(ConnectTokenPassword {
+                    username: "u".to_string(),
+                    password: "p".to_string(),
+                }),
+                grant_type: "password".to_string(),
+                scope: "api".to_string(),
+                client_id: "cli".to_string(),
+                device_type: 8,
+                device_identifier: "d".to_string(),
+                device_name: "rbw".to_string(),
+                device_push_token: String::new(),
+                two_factor_token,
+                two_factor_provider,
+                new_device_otp,
+            };
+            // the same encoding the login request uses
+            let request = reqwest::Client::new()
+                .post("http://localhost/connect/token")
+                .form(&req)
+                .build()
+                .unwrap();
+            String::from_utf8(
+                request.body().unwrap().as_bytes().unwrap().to_vec(),
+            )
+            .unwrap()
+        };
+        assert!(!form(None, None, None).contains("newDeviceOtp"));
+        assert!(form(None, None, Some("123456".to_string()))
+            .contains("newDeviceOtp=123456"));
+    }
 }

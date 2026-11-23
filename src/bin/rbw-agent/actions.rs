@@ -113,15 +113,7 @@ pub async fn login(
             )
             .await
             .context("failed to read password from pinentry")?;
-            match rbw::actions::login(
-                &email,
-                password.clone(),
-                None,
-                None,
-                None,
-            )
-            .await
-            {
+            match rbw::actions::login(&email, password.clone(), None).await {
                 Ok((
                     access_token,
                     refresh_token,
@@ -156,10 +148,11 @@ pub async fn login(
                         memory,
                         parallelism,
                         protected_key,
-                    ) = device_verification(
+                    ) = login_with_code(
                         environment,
                         &email,
                         password.clone(),
+                        CodePrompt::NewDevice,
                     )
                     .await?;
                     login_success(
@@ -211,11 +204,11 @@ pub async fn login(
                                 memory,
                                 parallelism,
                                 protected_key,
-                            ) = two_factor(
+                            ) = login_with_code(
                                 environment,
                                 &email,
                                 password.clone(),
-                                provider,
+                                CodePrompt::TwoFactor(provider),
                             )
                             .await?;
                             login_success(
@@ -261,103 +254,20 @@ pub async fn login(
     Ok(())
 }
 
-async fn two_factor(
-    environment: &rbw::protocol::Environment,
-    email: &str,
-    password: rbw::locked::Password,
-    provider: rbw::api::TwoFactorProviderType,
-) -> anyhow::Result<(
-    String,
-    String,
-    rbw::api::KdfType,
-    u32,
-    Option<u32>,
-    Option<u32>,
-    String,
-)> {
-    let mut err_msg = None;
-    for i in 1_u8..=3 {
-        let err = if i > 1 {
-            // this unwrap is safe because we only ever continue the loop if
-            // we have set err_msg
-            Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
-        } else {
-            None
-        };
-        let code = rbw::pinentry::getpin(
-            &config_pinentry().await?,
-            provider.header(),
-            provider.message(),
-            err.as_deref(),
-            environment,
-            provider.grab(),
-        )
-        .await
-        .context("failed to read code from pinentry")?;
-        let code = std::str::from_utf8(code.password())
-            .context("code was not valid utf8")?;
-        match rbw::actions::login(
-            email,
-            password.clone(),
-            Some(code),
-            Some(provider),
-            None,
-        )
-        .await
-        {
-            Ok((
-                access_token,
-                refresh_token,
-                kdf,
-                iterations,
-                memory,
-                parallelism,
-                protected_key,
-            )) => {
-                return Ok((
-                    access_token,
-                    refresh_token,
-                    kdf,
-                    iterations,
-                    memory,
-                    parallelism,
-                    protected_key,
-                ))
-            }
-            Err(rbw::error::Error::IncorrectPassword { message }) => {
-                if i == 3 {
-                    return Err(rbw::error::Error::IncorrectPassword {
-                        message,
-                    })
-                    .context("failed to log in to bitwarden instance");
-                }
-                err_msg = Some(message);
-            }
-            // can get this if the user passes an empty string
-            Err(rbw::error::Error::TwoFactorRequired { .. }) => {
-                let message = "TOTP code is not a number".to_string();
-                if i == 3 {
-                    return Err(rbw::error::Error::IncorrectPassword {
-                        message,
-                    })
-                    .context("failed to log in to bitwarden instance");
-                }
-                err_msg = Some(message);
-            }
-            Err(e) => {
-                return Err(e)
-                    .context("failed to log in to bitwarden instance")
-            }
-        }
-    }
-
-    unreachable!()
+// The code the second step of a login asks for.
+#[derive(Clone, Copy)]
+enum CodePrompt {
+    TwoFactor(rbw::api::TwoFactorProviderType),
+    // Bitwarden emails this code when an account without two-step login
+    // signs in from a device it has not seen before.
+    NewDevice,
 }
 
-async fn device_verification(
+async fn login_with_code(
     environment: &rbw::protocol::Environment,
     email: &str,
     password: rbw::locked::Password,
+    prompt: CodePrompt,
 ) -> anyhow::Result<(
     String,
     String,
@@ -367,80 +277,91 @@ async fn device_verification(
     Option<u32>,
     String,
 )> {
-    let mut err_msg = None;
-    for i in 1_u8..=3 {
-        let err = if i > 1 {
-            // this unwrap is safe because we only ever continue the loop if
-            // we have set err_msg
-            Some(format!("{} (attempt {}/3)", err_msg.unwrap(), i))
-        } else {
-            None
-        };
-        let code = rbw::pinentry::getpin(
-            &config_pinentry().await?,
+    let (header, description, grab) = match prompt {
+        CodePrompt::TwoFactor(provider) => (
+            provider.header(),
+            provider.message().to_string(),
+            provider.grab(),
+        ),
+        CodePrompt::NewDevice => (
             "New Device Verification",
-            "Check your email for a verification code",
+            format!(
+                "Enter the verification code Bitwarden emailed to {email} \
+                 to approve this device."
+            ),
+            // the person needs to switch to their mail client
+            false,
+        ),
+    };
+
+    let mut err_msg: Option<String> = None;
+    for i in 1_u8..=3 {
+        let err = err_msg
+            .as_deref()
+            .map(|message| format!("{message} (attempt {i}/3)"));
+        let input = rbw::pinentry::getpin(
+            &config_pinentry().await?,
+            header,
+            &description,
             err.as_deref(),
             environment,
-            false,
+            grab,
         )
         .await
         .context("failed to read code from pinentry")?;
-        let code = std::str::from_utf8(code.password())
-            .context("code was not valid utf8")?;
-        match rbw::actions::login(
-            email,
-            password.clone(),
-            None,
-            None,
-            Some(code),
-        )
-        .await
-        {
-            Ok((
-                access_token,
-                refresh_token,
-                kdf,
-                iterations,
-                memory,
-                parallelism,
-                protected_key,
-            )) => {
-                return Ok((
-                    access_token,
-                    refresh_token,
-                    kdf,
-                    iterations,
-                    memory,
-                    parallelism,
-                    protected_key,
-                ))
+        let code = std::str::from_utf8(input.password())
+            .context("code was not valid utf8")?
+            .trim();
+
+        let message = match prompt {
+            // sending no code would make Bitwarden email a new one
+            CodePrompt::NewDevice if code.is_empty() => {
+                "Enter the code from the email".to_string()
             }
-            Err(rbw::error::Error::IncorrectPassword { message }) => {
-                if i == 3 {
-                    return Err(rbw::error::Error::IncorrectPassword {
-                        message,
-                    })
-                    .context("failed to log in to bitwarden instance");
+            _ => {
+                let login_code = match prompt {
+                    CodePrompt::TwoFactor(provider) => {
+                        rbw::api::LoginCode::TwoFactor {
+                            provider,
+                            token: code,
+                        }
+                    }
+                    CodePrompt::NewDevice => {
+                        rbw::api::LoginCode::NewDevice(code)
+                    }
+                };
+                match rbw::actions::login(
+                    email,
+                    password.clone(),
+                    Some(login_code),
+                )
+                .await
+                {
+                    Ok(tokens) => return Ok(tokens),
+                    Err(rbw::error::Error::IncorrectPassword { message }) => {
+                        message
+                    }
+                    // can get this if the user passes an empty string
+                    Err(rbw::error::Error::TwoFactorRequired { .. }) => {
+                        "TOTP code is not a number".to_string()
+                    }
+                    Err(rbw::error::Error::NewDeviceVerificationRequired) => {
+                        "Bitwarden emailed a new verification code"
+                            .to_string()
+                    }
+                    Err(e) => {
+                        return Err(e).context(
+                            "failed to log in to bitwarden instance",
+                        )
+                    }
                 }
-                err_msg = Some(message);
             }
-            Err(rbw::error::Error::NewDeviceVerificationRequired) => {
-                let message =
-                    "New device verification code is incorrect".to_string();
-                if i == 3 {
-                    return Err(rbw::error::Error::IncorrectPassword {
-                        message,
-                    })
-                    .context("failed to log in to bitwarden instance");
-                }
-                err_msg = Some(message);
-            }
-            Err(e) => {
-                return Err(e)
-                    .context("failed to log in to bitwarden instance")
-            }
+        };
+        if i == 3 {
+            return Err(rbw::error::Error::IncorrectPassword { message })
+                .context("failed to log in to bitwarden instance");
         }
+        err_msg = Some(message);
     }
 
     unreachable!()
