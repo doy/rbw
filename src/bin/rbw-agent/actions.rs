@@ -1070,7 +1070,8 @@ pub async fn get_ssh_public_keys(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<Vec<ssh_agent_lib::proto::Identity>> {
     let environment = {
-        let state = state.lock().await;
+        let mut state = state.lock().await;
+        state.lock_if_expired();
         state.set_timeout();
         state.last_environment().clone()
     };
@@ -1137,7 +1138,8 @@ pub async fn find_ssh_private_key(
     request_public_key: ssh_agent_lib::ssh_key::PublicKey,
 ) -> anyhow::Result<(String, ssh_agent_lib::ssh_key::PrivateKey)> {
     let environment = {
-        let state = state.lock().await;
+        let mut state = state.lock().await;
+        state.lock_if_expired();
         state.set_timeout();
         state.last_environment().clone()
     };

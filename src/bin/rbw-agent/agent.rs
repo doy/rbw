@@ -143,6 +143,7 @@ async fn handle_request(
         }
     };
     let (action, environment) = req.into_parts();
+    state.lock().await.lock_if_expired();
     let set_timeout = match &action {
         rbw::protocol::Action::Register => {
             crate::actions::register(sock, &environment).await?;
