@@ -1930,12 +1930,44 @@ type EditedEntry = (
     Vec<rbw::db::HistoryEntry>,
 );
 
+// a value that exists but couldn't be decrypted (for example because a
+// master password reprompt was cancelled) would show up empty in the editor,
+// and saving would erase it
+fn ensure_decrypted(
+    encrypted: Option<&str>,
+    decrypted: Option<&str>,
+    what: &str,
+) -> anyhow::Result<()> {
+    if encrypted.is_some() && decrypted.is_none() {
+        anyhow::bail!(
+            "the entry's {what} couldn't be decrypted, so it can't be edited"
+        );
+    }
+    Ok(())
+}
+
 fn edit_default(
     entry: &rbw::db::Entry,
     decrypted: &DecryptedCipher,
 ) -> anyhow::Result<EditedEntry> {
+    ensure_decrypted(
+        entry.notes.as_deref(),
+        decrypted.notes.as_deref(),
+        "notes",
+    )?;
     let (data, fields, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
+            if let rbw::db::EntryData::Login {
+                password: encrypted,
+                ..
+            } = &entry.data
+            {
+                ensure_decrypted(
+                    encrypted.as_deref(),
+                    password.as_deref(),
+                    "password",
+                )?;
+            }
             let mut contents =
                 format!("{}\n", password.as_deref().unwrap_or(""));
             if let Some(notes) = decrypted.notes.clone() {
@@ -2083,11 +2115,20 @@ fn read_field_value(
     if std::io::stdin().is_terminal() {
         let contents =
             rbw::edit::edit(&format!("{}\n", current.unwrap_or("")), help)?;
-        Ok(parse_field_value(&contents))
+        Ok(parse_field_value(&contents, help))
     } else {
         // taken verbatim on purpose, not run through the editor parser
         let input = std::io::read_to_string(std::io::stdin())
             .context("failed to read field value from stdin")?;
+        // empty input is more likely a mistake (a closed or redirected
+        // stdin) than a request to clear the field, which is still possible
+        // by saving an empty value in the editor
+        if input.is_empty() {
+            anyhow::bail!(
+                "no value on stdin; to clear the field, run the command in \
+                 a terminal and save an empty value"
+            );
+        }
         Ok(parse_piped_field_value(&input))
     }
 }
@@ -2245,6 +2286,13 @@ fn edit_field(
 
             let current =
                 idx.and_then(|i| decrypted.fields[i].value.as_deref());
+            if let Some(i) = idx {
+                ensure_decrypted(
+                    entry.fields[i].value.as_deref(),
+                    current,
+                    &format!("field '{field}'"),
+                )?;
+            }
             let new_value = read_field_value(current, HELP_FIELD)?;
             check_custom_field_value(field, ty, new_value.as_deref())?;
             if idx.is_some() && new_value.as_deref() == current {
@@ -2279,6 +2327,25 @@ fn edit_field(
         }
     };
 
+    let encrypted = match (parsed, &entry.data) {
+        (Field::Notes, _) => entry.notes.as_deref(),
+        (
+            Field::Username,
+            rbw::db::EntryData::Login {
+                username: value, ..
+            },
+        )
+        | (
+            Field::Password,
+            rbw::db::EntryData::Login {
+                password: value, ..
+            },
+        )
+        | (Field::Totp, rbw::db::EntryData::Login { totp: value, .. }) => {
+            value.as_deref()
+        }
+        _ => None,
+    };
     let current = match (parsed, &decrypted.data) {
         (Field::Name, _) => Some(decrypted.name.clone()),
         (Field::Notes, _) => decrypted.notes.clone(),
@@ -2310,6 +2377,7 @@ fn edit_field(
         _ => unreachable!("field_target only returns editable built-ins"),
     };
 
+    ensure_decrypted(encrypted, current.as_deref(), &parsed.to_string())?;
     let help = if parsed == Field::Uris {
         HELP_URIS
     } else {
@@ -2402,10 +2470,14 @@ fn edit_field(
     Ok(Some((name, data, entry.fields.clone(), notes, history)))
 }
 
-fn parse_field_value(contents: &str) -> Option<String> {
+// removes the help text the editor was given, and nothing else: a value can
+// start with '#', like a password or a markdown heading in the notes
+fn parse_field_value(contents: &str, help: &str) -> Option<String> {
+    let help_lines: Vec<&str> =
+        help.lines().filter(|line| line.starts_with('#')).collect();
     let mut value = contents
         .lines()
-        .filter(|line| !line.starts_with('#'))
+        .filter(|line| !help_lines.contains(line))
         .fold(String::new(), |mut acc, line| {
             acc.push_str(line);
             acc.push('\n');
@@ -2423,7 +2495,7 @@ fn parse_field_value(contents: &str) -> Option<String> {
 
 const HELP_FIELD: &str = r"
 # The content of this file will be saved as the new field value.
-# Lines with leading # will be ignored.
+# These two help lines are removed before saving.
 ";
 
 const HELP_URIS: &str = r"
@@ -3766,17 +3838,22 @@ mod test {
 
     #[test]
     fn test_parse_field_value() {
-        assert_eq!(parse_field_value("hello\n"), Some("hello".into()));
+        fn parse(contents: &str) -> Option<String> {
+            parse_field_value(contents, HELP_FIELD)
+        }
+        assert_eq!(parse("hello\n"), Some("hello".into()));
+        assert_eq!(parse("line1\nline2\n"), Some("line1\nline2".into()));
+        // what the editor holds before any change
         assert_eq!(
-            parse_field_value("line1\nline2\n"),
-            Some("line1\nline2".into())
+            parse(&format!("#Xk9-secret\n{HELP_FIELD}")),
+            Some("#Xk9-secret".into())
         );
         assert_eq!(
-            parse_field_value("# comment\nvalue\n"),
-            Some("value".into())
+            parse(&format!("# Heading\ntext\n{HELP_FIELD}")),
+            Some("# Heading\ntext".into())
         );
-        assert_eq!(parse_field_value("\n# nothing\n"), None);
-        assert_eq!(parse_field_value(""), None);
+        assert_eq!(parse(&format!("\n{HELP_FIELD}")), None);
+        assert_eq!(parse(""), None);
     }
 
     #[test]
