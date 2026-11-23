@@ -101,9 +101,49 @@ configuration options:
   anything. Defaults to `false`.
 * `client_cert_path`: Path to a PEM file holding a client certificate and its
   private key, for servers that require mutual TLS. Unset by default.
-* `extra_headers`: Additional HTTP headers (in `[['key1', 'value1'], ['key2',
-  'value2']]` form) to send in API calls. Useful if the server is behind a
-  reverse proxy that supports header-based authentication, e.g. Cloudflare.
+* `extra_headers`: HTTP headers to send with every request to the server,
+  for a server behind Cloudflare Access or another proxy that checks a
+  header. See [Extra HTTP headers](#extra-http-headers). Unset by default.
+
+### Extra HTTP headers
+
+`extra_headers` adds headers to every request `rbw` sends to the server: the
+API, identity and notifications URLs, including the notifications websocket.
+The SSO login page opens in your browser, which doesn't send them. Set one
+header per command:
+
+```sh
+rbw config set extra_headers.CF-Access-Client-Id 0123abcd.access
+rbw config set extra_headers.CF-Access-Client-Secret 0123456789abcdef
+rbw config unset extra_headers.CF-Access-Client-Secret  # remove one
+rbw config unset extra_headers                          # remove all
+```
+
+In the config file they are an object of names and values:
+
+```json
+"extra_headers": {
+  "CF-Access-Client-Id": "0123abcd.access",
+  "CF-Access-Client-Secret": "0123456789abcdef"
+}
+```
+
+Header names are case-insensitive, so setting a header again under another
+spelling replaces it. Headers that `rbw` sets itself or that belong to the
+connection can't be set: `Authorization`, `Auth-Email`, `Content-Type`,
+`Content-Length`, `Device-Type`, `Host`, `User-Agent`, `Bitwarden-*`, the
+connection headers (`Connection`, `Keep-Alive`, `Proxy-Connection`, `TE`,
+`Trailer`, `Transfer-Encoding`, `Upgrade`) and `Sec-WebSocket-*`. A proxy that
+wants HTTP basic authentication in `Authorization` can't work, since the
+Bitwarden API uses that header; `Proxy-Authorization` and `Cookie` are allowed.
+An invalid or reserved header is refused by `rbw config set`, and if one is
+written into the file by hand, commands that contact the server fail with an
+error naming it.
+
+The values are stored in plain text in the config file, like the rest of the
+configuration, and `rbw config show` prints them. `rbw` makes the config file
+readable only by its owner once it holds extra headers. A value given to
+`rbw config set` also ends up in your shell history.
 
 ### Profiles
 

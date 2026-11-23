@@ -1302,7 +1302,18 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             }
             config.touch_id_ssh = enabled;
         }
-        _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
+        "extra_headers" => return Err(extra_headers_key_error()),
+        _ => {
+            let Some(name) = key.strip_prefix(EXTRA_HEADERS_PREFIX) else {
+                return Err(anyhow::anyhow!("invalid config key: {key}"));
+            };
+            rbw::config::parse_extra_header(name, value)?;
+            // header names are case-insensitive: replace any spelling
+            remove_extra_header(&mut config, name);
+            config
+                .extra_headers
+                .insert(name.to_string(), value.to_string());
+        }
     }
     config.save()?;
 
@@ -1336,7 +1347,13 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
         }
         "touch_id_unlock" => config.touch_id_unlock = false,
         "touch_id_ssh" => config.touch_id_ssh = false,
-        _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
+        "extra_headers" => config.extra_headers.clear(),
+        _ => {
+            let Some(name) = key.strip_prefix(EXTRA_HEADERS_PREFIX) else {
+                return Err(anyhow::anyhow!("invalid config key: {key}"));
+            };
+            remove_extra_header(&mut config, name);
+        }
     }
     config.save()?;
 
@@ -1348,6 +1365,22 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
     stop_agent()?;
 
     Ok(())
+}
+
+// `rbw config set extra_headers.NAME VALUE` sets one header.
+const EXTRA_HEADERS_PREFIX: &str = "extra_headers.";
+
+fn extra_headers_key_error() -> anyhow::Error {
+    anyhow::anyhow!(
+        "set one header at a time with \
+         `rbw config set extra_headers.<name> <value>`"
+    )
+}
+
+fn remove_extra_header(config: &mut rbw::config::Config, name: &str) {
+    config
+        .extra_headers
+        .retain(|existing, _| !existing.eq_ignore_ascii_case(name));
 }
 
 fn clipboard_store(val: &str) -> anyhow::Result<()> {

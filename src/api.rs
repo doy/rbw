@@ -1170,7 +1170,8 @@ pub struct Client {
     identity_url: String,
     ui_url: String,
     client_cert_path: Option<std::path::PathBuf>,
-    extra_headers: Vec<(String, String)>,
+    // already checked by Config::extra_headers
+    extra_headers: axum::http::HeaderMap,
 }
 
 impl Client {
@@ -1179,7 +1180,7 @@ impl Client {
         identity_url: &str,
         ui_url: &str,
         client_cert_path: Option<&std::path::Path>,
-        extra_headers: Vec<(String, String)>,
+        extra_headers: axum::http::HeaderMap,
     ) -> Self {
         Self {
             base_url: base_url.to_string(),
@@ -1191,22 +1192,10 @@ impl Client {
         }
     }
 
-    fn default_headers(&self) -> Result<axum::http::HeaderMap> {
-        let mut default_headers = axum::http::HeaderMap::new();
-        for (key, val) in &self.extra_headers {
-            default_headers.insert(
-                axum::http::HeaderName::try_from(key).map_err(|_| {
-                    Error::InvalidHttpHeaderName {
-                        header_name: key.clone(),
-                    }
-                })?,
-                axum::http::HeaderValue::try_from(val).map_err(|_| {
-                    Error::InvalidHttpHeaderValue {
-                        header_name: key.clone(),
-                    }
-                })?,
-            );
-        }
+    // The configured extra headers, then the ones rbw needs. The config
+    // can't name the latter, and insert() would replace them anyway.
+    fn default_headers(&self) -> axum::http::HeaderMap {
+        let mut default_headers = self.extra_headers.clone();
         default_headers.insert(
             "Bitwarden-Client-Name",
             axum::http::HeaderValue::from_static(BITWARDEN_CLIENT),
@@ -1215,14 +1204,14 @@ impl Client {
             "Bitwarden-Client-Version",
             axum::http::HeaderValue::from_static(BITWARDEN_CLIENT_VERSION),
         );
-        default_headers.append(
+        default_headers.insert(
             "Device-Type",
             // unwrap is safe here because DEVICE_TYPE is a number and digits
             // are valid ASCII
             axum::http::HeaderValue::from_str(&DEVICE_TYPE.to_string())
                 .unwrap(),
         );
-        Ok(default_headers)
+        default_headers
     }
 
     fn user_agent() -> String {
@@ -1237,7 +1226,7 @@ impl Client {
     async fn reqwest_client(&self) -> Result<reqwest::Client> {
         let mut builder = reqwest::Client::builder()
             .user_agent(Self::user_agent())
-            .default_headers(self.default_headers()?);
+            .default_headers(self.default_headers());
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
             let mut f = tokio::fs::File::open(client_cert_path)
@@ -1266,7 +1255,7 @@ impl Client {
     fn blocking_reqwest_client(&self) -> Result<reqwest::blocking::Client> {
         let mut builder = reqwest::blocking::Client::builder()
             .user_agent(Self::user_agent())
-            .default_headers(self.default_headers()?);
+            .default_headers(self.default_headers());
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let buf = std::fs::read(client_cert_path).map_err(|e| {
                 Error::LoadClientCert {
@@ -2091,10 +2080,20 @@ mod tests {
     // Answers one request with the given status and body, like the identity
     // server would.
     fn mock_identity(status: u16, body: &'static str) -> Client {
+        mock_server(status, body, axum::http::HeaderMap::new()).0
+    }
+
+    // Like mock_identity, and also hands over the request head it received.
+    fn mock_server(
+        status: u16,
+        body: &'static str,
+        extra_headers: axum::http::HeaderMap,
+    ) -> (Client, std::sync::mpsc::Receiver<String>) {
         use std::io::{Read as _, Write as _};
 
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        let (head_tx, head_rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = Vec::new();
@@ -2106,6 +2105,7 @@ mod tests {
                 }
                 request.extend_from_slice(&chunk[..n]);
             }
+            let _ = head_tx.send(String::from_utf8_lossy(&request).into());
             let response = format!(
                 "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
                  Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -2114,7 +2114,46 @@ mod tests {
             stream.write_all(response.as_bytes()).unwrap();
         });
         let url = format!("http://{addr}");
-        Client::new(&url, &url, &url, None, Vec::new())
+        (Client::new(&url, &url, &url, None, extra_headers), head_rx)
+    }
+
+    fn cloudflare_headers() -> axum::http::HeaderMap {
+        let mut config = crate::config::Config::new();
+        config.extra_headers.insert(
+            "CF-Access-Client-Id".to_string(),
+            "id.access".to_string(),
+        );
+        config.extra_headers.insert(
+            "CF-Access-Client-Secret".to_string(),
+            "secret".to_string(),
+        );
+        config.extra_headers().unwrap()
+    }
+
+    #[track_caller]
+    fn assert_sends_extra_headers(head: &str) {
+        let head = head.to_lowercase();
+        assert!(head.contains("\r\ncf-access-client-id: id.access\r\n"));
+        assert!(head.contains("\r\ncf-access-client-secret: secret\r\n"));
+        // the headers rbw needs are still there
+        assert!(head.contains("\r\nbitwarden-client-name: cli\r\n"));
+        assert!(head.contains("\r\ndevice-type: 8\r\n"));
+    }
+
+    #[test]
+    fn blocking_requests_send_extra_headers() {
+        let (client, head) =
+            mock_server(200, r#"{"access_token":"a"}"#, cloudflare_headers());
+        client.exchange_refresh_token("old").unwrap();
+        assert_sends_extra_headers(&head.recv().unwrap());
+    }
+
+    #[tokio::test]
+    async fn async_requests_send_extra_headers() {
+        let (client, head) =
+            mock_server(200, r#"{"access_token":"a"}"#, cloudflare_headers());
+        client.exchange_refresh_token_async("old").await.unwrap();
+        assert_sends_extra_headers(&head.recv().unwrap());
     }
 
     #[test]

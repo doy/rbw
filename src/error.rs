@@ -83,10 +83,16 @@ pub enum Error {
         editor: std::ffi::OsString,
     },
 
-    #[error("invalid http header name {header_name:?}")]
+    #[error("extra_headers sets {header_name:?} more than once")]
+    DuplicateHttpHeader { header_name: String },
+
+    #[error("invalid HTTP header name {header_name:?} in extra_headers")]
     InvalidHttpHeaderName { header_name: String },
 
-    #[error("invalid http header value for header {header_name:?}")]
+    #[error(
+        "invalid value for HTTP header {header_name:?} in extra_headers: \
+         only visible ASCII characters, spaces and tabs are allowed"
+    )]
     InvalidHttpHeaderValue {
         /// `header_name` is the header **name** rather than the value (even
         /// though the name might be valid), as the value might contain secrets.
@@ -95,6 +101,12 @@ pub enum Error {
 
     #[error("invalid mac")]
     InvalidMac,
+
+    #[error(
+        "extra_headers can't set the HTTP header {header_name:?}, which rbw \
+         or the HTTP connection sets itself"
+    )]
+    ReservedHttpHeader { header_name: String },
 
     #[error("invalid two factor provider type: {ty}")]
     InvalidTwoFactorProvider { ty: String },

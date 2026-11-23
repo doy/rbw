@@ -1,6 +1,7 @@
 use crate::prelude::*;
 
 use std::io::{Read as _, Write as _};
+use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -28,7 +29,12 @@ pub struct Config {
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
-    pub extra_headers: Option<Vec<(String, String)>>,
+    // Sent with every request to the server, as {"Name": "value"}.
+    #[serde(
+        default,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub extra_headers: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -48,7 +54,7 @@ impl Default for Config {
             touch_id_ssh: false,
             client_cert_path: None,
             device_id: None,
-            extra_headers: None,
+            extra_headers: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -132,12 +138,25 @@ impl Config {
                 file: file.clone(),
             },
         )?;
-        let mut fh = std::fs::File::create(&file).map_err(|source| {
-            Error::SaveConfig {
+        // extra_headers can hold credentials, so a new config file is
+        // private, and an existing one is made private once it has them
+        let mut fh = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&file)
+            .map_err(|source| Error::SaveConfig {
                 source,
                 file: file.clone(),
-            }
-        })?;
+            })?;
+        if !self.extra_headers.is_empty() {
+            fh.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|source| Error::SaveConfig {
+                    source,
+                    file: file.clone(),
+                })?;
+        }
         fh.write_all(
             serde_json::to_string(self)
                 .map_err(|source| Error::SaveConfigJson {
@@ -230,9 +249,77 @@ impl Config {
             .unwrap_or_else(|| "default".to_string())
     }
 
-    pub fn extra_headers(&self) -> Vec<(String, String)> {
-        self.extra_headers.as_deref().unwrap_or_default().to_vec()
+    // The extra_headers setting, checked. Header names are
+    // case-insensitive, so two spellings of one name are refused.
+    pub fn extra_headers(&self) -> Result<axum::http::HeaderMap> {
+        let mut headers = axum::http::HeaderMap::new();
+        for (name, value) in &self.extra_headers {
+            let (header_name, header_value) =
+                parse_extra_header(name, value)?;
+            if headers.contains_key(&header_name) {
+                return Err(Error::DuplicateHttpHeader {
+                    header_name: name.clone(),
+                });
+            }
+            headers.insert(header_name, header_value);
+        }
+        Ok(headers)
     }
+}
+
+// Headers that rbw sets itself, or that belong to the HTTP or websocket
+// connection rather than to the request. A copy from extra_headers would
+// either be ignored or break the request, so they are refused.
+const RESERVED_HEADERS: &[&str] = &[
+    "auth-email",
+    "authorization",
+    "connection",
+    "content-length",
+    "content-type",
+    "device-type",
+    "host",
+    "keep-alive",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "user-agent",
+];
+const RESERVED_HEADER_PREFIXES: &[&str] = &["bitwarden-", "sec-websocket-"];
+
+// Checks one entry of extra_headers. The error never includes the value,
+// which is often a secret.
+pub fn parse_extra_header(
+    name: &str,
+    value: &str,
+) -> Result<(axum::http::HeaderName, axum::http::HeaderValue)> {
+    let header_name =
+        axum::http::HeaderName::try_from(name).map_err(|_| {
+            Error::InvalidHttpHeaderName {
+                header_name: name.to_string(),
+            }
+        })?;
+    // HeaderName is lowercase
+    let lowercase = header_name.as_str();
+    if RESERVED_HEADERS.contains(&lowercase)
+        || RESERVED_HEADER_PREFIXES
+            .iter()
+            .any(|prefix| lowercase.starts_with(prefix))
+    {
+        return Err(Error::ReservedHttpHeader {
+            header_name: name.to_string(),
+        });
+    }
+    let mut header_value =
+        axum::http::HeaderValue::try_from(value).map_err(|_| {
+            Error::InvalidHttpHeaderValue {
+                header_name: name.to_string(),
+            }
+        })?;
+    // keeps the value out of Debug output
+    header_value.set_sensitive(true);
+    Ok((header_name, header_value))
 }
 
 pub async fn device_id(config: &Config) -> Result<String> {
@@ -270,6 +357,86 @@ pub async fn device_id(config: &Config) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extra_headers_are_read_as_an_object() {
+        let config: Config = serde_json::from_str(
+            r#"{"extra_headers": {"CF-Access-Client-Id": "id.access",
+                "CF-Access-Client-Secret": "secret"}}"#,
+        )
+        .unwrap();
+        let headers = config.extra_headers().unwrap();
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers["cf-access-client-id"], "id.access");
+        assert_eq!(headers["CF-Access-Client-Secret"], "secret");
+        assert!(headers["CF-Access-Client-Secret"].is_sensitive());
+
+        // written back as it was read, and left out when empty
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["extra_headers"]["CF-Access-Client-Id"], "id.access");
+        let json = serde_json::to_value(Config::new()).unwrap();
+        assert!(json.get("extra_headers").is_none());
+        assert!(Config::new().extra_headers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bad_extra_headers_are_refused() {
+        let check = |name: &str, value: &str| {
+            let mut config = Config::new();
+            config
+                .extra_headers
+                .insert(name.to_string(), value.to_string());
+            config.extra_headers().unwrap_err()
+        };
+        assert!(matches!(
+            check("Bad Name", "x"),
+            Error::InvalidHttpHeaderName { .. }
+        ));
+        assert!(matches!(
+            check("", "x"),
+            Error::InvalidHttpHeaderName { .. }
+        ));
+        let err = check("X-Token", "secret\r\nHost: evil");
+        assert!(matches!(err, Error::InvalidHttpHeaderValue { .. }));
+        assert!(!err.to_string().contains("secret"));
+        for name in [
+            "Authorization",
+            "host",
+            "Content-Type",
+            "User-Agent",
+            "Device-Type",
+            "Bitwarden-Client-Version",
+            "bitwarden-anything",
+            "Sec-WebSocket-Key",
+            "Transfer-Encoding",
+        ] {
+            assert!(
+                matches!(check(name, "x"), Error::ReservedHttpHeader { .. }),
+                "{name}"
+            );
+        }
+
+        let mut config = Config::new();
+        config
+            .extra_headers
+            .insert("X-Token".to_string(), "a".to_string());
+        config
+            .extra_headers
+            .insert("x-token".to_string(), "b".to_string());
+        assert!(matches!(
+            config.extra_headers().unwrap_err(),
+            Error::DuplicateHttpHeader { .. }
+        ));
+
+        // allowed: proxy credentials and cookies
+        for name in ["Proxy-Authorization", "Cookie", "X-Forwarded-User"] {
+            let mut config = Config::new();
+            config
+                .extra_headers
+                .insert(name.to_string(), "x".to_string());
+            assert!(config.extra_headers().is_ok(), "{name}");
+        }
+    }
 
     #[test]
     fn old_config_defaults_touch_id_unlock_to_false() {

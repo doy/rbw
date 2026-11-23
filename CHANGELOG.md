@@ -13,6 +13,11 @@
   from stdin, or from the editor when stdin is a terminal, and `--create` adds
   a missing custom field (shan and Edgar Albalate, doy/rbw#367; the checks for
   linked and boolean fields follow wangjunwei's doy/rbw#372).
+* `extra_headers` sends extra HTTP headers with every request to the server,
+  including the notifications websocket, for servers behind Cloudflare Access
+  or another proxy that authenticates with a header (Ohad Lutzky,
+  doy/rbw#310). Set them with `rbw config set extra_headers.NAME VALUE`.
+  Invalid headers and the ones `rbw` sets itself are refused with an error.
 
 ## Fixed
 
@@ -33,6 +38,7 @@
 
 ## Changed
 
+* New config files are readable only by their owner.
 * `rbw get`, `list`, `search`, `code`, `edit`, `history` and `remove`, and
   `add`/`generate` with `--folder`, send one or two batched requests to the
   agent instead of one request per field of every entry, which took

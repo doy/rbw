@@ -1151,10 +1151,12 @@ pub async fn subscribe_to_notifications(
     )
     .replace("https://", "wss://");
 
+    let extra_headers = config.extra_headers()?;
+
     let mut state = state.lock().await;
     state
         .notifications_handler
-        .connect(websocket_url)
+        .connect(websocket_url, extra_headers)
         .await
         .err()
         .map_or_else(|| Ok(()), |err| Err(anyhow::anyhow!(err.to_string())))
