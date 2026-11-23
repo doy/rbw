@@ -509,6 +509,7 @@ impl SyncResCipher {
                                 uri.uri.clone().map(|s| crate::db::Uri {
                                     uri: s,
                                     match_type: uri.match_type,
+                                    uri_checksum: None,
                                 })
                             })
                             .collect()
@@ -628,6 +629,8 @@ struct CipherLoginUri {
     uri: Option<String>,
     #[serde(rename = "Match", alias = "match")]
     match_type: Option<UriMatchType>,
+    #[serde(rename = "UriChecksum", alias = "uriChecksum")]
+    uri_checksum: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -790,6 +793,32 @@ fn cipher_type(data: &crate::db::EntryData) -> u32 {
     }
 }
 
+/// Formats a time as RFC 3339 in UTC with second precision, for example
+/// `2026-11-23T09:41:07Z`.
+pub fn format_rfc3339(time: std::time::SystemTime) -> String {
+    let secs = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let days = i64::try_from(secs / 86_400).unwrap_or(i64::MAX);
+    let rem = secs % 86_400;
+    let (hour, minute, second) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
+    // Howard Hinnant's civil_from_days algorithm.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+
+    format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
+    )
+}
+
 fn cipher_fields(fields: &[crate::db::Field]) -> Vec<CipherField> {
     fields
         .iter()
@@ -826,6 +855,7 @@ fn cipher_req_data(
                         .map(|s| CipherLoginUri {
                             uri: Some(s.uri.clone()),
                             match_type: s.match_type,
+                            uri_checksum: s.uri_checksum.clone(),
                         })
                         .collect(),
                 )
@@ -923,6 +953,138 @@ fn ciphers_post_req(
         secure_note,
         encrypted_for: user_id.to_string(),
         fields: cipher_fields(fields),
+    }
+}
+
+// looks a key up the way the server does, ignoring case: the official
+// server has sent both PascalCase and camelCase keys
+fn get_ignore_case<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    object
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v)
+}
+
+// a PUT replaces the whole cipher, and the server resets whatever the
+// request leaves out. rbw's db doesn't hold everything the server does, so
+// take these from the server's copy: without them an edit would unmark a
+// favorite, turn off the master password reprompt and unarchive the entry.
+const KEPT_CIPHER_KEYS: &[&str] = &["favorite", "reprompt", "archivedDate"];
+
+// keys of the login object that rbw sends itself. "uri" is the old
+// single-uri form of "uris", so it would be out of date after a uri edit.
+const SENT_LOGIN_KEYS: &[&str] =
+    &["username", "password", "totp", "uris", "uri"];
+
+// fills in what an edit request leaves out with the values from the
+// server's copy of the cipher (from GET /ciphers/{id}):
+// - the keys in KEPT_CIPHER_KEYS
+// - the keys of the type object (login, card, identity, secure note) that
+//   rbw doesn't know about, such as passkeys, a login's autofill setting or
+//   an identity's company
+// - the checksum of each uri that is still the same ciphertext. official
+//   clients hide the uris of entries with their own key when the checksum
+//   is missing or wrong.
+// - the date the password last changed, set to now if the request changes
+//   the password
+fn keep_server_data(
+    req: &mut serde_json::Value,
+    server: &serde_json::Value,
+    now: &str,
+) {
+    let (Some(req), Some(server)) = (req.as_object_mut(), server.as_object())
+    else {
+        return;
+    };
+
+    for key in KEPT_CIPHER_KEYS {
+        if let Some(value) = get_ignore_case(server, key) {
+            req.insert((*key).to_string(), value.clone());
+        }
+    }
+
+    for ty in ["login", "card", "identity", "secureNote"] {
+        let Some(server_data) = get_ignore_case(server, ty)
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        let Some(req_data) = req
+            .iter_mut()
+            .find(|(k, _)| k.eq_ignore_ascii_case(ty))
+            .and_then(|(_, v)| v.as_object_mut())
+        else {
+            continue;
+        };
+        for (key, value) in server_data {
+            let sent = ty == "login"
+                && SENT_LOGIN_KEYS
+                    .iter()
+                    .any(|k| k.eq_ignore_ascii_case(key));
+            if !sent && get_ignore_case(req_data, key).is_none() {
+                req_data.insert(key.clone(), value.clone());
+            }
+        }
+        if ty == "login" {
+            keep_login_data(req_data, server_data, now);
+        }
+    }
+}
+
+fn keep_login_data(
+    req: &mut serde_json::Map<String, serde_json::Value>,
+    server: &serde_json::Map<String, serde_json::Value>,
+    now: &str,
+) {
+    let password_changed = get_ignore_case(req, "password")
+        .filter(|password| !password.is_null())
+        != get_ignore_case(server, "password")
+            .filter(|password| !password.is_null());
+    if password_changed {
+        // the merge above copied the server's date, whatever its key
+        req.retain(|k, _| !k.eq_ignore_ascii_case("passwordRevisionDate"));
+        req.insert(
+            "passwordRevisionDate".to_string(),
+            serde_json::Value::String(now.to_string()),
+        );
+    }
+
+    let server_uris = get_ignore_case(server, "uris")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let Some(req_uris) = req
+        .iter_mut()
+        .find(|(k, _)| k.eq_ignore_ascii_case("uris"))
+        .and_then(|(_, v)| v.as_array_mut())
+    else {
+        return;
+    };
+    for req_uri in req_uris.iter_mut().filter_map(|u| u.as_object_mut()) {
+        if get_ignore_case(req_uri, "uriChecksum")
+            .is_some_and(|checksum| !checksum.is_null())
+        {
+            continue;
+        }
+        let Some(uri) = get_ignore_case(req_uri, "uri").cloned() else {
+            continue;
+        };
+        let checksum = server_uris
+            .iter()
+            .filter_map(serde_json::Value::as_object)
+            .find(|server_uri| {
+                get_ignore_case(server_uri, "uri") == Some(&uri)
+            })
+            .and_then(|server_uri| {
+                get_ignore_case(server_uri, "uriChecksum")
+            });
+        if let Some(checksum) = checksum {
+            req_uri.retain(|k, _| !k.eq_ignore_ascii_case("uriChecksum"));
+            req_uri.insert("UriChecksum".to_string(), checksum.clone());
+        }
     }
 }
 
@@ -1444,6 +1606,29 @@ impl Client {
         }
     }
 
+    // the cipher as the server has it, for keep_server_data
+    fn cipher(
+        &self,
+        access_token: &str,
+        id: &str,
+    ) -> Result<serde_json::Value> {
+        let client = self.blocking_reqwest_client()?;
+        let res = client
+            .get(self.api_url(&format!("/ciphers/{id}")))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => res.json_with_path(),
+            reqwest::StatusCode::UNAUTHORIZED => {
+                Err(Error::RequestUnauthorized)
+            }
+            _ => Err(Error::RequestFailed {
+                status: res.status().as_u16(),
+            }),
+        }
+    }
+
     pub fn edit(
         &self,
         access_token: &str,
@@ -1480,6 +1665,14 @@ impl Client {
             key: key.map(std::string::ToString::to_string),
             encrypted_for: user_id.to_string(),
         };
+        // serializing these structs can't fail
+        let mut req = serde_json::to_value(&req).unwrap_or_default();
+        let server = self.cipher(access_token, id)?;
+        keep_server_data(
+            &mut req,
+            &server,
+            &format_rfc3339(std::time::SystemTime::now()),
+        );
         let client = self.blocking_reqwest_client()?;
         let res = client
             .put(self.api_url(&format!("/ciphers/{id}")))
@@ -2017,6 +2210,153 @@ mod tests {
     }
 
     #[test]
+    fn test_format_rfc3339() {
+        let at = |secs| {
+            format_rfc3339(
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
+            )
+        };
+        assert_eq!(at(0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(at(1_709_164_799), "2024-02-28T23:59:59Z");
+        assert_eq!(at(1_795_513_267), "2026-11-24T09:41:07Z");
+        assert_eq!(at(4_102_444_800), "2100-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn edit_keeps_server_data() {
+        let mut req = serde_json::json!({
+            "type": 1,
+            "name": "2.name",
+            "login": {
+                "Username": "2.user",
+                "Password": "2.same-password",
+                "Totp": null,
+                "Uris": [
+                    { "Uri": "2.kept", "Match": null, "UriChecksum": null },
+                    { "Uri": "2.new", "Match": 3, "UriChecksum": "2.new-sum" },
+                    { "Uri": "2.unknown", "Match": null, "UriChecksum": null },
+                ],
+            },
+            "card": null,
+            "fields": [],
+        });
+        let server = serde_json::json!({
+            "id": "id",
+            "type": 1,
+            "favorite": true,
+            "reprompt": 1,
+            "archivedDate": null,
+            "attachments": [{ "id": "a" }],
+            "login": {
+                "username": "2.user",
+                "password": "2.same-password",
+                "passwordRevisionDate": "2020-01-01T00:00:00Z",
+                "totp": "2.totp",
+                "uri": "2.kept",
+                "uris": [
+                    { "uri": "2.kept", "match": null, "uriChecksum": "2.kept-sum" },
+                    { "uri": "2.gone", "match": null, "uriChecksum": "2.gone-sum" },
+                ],
+                "autofillOnPageLoad": false,
+                "fido2Credentials": [{ "credentialId": "2.cred" }],
+            },
+        });
+        keep_server_data(&mut req, &server, "2026-11-23T00:00:00Z");
+        assert_eq!(
+            req,
+            serde_json::json!({
+                "type": 1,
+                "name": "2.name",
+                "favorite": true,
+                "reprompt": 1,
+                "archivedDate": null,
+                "login": {
+                    "Username": "2.user",
+                    "Password": "2.same-password",
+                    // a value rbw clears stays cleared
+                    "Totp": null,
+                    "Uris": [
+                        {
+                            "Uri": "2.kept",
+                            "Match": null,
+                            "UriChecksum": "2.kept-sum",
+                        },
+                        {
+                            "Uri": "2.new",
+                            "Match": 3,
+                            "UriChecksum": "2.new-sum",
+                        },
+                        {
+                            "Uri": "2.unknown",
+                            "Match": null,
+                            "UriChecksum": null,
+                        },
+                    ],
+                    "passwordRevisionDate": "2020-01-01T00:00:00Z",
+                    "autofillOnPageLoad": false,
+                    "fido2Credentials": [{ "credentialId": "2.cred" }],
+                },
+                "card": null,
+                "fields": [],
+            })
+        );
+    }
+
+    #[test]
+    fn edit_sets_password_revision_date() {
+        let server = serde_json::json!({
+            "Login": {
+                "Password": "2.old",
+                "PasswordRevisionDate": "2020-01-01T00:00:00Z",
+            },
+        });
+        for password in [serde_json::json!("2.new"), serde_json::Value::Null]
+        {
+            let mut req = serde_json::json!({
+                "login": { "Password": password, "Uris": null },
+            });
+            keep_server_data(&mut req, &server, "2026-11-23T00:00:00Z");
+            assert_eq!(
+                req["login"],
+                serde_json::json!({
+                    "Password": password,
+                    "Uris": null,
+                    "passwordRevisionDate": "2026-11-23T00:00:00Z",
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn edit_keeps_other_types_data() {
+        let mut req = serde_json::json!({
+            "identity": { "Title": "2.title" },
+            "secureNote": null,
+        });
+        let server = serde_json::json!({
+            "identity": {
+                "title": "2.old-title",
+                "company": "2.company",
+                "newField": "2.new",
+            },
+            "secureNote": { "type": 0 },
+        });
+        keep_server_data(&mut req, &server, "now");
+        assert_eq!(
+            req,
+            serde_json::json!({
+                "identity": {
+                    "Title": "2.title",
+                    "company": "2.company",
+                    "newField": "2.new",
+                },
+                "secureNote": null,
+            })
+        );
+    }
+
+    #[test]
     fn add_request_payload() {
         let fields = [crate::db::Field {
             ty: Some(FieldType::Hidden),
@@ -2063,6 +2403,7 @@ mod tests {
                 uris: vec![crate::db::Uri {
                     uri: "2.uri".to_string(),
                     match_type: None,
+                    uri_checksum: Some("2.checksum".to_string()),
                 }],
             },
             &[],
@@ -2079,7 +2420,11 @@ mod tests {
                 "Username": "2.user",
                 "Password": null,
                 "Totp": null,
-                "Uris": [{ "Uri": "2.uri", "Match": null }],
+                "Uris": [{
+                    "Uri": "2.uri",
+                    "Match": null,
+                    "UriChecksum": "2.checksum",
+                }],
             })
         );
     }

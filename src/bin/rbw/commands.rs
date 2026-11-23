@@ -1634,12 +1634,7 @@ pub fn add(
         .transpose()?;
     let uris: Vec<_> = uris
         .iter()
-        .map(|uri| {
-            Ok(rbw::db::Uri {
-                uri: crate::actions::encrypt(&uri.0, None, None)?,
-                match_type: uri.1,
-            })
-        })
+        .map(|(uri, match_type)| encrypt_uri(uri, *match_type, None, None))
         .collect::<anyhow::Result<_>>()?;
 
     let fields: Vec<_> = fields
@@ -1724,6 +1719,32 @@ fn check_new_field_names<'a>(
     Ok(())
 }
 
+fn uri_checksum(uri: &str) -> String {
+    use sha2::Digest as _;
+
+    rbw::base64::encode(sha2::Sha256::digest(uri.as_bytes()))
+}
+
+// encrypts a uri together with its checksum (the base64 sha256 of the uri),
+// which the official clients check before showing the uris of an entry
+// that has its own key
+fn encrypt_uri(
+    uri: &str,
+    match_type: Option<rbw::api::UriMatchType>,
+    entry_key: Option<&str>,
+    org_id: Option<&str>,
+) -> anyhow::Result<rbw::db::Uri> {
+    Ok(rbw::db::Uri {
+        uri: crate::actions::encrypt(uri, entry_key, org_id)?,
+        match_type,
+        uri_checksum: Some(crate::actions::encrypt(
+            &uri_checksum(uri),
+            entry_key,
+            org_id,
+        )?),
+    })
+}
+
 pub fn generate(
     name: Option<&str>,
     username: Option<&str>,
@@ -1758,11 +1779,8 @@ pub fn generate(
         let password = crate::actions::encrypt(&password, None, None)?;
         let uris: Vec<_> = uris
             .iter()
-            .map(|uri| {
-                Ok(rbw::db::Uri {
-                    uri: crate::actions::encrypt(&uri.0, None, None)?,
-                    match_type: uri.1,
-                })
+            .map(|(uri, match_type)| {
+                encrypt_uri(uri, *match_type, None, None)
             })
             .collect::<anyhow::Result<_>>()?;
 
@@ -1919,7 +1937,7 @@ fn edit_default(
 
             if let Some(prev_password) = entry_password.clone() {
                 let new_history_entry = rbw::db::HistoryEntry {
-                    last_used_date: format_rfc3339(
+                    last_used_date: rbw::api::format_rfc3339(
                         std::time::SystemTime::now(),
                     ),
                     password: prev_password,
@@ -2188,7 +2206,7 @@ fn edit_field(
                 history.insert(
                     0,
                     rbw::db::HistoryEntry {
-                        last_used_date: format_rfc3339(
+                        last_used_date: rbw::api::format_rfc3339(
                             std::time::SystemTime::now(),
                         ),
                         password: prev_password,
@@ -2224,13 +2242,12 @@ fn edit_field(
                     value
                         .lines()
                         .map(|uri| {
-                            Ok(rbw::db::Uri {
-                                uri: encrypt(uri)?,
-                                match_type: old_match
-                                    .get(uri)
-                                    .copied()
-                                    .flatten(),
-                            })
+                            encrypt_uri(
+                                uri,
+                                old_match.get(uri).copied().flatten(),
+                                entry.key.as_deref(),
+                                entry.org_id.as_deref(),
+                            )
                         })
                         .collect::<anyhow::Result<Vec<_>>>()
                 })
@@ -3403,32 +3420,6 @@ fn generate_totp(secret: &str) -> anyhow::Result<String> {
     }
 }
 
-/// Formats a time as RFC 3339 in UTC with second precision, for example
-/// `2026-11-23T09:41:07Z`.
-fn format_rfc3339(time: std::time::SystemTime) -> String {
-    let secs = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let days = i64::try_from(secs / 86_400).unwrap_or(i64::MAX);
-    let rem = secs % 86_400;
-    let (hour, minute, second) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-
-    // Howard Hinnant's civil_from_days algorithm.
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
-    )
-}
-
 fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
     field.map_or_else(
         || false,
@@ -3438,21 +3429,16 @@ fn display_field(name: &str, field: Option<&str>, clipboard: bool) -> bool {
 
 #[cfg(test)]
 mod test {
-    #[test]
-    fn test_format_rfc3339() {
-        let at = |secs| {
-            super::format_rfc3339(
-                std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs),
-            )
-        };
-        assert_eq!(at(0), "1970-01-01T00:00:00Z");
-        assert_eq!(at(951_782_400), "2000-02-29T00:00:00Z");
-        assert_eq!(at(1_709_164_799), "2024-02-28T23:59:59Z");
-        assert_eq!(at(1_795_513_267), "2026-11-24T09:41:07Z");
-        assert_eq!(at(4_102_444_800), "2100-01-01T00:00:00Z");
-    }
-
     use super::*;
+
+    #[test]
+    fn test_uri_checksum() {
+        // the base64 sha256, as the official clients compute it
+        assert_eq!(
+            uri_checksum("https://example.com"),
+            "EAaArVRs5qV39C9S3zO0z9ynVoWeZkuNfeMpsVDQnOk="
+        );
+    }
 
     #[test]
     fn test_check_new_field_names() {
@@ -4883,10 +4869,12 @@ mod test {
                     rbw::db::Uri {
                         uri: s("uri 1"),
                         match_type: None,
+                        uri_checksum: None,
                     },
                     rbw::db::Uri {
                         uri: s("uri 2"),
                         match_type: None,
+                        uri_checksum: None,
                     },
                 ],
             },
@@ -5197,6 +5185,7 @@ mod test {
                         .map(|(_, match_type)| rbw::db::Uri {
                             uri: "this is the encrypted uri".to_string(),
                             match_type: *match_type,
+                            uri_checksum: None,
                         })
                         .collect(),
                     totp: None,
