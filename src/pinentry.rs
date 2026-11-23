@@ -83,9 +83,24 @@ pub async fn confirm(
     desc: &str,
     environment: &crate::protocol::Environment,
 ) -> Result<()> {
+    // never in a terminal: a terminal pinentry shares the screen and the
+    // keyboard with whatever runs there, and focuses the approve button, so
+    // an Enter typed for the shell could approve. a graphical pinentry is
+    // needed, and without one the request is refused.
+    let environment = environment.without_tty();
+    // a request nobody answers must not hold up every later one, so this
+    // prompt always times out, even with pinentry_timeout set to 0
+    let pinentry = Pinentry {
+        program: pinentry.program.clone(),
+        timeout: if pinentry.timeout == 0 {
+            CONFIRM_DEFAULT_TIMEOUT_SECS
+        } else {
+            pinentry.timeout
+        },
+    };
     // no keyboard grab: a dialog that pops up while the person is typing
     // elsewhere should not capture an Enter meant for another window
-    let mut child = spawn(pinentry, environment, false)?;
+    let mut child = spawn(&pinentry, &environment, false)?;
     // unwrap is safe because we specified stdin as piped in spawn
     let mut stdin = child.stdin.take().unwrap();
 
@@ -113,8 +128,10 @@ pub async fn confirm(
             .map_err(|source| Error::PinentryWait { source })?;
         Ok(())
     };
-    with_timeout(pinentry, answer).await
+    with_timeout(&pinentry, answer).await
 }
+
+const CONFIRM_DEFAULT_TIMEOUT_SECS: u64 = 120;
 
 fn spawn(
     pinentry: &Pinentry,

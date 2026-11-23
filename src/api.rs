@@ -1214,6 +1214,31 @@ impl Client {
         default_headers
     }
 
+    // reqwest sends default headers along when it follows a redirect to
+    // another host, and extra headers can hold secrets such as a Cloudflare
+    // Access token. With extra headers set, only follow redirects that stay
+    // on the same host.
+    fn redirect_policy(&self) -> reqwest::redirect::Policy {
+        if self.extra_headers.is_empty() {
+            return reqwest::redirect::Policy::default();
+        }
+        reqwest::redirect::Policy::custom(|attempt| {
+            let same_host = attempt.previous().first().is_some_and(|first| {
+                first.host_str() == attempt.url().host_str()
+            });
+            if attempt.previous().len() > 10 {
+                attempt.error("too many redirects")
+            } else if same_host {
+                attempt.follow()
+            } else {
+                attempt.error(
+                    "refusing to follow a redirect to another host, which \
+                     would receive the extra_headers",
+                )
+            }
+        })
+    }
+
     fn user_agent() -> String {
         format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
     }
@@ -1226,6 +1251,7 @@ impl Client {
     async fn reqwest_client(&self) -> Result<reqwest::Client> {
         let mut builder = reqwest::Client::builder()
             .user_agent(Self::user_agent())
+            .redirect(self.redirect_policy())
             .default_headers(self.default_headers());
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let mut buf = Vec::new();
@@ -1255,6 +1281,7 @@ impl Client {
     fn blocking_reqwest_client(&self) -> Result<reqwest::blocking::Client> {
         let mut builder = reqwest::blocking::Client::builder()
             .user_agent(Self::user_agent())
+            .redirect(self.redirect_policy())
             .default_headers(self.default_headers());
         if let Some(client_cert_path) = self.client_cert_path.as_ref() {
             let buf = std::fs::read(client_cert_path).map_err(|e| {

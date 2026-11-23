@@ -158,16 +158,21 @@ mod tests {
     #[test]
     fn own_process_is_described() {
         let pid = libc::pid_t::try_from(std::process::id()).unwrap();
-        let (name, parent) = super::process_info(pid).unwrap();
+        // the parent isn't checked: it is left out for pid 1, which the
+        // tests can be in a container
+        let (name, _) = super::process_info(pid).unwrap();
         assert_ne!(name, "");
-        assert!(parent.is_some());
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn own_process_description_names_the_parent() {
         let pid = libc::pid_t::try_from(std::process::id()).unwrap();
-        let (name, _) = super::process_info(pid).unwrap();
+        let (name, parent) = super::process_info(pid).unwrap();
+        if parent.is_none() {
+            // run directly under pid 1, so there is no parent to name
+            return;
+        }
         let description = super::describe_pid(pid);
         assert!(
             description.starts_with(&format!(

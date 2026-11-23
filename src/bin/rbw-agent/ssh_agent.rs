@@ -70,7 +70,26 @@ impl SshSession {
         self.ask(&key_name).await.map_err(|e| {
             log::warn!("refused to sign with \"{key_name}\": {e:#}");
             ssh_agent_lib::error::AgentError::Other(e.into())
-        })
+        })?;
+
+        // the key was decrypted before the request waited for the prompt
+        // and the ones queued ahead of it, so don't sign if the agent
+        // locked in the meantime
+        let mut state = self.state.lock().await;
+        state.lock_if_expired();
+        if state.needs_unlock() {
+            log::warn!(
+                "refused to sign with \"{key_name}\": the agent locked \
+                 while waiting for approval"
+            );
+            return Err(ssh_agent_lib::error::AgentError::Other(
+                anyhow::anyhow!(
+                    "the agent locked while waiting for approval"
+                )
+                .into(),
+            ));
+        }
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]

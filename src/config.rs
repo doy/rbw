@@ -28,8 +28,9 @@ pub struct Config {
     #[serde(default)]
     pub ssh_confirm: bool,
     // The macOS-only name of ssh_confirm in 1.17.0, still read so those
-    // configs keep asking. Setting either key through `rbw config` clears
-    // it in favour of ssh_confirm.
+    // configs keep asking. `rbw config` keeps it equal to ssh_confirm, so
+    // that going back to 1.17.0, which only knows this key, keeps asking
+    // too. It is only written while on.
     #[serde(default, skip_serializing_if = "is_false")]
     pub touch_id_ssh: bool,
     pub client_cert_path: Option<std::path::PathBuf>,
@@ -257,10 +258,10 @@ impl Config {
     }
 
     // For `rbw config set` and `unset` of ssh_confirm and its old name
-    // touch_id_ssh: afterwards only ssh_confirm says whether to ask.
+    // touch_id_ssh, which both end up with the same value.
     pub fn set_ssh_confirm(&mut self, enabled: bool) {
         self.ssh_confirm = enabled;
-        self.touch_id_ssh = false;
+        self.touch_id_ssh = enabled;
     }
 
     pub fn client_cert_path(&self) -> Option<&std::path::Path> {
@@ -501,11 +502,12 @@ mod tests {
         // the old key is only written while it is on
         assert!(json.get("touch_id_ssh").is_none());
 
+        // turning it on writes the old key too, for a downgrade to 1.17.0
         let mut config = Config::new();
         config.set_ssh_confirm(true);
         assert!(config.confirms_ssh_signatures());
         let json = serde_json::to_value(&config).unwrap();
         assert_eq!(json["ssh_confirm"], true);
-        assert!(json.get("touch_id_ssh").is_none());
+        assert_eq!(json["touch_id_ssh"], true);
     }
 }

@@ -102,8 +102,9 @@ configuration options:
   macOS and a pinentry dialog elsewhere. See [Approving SSH
   signatures](#approving-ssh-signatures). Defaults to `false`.
 * `touch_id_ssh`: Deprecated name for `ssh_confirm`, from 1.17.0. A config
-  file with `touch_id_ssh` set to `true` keeps asking, and setting or unsetting
-  it with `rbw config` sets `ssh_confirm` instead.
+  file with `touch_id_ssh` set to `true` keeps asking, now on every platform.
+  `rbw config` keeps it equal to `ssh_confirm`, so going back to 1.17.0 keeps
+  asking too.
 * `client_cert_path`: Path to a PEM file holding a client certificate and its
   private key, for servers that require mutual TLS. Unset by default.
 * `extra_headers`: HTTP headers to send with every request to the server,
@@ -132,6 +133,9 @@ In the config file they are an object of names and values:
   "CF-Access-Client-Secret": "0123456789abcdef"
 }
 ```
+
+With extra headers set, `rbw` follows HTTP redirects only within the same
+host, because a redirect to another host would receive the headers too.
 
 Header names are case-insensitive, so setting a header again under another
 spelling replaces it. Headers that `rbw` sets itself or that belong to the
@@ -297,11 +301,12 @@ itself anything, so take it as a hint rather than proof.
 
 On macOS, Touch ID, a paired Apple Watch or the login password approves the
 signature, so this also works with the lid closed. Elsewhere, the configured
-`pinentry` shows an Allow/Deny dialog. Like the unlock prompt of the SSH agent,
-it uses the display and terminal of the last `rbw` command, skipping a terminal
-that has since been closed, and is dismissed after `pinentry_timeout` seconds.
-A terminal pinentry such as `pinentry-curses` can only ask on a terminal that
-is still open, so a graphical pinentry works better here.
+`pinentry` shows an Allow/Deny dialog on the display of the last `rbw`
+command. It needs a graphical pinentry: the dialog is never shown in a
+terminal, where an Enter typed for the shell could approve it, so with a
+terminal-only pinentry such as `pinentry-curses` every signature is refused.
+The dialog is dismissed after `pinentry_timeout` seconds, or 120 seconds when
+that is `0`, so one unanswered request can't hold up the ones after it.
 
 Only an explicit approval signs. Denying, closing the dialog, a timeout, or a
 pinentry that can't be shown refuse the signature, and the SSH client reports

@@ -160,6 +160,16 @@ impl Environment {
         }
     }
 
+    // The same environment without a terminal, for prompts that must not
+    // appear in one.
+    #[must_use]
+    pub fn without_tty(&self) -> Self {
+        Self {
+            tty: None,
+            env_vars: self.env_vars.clone(),
+        }
+    }
+
     pub fn tty(&self) -> Option<&std::ffi::OsStr> {
         self.tty.as_ref().map(|tty| tty.0.as_os_str())
     }

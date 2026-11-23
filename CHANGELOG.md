@@ -40,6 +40,9 @@
 * Text sent to pinentry is escaped, so a `%` or a newline in a prompt, such
   as an error message from the server, no longer garbles it or cuts the
   conversation with pinentry short.
+* `rbw edit` refuses to edit a password, notes or a field it couldn't
+  decrypt (for example after cancelling a master password reprompt), instead
+  of showing it empty and erasing it on save.
 * The client now restarts the running agent after every upgrade. The protocol
   version it compares gave some releases the same number (1.17.1 and 1.18.0,
   for example), so the old agent kept running.
@@ -47,7 +50,9 @@
 ## Changed
 
 * `touch_id_ssh` is deprecated in favour of `ssh_confirm`. Configs that set it
-  keep asking, and `rbw config set touch_id_ssh` now sets `ssh_confirm`.
+  keep asking, and `rbw config set touch_id_ssh` now sets `ssh_confirm`. A
+  config with `touch_id_ssh` set by hand on Linux, which 1.17.0 ignored, now
+  turns on the pinentry prompt there.
 * New config files are readable only by their owner.
 * `rbw get`, `list`, `search`, `code`, `edit`, `history` and `remove`, and
   `add`/`generate` with `--folder`, send one or two batched requests to the
