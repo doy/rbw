@@ -34,6 +34,9 @@ Compared to `rbw` 1.15.0, it adds:
 * Fixes for `rbw edit` corrupting items that have their own encryption key,
   for edits refused by the server, for `rbw add` and `rbw edit` on
   Vaultwarden 1.37, and for requests that ignored `client_cert_path`.
+* `rbw add --secure-note`, custom fields on new entries, and `rbw edit
+  --field` to change a single field (see [Adding and editing
+  entries](#adding-and-editing-entries)).
 * Dependency updates for the RustSec advisories open against `rbw`.
 
 The full list is in the [changelog](CHANGELOG.md). Bug reports and pull
@@ -175,6 +178,47 @@ order to use `rbw` with the official Bitwarden server, you will need to first
 run `rbw register` to register each device using `rbw` with the Bitwarden
 server. This will prompt you for your personal API key which you can find using
 the instructions [here](https://bitwarden.com/help/article/personal-api-key/).
+
+### Adding and editing entries
+
+`rbw add <name> [user]` creates a login. It opens the editor for the password
+(the first line) and notes (the rest), or reads them from stdin when stdin is
+not a terminal. `--uri` (repeatable) and `--folder` set the login's URIs and
+folder. With `--secure-note`, it creates a secure note instead, and the editor
+contents or stdin become the note; a secure note has no username or URIs, so
+`--secure-note` can't be combined with them.
+
+`--field NAME=VALUE` adds a text custom field and `--hidden-field NAME=VALUE` a
+hidden one. Both can be repeated. The name ends at the first `=`, so values can
+contain `=`, and each name can only be given once.
+
+Values given as arguments end up in your shell history and, while `rbw` runs,
+are visible to other users of the machine through `ps`. For secrets, create the
+entry first and then add the field with `rbw edit --field`, which reads the
+value from the editor or stdin:
+
+```sh
+rbw add example
+rbw edit example --field api_token --create   # opens the editor
+printf '%s' "$TOKEN" | rbw edit example --field api_token --create
+```
+
+`rbw edit <name>` opens the editor with the password and notes of a login, or
+the notes of a secure note. `rbw edit <name> --field <field>` changes one field
+instead: `name`, `notes`, a login's `username`, `password`, `totp` or `uris`
+(one per line), or a custom field of any entry except an SSH key. A custom
+field is found by its exact name, or else by a name that differs only in case;
+the built-in names take precedence, as with `rbw get --field`. When stdin is a
+terminal, the editor opens with the current value; otherwise the value is read
+from stdin as is, without one trailing newline. `--create` adds the custom
+field as a hidden field if the entry doesn't have it. Boolean fields take
+`true` or `false`, and linked fields can't be edited.
+
+Changing a password moves the old one to the password history (`rbw history`).
+Before saving an edit, `rbw` fetches the entry from the server and keeps what
+it doesn't manage itself, such as the favorite and master password reprompt
+settings, passkeys and URI checksums. The rest of the entry is sent as it is in
+the local copy, so run `rbw sync` first if the entry was changed elsewhere.
 
 ### SSH Agent
 

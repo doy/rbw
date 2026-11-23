@@ -4,7 +4,24 @@
 
 ## Added
 
+* `rbw add --secure-note` creates a secure note, with the editor contents or
+  stdin as the note (Edgar Albalate, doy/rbw#381).
+* `rbw add --field NAME=VALUE` and `--hidden-field NAME=VALUE` add text and
+  hidden custom fields to the new entry (Andrew Gazelka, doy/rbw#384).
+* `rbw edit --field` changes a single field: the name, notes, a login's
+  username, password, TOTP secret or URIs, or a custom field. The value comes
+  from stdin, or from the editor when stdin is a terminal, and `--create` adds
+  a missing custom field (shan and Edgar Albalate, doy/rbw#367; the checks for
+  linked and boolean fields follow wangjunwei's doy/rbw#372).
+
 ## Fixed
+
+* `rbw edit` no longer resets what `rbw` doesn't store locally: it kept
+  unmarking favorites, turning off the master password reprompt, unarchiving
+  entries and dropping passkeys, the password revision date, the autofill
+  setting and an identity's company. It also dropped the URI checksums, after
+  which the official clients hid the URIs of entries that have their own key.
+* `rbw edit` no longer adds the password to the history when it didn't change.
 
 * The client now restarts the running agent after every upgrade. The protocol
   version it compares gave some releases the same number (1.17.1 and 1.18.0,
