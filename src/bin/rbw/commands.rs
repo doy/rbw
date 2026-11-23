@@ -3408,7 +3408,7 @@ fn remove_db() -> anyhow::Result<()> {
 struct TotpParams {
     secret: Vec<u8>,
     algorithm: String,
-    digits: usize,
+    digits: u8,
     period: u64,
 }
 
@@ -3464,12 +3464,15 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                 };
                 // a code is the HOTP value modulo 10^digits, which has to
                 // fit in 32 bits
-                if !(1..=9).contains(&digits) {
-                    return Err(anyhow::anyhow!(
-                        "digits parameter in totp url must be between 1 \
-                         and 9"
-                    ));
-                }
+                let digits = u8::try_from(digits)
+                    .ok()
+                    .filter(|digits| (1..=9).contains(digits))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "digits parameter in totp url must be between 1 \
+                             and 9"
+                        )
+                    })?;
                 if period == 0 {
                     return Err(anyhow::anyhow!(
                         "period parameter in totp url must be greater than 0"
@@ -3541,17 +3544,18 @@ fn generate_totp_at(
     match alg {
         "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::Builder::new()
             .with_algorithm(generate_totp_algorithm_type(alg)?)
-            .with_digits(totp_params.digits.try_into().unwrap())
+            .with_digits(totp_params.digits)
             .with_skew(1) // the library docs say this should be a 1
             .with_step_duration(totp_params.period)
             .with_secret(totp_params.secret)
             .build_noncompliant()
             .generate(time)
             .to_string()),
+        // build() would refuse secrets shorter than 128 bits, which
+        // totp-rs 5 accepted
         "STEAM" => Ok(totp_rs::Builder::new_steam()
             .with_secret(totp_params.secret)
-            .build()
-            .unwrap()
+            .build_noncompliant()
             .generate(time)
             .to_string()),
         _ => Err(anyhow::anyhow!(format!(
@@ -5121,6 +5125,9 @@ mod test {
             (2_000_000_000, "9N776"),
             (20_000_000_000, "R5DMB"),
         ];
+        // a secret shorter than RFC 4226 asks for, as for the other
+        // algorithms
+        assert_eq!(totp_at("steam://GAYTEMZUGU3DOOBZ", 59), "CDH7P");
         for (time, want) in steam {
             assert_eq!(
                 totp_at(&format!("steam://{RFC6238_SHA1}"), time),

@@ -23,6 +23,10 @@
   which the official clients hid the URIs of entries that have their own key.
 * `rbw edit` no longer adds the password to the history when it didn't change.
 
+* `rbw code` and `rbw get --field totp` report an error for an `otpauth://`
+  URI with `digits` outside 1 to 9 or a `period` of 0, and for a `steam:` URI
+  without a secret, instead of crashing or printing a wrong code.
+
 * The client now restarts the running agent after every upgrade. The protocol
   version it compares gave some releases the same number (1.17.1 and 1.18.0,
   for example), so the old agent kept running.
@@ -36,6 +40,9 @@
   the same approach was proposed by Benedikt Bartscher in doy/rbw#344).
   Cancelling a master password reprompt now also skips the remaining prompts
   for that command.
+* TOTP codes are generated with totp-rs 6 (Michel Lind, doy/rbw#375). The
+  codes are unchanged, and tests now check them against the RFC 6238 vectors
+  and Steam codes. Building `rbw-ng` now needs Rust 1.88 or newer.
 
 ## [1.17.0] - 2026-11-23
 
