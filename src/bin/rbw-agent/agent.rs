@@ -143,7 +143,14 @@ async fn handle_request(
         }
     };
     let (action, environment) = req.into_parts();
-    state.lock().await.lock_if_expired();
+    // Quit and Version never touch the keys, and must not wait for the state
+    // lock, which a pending master password reprompt holds
+    if !matches!(
+        action,
+        rbw::protocol::Action::Quit | rbw::protocol::Action::Version
+    ) {
+        state.lock().await.lock_if_expired();
+    }
     let set_timeout = match &action {
         rbw::protocol::Action::Register => {
             crate::actions::register(sock, &environment).await?;

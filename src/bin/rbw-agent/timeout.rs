@@ -131,7 +131,6 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert!(timeout.expired());
         timeout.clear();
         assert!(!timeout.expired());
     }

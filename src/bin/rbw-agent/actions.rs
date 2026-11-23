@@ -254,6 +254,9 @@ pub async fn login(
     Ok(())
 }
 
+// Minimum time to wait for a code the server sent by email.
+const EMAILED_CODE_TIMEOUT_SECS: u64 = 600;
+
 // The code the second step of a login asks for.
 #[derive(Clone, Copy)]
 enum CodePrompt {
@@ -294,13 +297,25 @@ async fn login_with_code(
         ),
     };
 
+    let mut pinentry = config_pinentry().await?;
+    // a code sent by email can take a while to arrive, and timing out means
+    // starting over with a new code
+    let emailed = matches!(
+        prompt,
+        CodePrompt::NewDevice
+            | CodePrompt::TwoFactor(rbw::api::TwoFactorProviderType::Email)
+    );
+    if emailed && pinentry.timeout != 0 {
+        pinentry.timeout = pinentry.timeout.max(EMAILED_CODE_TIMEOUT_SECS);
+    }
+
     let mut err_msg: Option<String> = None;
     for i in 1_u8..=3 {
         let err = err_msg
             .as_deref()
             .map(|message| format!("{message} (attempt {i}/3)"));
         let input = rbw::pinentry::getpin(
-            &config_pinentry().await?,
+            &pinentry,
             header,
             &description,
             err.as_deref(),
@@ -1095,15 +1110,26 @@ pub async fn get_ssh_public_keys(
         else {
             continue;
         };
-        let plaintext = decrypt_cipher(
+        // one broken entry should not hide every other key
+        let plaintext = match decrypt_cipher(
             state.clone(),
             &environment,
             encrypted,
             entry.key.as_deref(),
             entry.org_id.as_deref(),
         )
-        .await?;
-        // one malformed entry should not hide every other key
+        .await
+        {
+            Ok(plaintext) => plaintext,
+            Err(e) => {
+                log::warn!(
+                    "skipping entry {} whose SSH public key can't be \
+                     decrypted: {e:#}",
+                    entry.id
+                );
+                continue;
+            }
+        };
         let public_key =
             match ssh_agent_lib::ssh_key::PublicKey::from_openssh(&plaintext)
             {
@@ -1127,7 +1153,8 @@ pub async fn get_ssh_public_keys(
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             )
-            .await?
+            .await
+            .unwrap_or_default()
         } else {
             public_key.comment().to_string()
         };

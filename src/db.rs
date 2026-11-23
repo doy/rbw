@@ -193,6 +193,18 @@ pub struct Db {
     pub entries: Vec<Entry>,
 }
 
+// A temporary file in the same directory as the db, so that renaming it over
+// the db is atomic. Unique per process and per save.
+fn temp_file(file: &std::path::Path) -> std::path::PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // unwrap is safe here because the db file always has a file name
+    let mut name = file.file_name().unwrap().to_os_string();
+    name.push(format!(".{}.{n}.tmp", std::process::id()));
+    file.with_file_name(name)
+}
+
 impl Db {
     pub fn new() -> Self {
         Self::default()
@@ -237,9 +249,19 @@ impl Db {
         Ok(slf)
     }
 
-    // XXX need to make this atomic
+    // Writes to a temporary file next to the db and renames it into place,
+    // so the agent and the command line, which both read and write the db,
+    // never see a partly written file.
     pub fn save(&self, server: &str, email: &str) -> Result<()> {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
         let file = crate::dirs::db_file(server, email);
+        let json = serde_json::to_string(self).map_err(|source| {
+            Error::SaveDbJson {
+                source,
+                file: file.clone(),
+            }
+        })?;
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
         std::fs::create_dir_all(file.parent().unwrap()).map_err(
@@ -248,26 +270,32 @@ impl Db {
                 file: file.clone(),
             },
         )?;
-        let mut fh =
-            std::fs::File::create(&file).map_err(|source| Error::SaveDb {
-                source,
-                file: file.clone(),
-            })?;
-        fh.write_all(
-            serde_json::to_string(self)
-                .map_err(|source| Error::SaveDbJson {
-                    source,
-                    file: file.clone(),
-                })?
-                .as_bytes(),
-        )
-        .map_err(|source| Error::SaveDb { source, file })?;
-        Ok(())
+        let temp = temp_file(&file);
+        let res = (|| {
+            let mut fh = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temp)?;
+            fh.write_all(json.as_bytes())?;
+            fh.sync_all()?;
+            std::fs::rename(&temp, &file)
+        })();
+        if res.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        res.map_err(|source| Error::SaveDb { source, file })
     }
 
-    // XXX need to make this atomic
+    // See save.
     pub async fn save_async(&self, server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
+        let json = serde_json::to_string(self).map_err(|source| {
+            Error::SaveDbJson {
+                source,
+                file: file.clone(),
+            }
+        })?;
         // unwrap is safe here because Self::filename is explicitly
         // constructed as a filename in a directory
         tokio::fs::create_dir_all(file.parent().unwrap())
@@ -276,24 +304,23 @@ impl Db {
                 source,
                 file: file.clone(),
             })?;
-        let mut fh =
-            tokio::fs::File::create(&file).await.map_err(|source| {
-                Error::SaveDbAsync {
-                    source,
-                    file: file.clone(),
-                }
-            })?;
-        fh.write_all(
-            serde_json::to_string(self)
-                .map_err(|source| Error::SaveDbJson {
-                    source,
-                    file: file.clone(),
-                })?
-                .as_bytes(),
-        )
-        .await
-        .map_err(|source| Error::SaveDbAsync { source, file })?;
-        Ok(())
+        let temp = temp_file(&file);
+        let res = async {
+            let mut fh = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temp)
+                .await?;
+            fh.write_all(json.as_bytes()).await?;
+            fh.sync_all().await?;
+            tokio::fs::rename(&temp, &file).await
+        }
+        .await;
+        if res.is_err() {
+            let _ = tokio::fs::remove_file(&temp).await;
+        }
+        res.map_err(|source| Error::SaveDbAsync { source, file })
     }
 
     pub fn remove(server: &str, email: &str) -> Result<()> {

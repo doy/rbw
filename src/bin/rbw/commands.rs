@@ -1637,7 +1637,7 @@ pub fn add(
     if let Some(folder_name) = folder {
         let (tokens, folders) =
             rbw::actions::list_folders(&access_token, &refresh_token)?;
-        update_tokens(tokens, &mut access_token, &mut refresh_token)?;
+        update_tokens(tokens, &mut access_token, &mut refresh_token);
 
         let folders: Vec<(String, String)> = folders
             .iter()
@@ -1658,12 +1658,12 @@ pub fn add(
                 &refresh_token,
                 &crate::actions::encrypt(folder_name, None, None)?,
             )?;
-            update_tokens(tokens, &mut access_token, &mut refresh_token)?;
+            update_tokens(tokens, &mut access_token, &mut refresh_token);
             folder_id = Some(id);
         }
     }
 
-    let (tokens, ()) = rbw::actions::add(
+    rbw::actions::add(
         &access_token,
         &refresh_token,
         &user_id,
@@ -1677,7 +1677,6 @@ pub fn add(
         notes.as_deref(),
         folder_id.as_deref(),
     )?;
-    save_refreshed_tokens(tokens)?;
 
     crate::actions::sync()?;
 
@@ -1730,7 +1729,7 @@ pub fn generate(
         if let Some(folder_name) = folder {
             let (tokens, folders) =
                 rbw::actions::list_folders(&access_token, &refresh_token)?;
-            update_tokens(tokens, &mut access_token, &mut refresh_token)?;
+            update_tokens(tokens, &mut access_token, &mut refresh_token);
 
             let folders: Vec<(String, String)> = folders
                 .iter()
@@ -1751,12 +1750,12 @@ pub fn generate(
                     &refresh_token,
                     &crate::actions::encrypt(folder_name, None, None)?,
                 )?;
-                update_tokens(tokens, &mut access_token, &mut refresh_token)?;
+                update_tokens(tokens, &mut access_token, &mut refresh_token);
                 folder_id = Some(id);
             }
         }
 
-        let (tokens, ()) = rbw::actions::add(
+        rbw::actions::add(
             &access_token,
             &refresh_token,
             &user_id,
@@ -1770,7 +1769,6 @@ pub fn generate(
             None,
             folder_id.as_deref(),
         )?;
-        save_refreshed_tokens(tokens)?;
 
         crate::actions::sync()?;
     }
@@ -1895,7 +1893,7 @@ pub fn edit(
         }
     };
 
-    let (tokens, ()) = rbw::actions::edit(
+    rbw::actions::edit(
         access_token,
         refresh_token,
         &user_id,
@@ -1909,7 +1907,6 @@ pub fn edit(
         &history,
         entry.key.as_deref(),
     )?;
-    save_refreshed_tokens(tokens)?;
 
     crate::actions::sync()?;
     Ok(())
@@ -1936,9 +1933,7 @@ pub fn remove(
     let (entry, _) = find_entry(&db, name, username, folder, ignore_case)
         .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
-    let (tokens, ()) =
-        rbw::actions::remove(access_token, refresh_token, &entry.id)?;
-    save_refreshed_tokens(tokens)?;
+    rbw::actions::remove(access_token, refresh_token, &entry.id)?;
 
     crate::actions::sync()?;
 
@@ -2691,34 +2686,17 @@ fn user_id(db: &rbw::db::Db) -> anyhow::Result<&str> {
     })
 }
 
-// Saves tokens that a request had to refresh. Reads the db again instead of
-// saving the caller's copy, which can be older than what the agent has
-// written since, for example a refresh token it rotated during a sync.
-fn save_refreshed_tokens(
-    tokens: Option<rbw::actions::RefreshedTokens>,
-) -> anyhow::Result<()> {
-    let Some(tokens) = tokens else {
-        return Ok(());
-    };
-    let mut db = load_db()?;
-    tokens.store_in(&mut db);
-    save_db(&db)
-}
-
-// Like save_refreshed_tokens, for callers that make more requests after this
-// one and need the new tokens for them.
+// Switches to tokens that a request had to refresh, for the requests after
+// it. The library has already saved them.
 fn update_tokens(
     tokens: Option<rbw::actions::RefreshedTokens>,
     access_token: &mut String,
     refresh_token: &mut String,
-) -> anyhow::Result<()> {
-    if let Some(tokens) = &tokens {
-        access_token.clone_from(&tokens.access_token);
-        if let Some(new_refresh_token) = &tokens.refresh_token {
-            refresh_token.clone_from(new_refresh_token);
-        }
+) {
+    if let Some(tokens) = tokens {
+        *access_token = tokens.access_token;
+        *refresh_token = tokens.refresh_token;
     }
-    save_refreshed_tokens(tokens)
 }
 
 fn load_db() -> anyhow::Result<rbw::db::Db> {
@@ -2727,17 +2705,6 @@ fn load_db() -> anyhow::Result<rbw::db::Db> {
         || Err(anyhow::anyhow!("failed to find email address in config")),
         |email| {
             rbw::db::Db::load(&config.server_name(), email)
-                .map_err(anyhow::Error::new)
-        },
-    )
-}
-
-fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
-    let config = rbw::config::Config::load()?;
-    config.email.as_ref().map_or_else(
-        || Err(anyhow::anyhow!("failed to find email address in config")),
-        |email| {
-            db.save(&config.server_name(), email)
                 .map_err(anyhow::Error::new)
         },
     )

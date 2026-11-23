@@ -1807,10 +1807,21 @@ fn classify_refresh_error_res(
     };
     match body.clone().json_with_path::<ConnectErrorRes>() {
         Ok(json) => {
-            if json.error == "invalid_grant" {
+            // older Vaultwarden versions answered with an empty error and
+            // put the reason in the ErrorModel message
+            let old_vaultwarden_rejection = json.error.is_empty()
+                && json.error_model.as_ref().is_some_and(|model| {
+                    model
+                        .message
+                        .starts_with("Unable to refresh login credentials")
+                });
+            if json.error == "invalid_grant" || old_vaultwarden_rejection {
                 Error::RefreshTokenInvalid
             } else {
-                classify_login_error(&json, code)
+                log::warn!(
+                    "unexpected error received during token refresh: {json:?}"
+                );
+                Error::RequestFailed { status: code }
             }
         }
         Err(e) => {
@@ -1972,6 +1983,18 @@ mod tests {
         let client = mock_identity(401, r#"{"error":"invalid_grant"}"#);
         assert!(matches!(
             client.exchange_refresh_token_async("old").await,
+            Err(Error::RefreshTokenInvalid)
+        ));
+    }
+
+    #[test]
+    fn old_vaultwarden_rejection_is_reported() {
+        let client = mock_identity(
+            401,
+            r#"{"error":"","error_description":"","errorModel":{"message":"Unable to refresh login credentials: Invalid claim","object":"error"}}"#,
+        );
+        assert!(matches!(
+            client.exchange_refresh_token("old"),
             Err(Error::RefreshTokenInvalid)
         ));
     }

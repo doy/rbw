@@ -8,7 +8,8 @@
   two-step login are asked for the code Bitwarden emails when rbw logs in from
   a new device (Hans, doy/rbw#319, fixes doy/rbw#318).
 * `pinentry_timeout` sets how long an unanswered pinentry prompt stays open.
-  Defaults to 120 seconds; `0` waits forever, as before.
+  Defaults to 120 seconds; `0` waits forever, as before. Prompts for a code
+  sent by email stay open for at least 10 minutes.
 
 ## Fixed
 
@@ -21,6 +22,9 @@
   failures against Vaultwarden behind an SSO provider. A refresh token the
   server rejects is forgotten, so `rbw login` works again instead of every
   sync failing (Fredrik Ekre, doy/rbw#378, and shan, doy/rbw#362).
+* The local database is written atomically, so the agent and a command
+  running at the same time can no longer read a partly written file, and new
+  database files are readable only by their owner.
 * pinentry no longer hangs forever, using a full CPU core, when an SSH request
   arrives while the vault is locked and the last terminal has been closed
   (Tin Lai, doy/rbw#348). The SSH agent can also prompt before any rbw command
