@@ -3509,7 +3509,18 @@ fn generate_totp_algorithm_type(
 }
 
 fn generate_totp(secret: &str) -> anyhow::Result<String> {
-    let totp_params = parse_totp_secret(secret)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("the system clock is set before 1970")?
+        .as_secs();
+    generate_totp_at(parse_totp_secret(secret)?, now)
+}
+
+// The code for the given Unix time, in seconds.
+fn generate_totp_at(
+    totp_params: TotpParams,
+    time: u64,
+) -> anyhow::Result<String> {
     let alg = totp_params.algorithm.as_str();
 
     match alg {
@@ -3520,9 +3531,10 @@ fn generate_totp(secret: &str) -> anyhow::Result<String> {
             totp_params.period,
             totp_params.secret,
         )
-        .generate_current()?),
-        "STEAM" => Ok(totp_rs::TOTP::new_steam(totp_params.secret)
-            .generate_current()?),
+        .generate(time)),
+        "STEAM" => {
+            Ok(totp_rs::TOTP::new_steam(totp_params.secret).generate(time))
+        }
         _ => Err(anyhow::anyhow!(format!(
             "{alg} is not a valid totp algorithm"
         ))),
@@ -4945,6 +4957,187 @@ mod test {
         let decoded = decode_totp_secret("NBSW Y3DP EB3W 64TM MQQQ").unwrap();
         let want = b"hello world!".to_vec();
         assert!(decoded == want, "strips spaces");
+    }
+
+    #[track_caller]
+    fn totp_at(secret: &str, time: u64) -> String {
+        generate_totp_at(parse_totp_secret(secret).unwrap(), time).unwrap()
+    }
+
+    // The test vectors of RFC 6238, appendix B: the ASCII secret
+    // "12345678901234567890" repeated to the hash's block size, 8 digits,
+    // 30 second steps.
+    const RFC6238_SHA1: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    const RFC6238_SHA256: &str =
+        "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA";
+    const RFC6238_SHA512: &str =
+        "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\
+         GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA";
+    const RFC6238_VECTORS: &[(u64, &str, &str, &str)] = &[
+        (59, "94287082", "46119246", "90693936"),
+        (1_111_111_109, "07081804", "68084774", "25091201"),
+        (1_111_111_111, "14050471", "67062674", "99943326"),
+        (1_234_567_890, "89005924", "91819424", "93441116"),
+        (2_000_000_000, "69279037", "90698825", "38618901"),
+        (20_000_000_000, "65353130", "77737706", "47863826"),
+    ];
+
+    #[test]
+    fn test_totp_rfc6238_vectors() {
+        for &(time, sha1, sha256, sha512) in RFC6238_VECTORS {
+            let url = |alg: &str, secret: &str| {
+                format!(
+                    "otpauth://totp/rbw?secret={secret}&algorithm={alg}\
+                     &digits=8&period=30"
+                )
+            };
+            assert_eq!(totp_at(&url("SHA1", RFC6238_SHA1), time), sha1);
+            assert_eq!(totp_at(&url("SHA256", RFC6238_SHA256), time), sha256);
+            assert_eq!(totp_at(&url("SHA512", RFC6238_SHA512), time), sha512);
+        }
+    }
+
+    #[test]
+    fn test_totp_plain_secret_forms() {
+        // a bare secret means SHA1, 6 digits and 30 second steps, which
+        // are the last 6 digits of the 8 digit SHA1 vectors
+        for &(time, sha1, _, _) in RFC6238_VECTORS {
+            let want = &sha1[2..];
+            for secret in [
+                "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+                "gezdgnbvgy3tqojqgezdgnbvgy3tqojq",
+                "GEZD GNBV GY3T QOJQ GEZD GNBV GY3T QOJQ",
+                "  gezd gnbv gy3t qojq gezd gnbv gy3t qojq\n",
+            ] {
+                assert_eq!(totp_at(secret, time), want, "{secret:?}");
+            }
+        }
+
+        // padded and unpadded base32
+        let time = 1_234_567_890;
+        let padded =
+            "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA====";
+        assert_eq!(totp_at(padded, time), "012961");
+        assert_eq!(totp_at(padded.trim_end_matches('='), time), "012961");
+        assert_eq!(
+            totp_at(&padded.to_lowercase(), time),
+            totp_at(padded, time)
+        );
+
+        // secrets shorter than the 128 bits RFC 4226 asks for still work
+        assert_eq!(totp_at("GAYTEMZUGU3DOOBZ", time), "625421");
+        // and so does an empty one
+        assert_eq!(totp_at("", time), "712049");
+    }
+
+    #[test]
+    fn test_totp_otpauth_parameters() {
+        let time = 1_234_567_890;
+        // defaults: SHA1, 6 digits, 30 seconds
+        assert_eq!(
+            totp_at(
+                &format!("otpauth://totp/rbw?secret={RFC6238_SHA1}"),
+                time
+            ),
+            "005924"
+        );
+        // lowercase secret, label with an issuer, other parameters
+        assert_eq!(
+            totp_at(
+                "otpauth://totp/Example:alice@example.com?\
+                 secret=gezdgnbvgy3tqojqgezdgnbvgy3tqojq&issuer=Example",
+                time
+            ),
+            "005924"
+        );
+        // 7 and 9 digits, 60 second steps
+        assert_eq!(
+            totp_at(
+                &format!(
+                    "otpauth://totp/rbw?secret={RFC6238_SHA256}\
+                     &algorithm=SHA256&digits=7&period=60"
+                ),
+                time
+            ),
+            "6450756"
+        );
+        assert_eq!(
+            totp_at(
+                &format!("otpauth://totp/rbw?secret={RFC6238_SHA1}&digits=9"),
+                time
+            ),
+            "689005924"
+        );
+        // a 60 second step is the 30 second code of half the time
+        assert_eq!(
+            totp_at(
+                &format!(
+                    "otpauth://totp/rbw?secret={RFC6238_SHA1}&digits=8\
+                     &period=60"
+                ),
+                118
+            ),
+            "94287082"
+        );
+        // spaces in the secret, encoded as + or %20
+        assert_eq!(
+            totp_at(
+                "otpauth://totp/rbw?secret=GEZD+GNBV%20GY3T+QOJQ\
+                 +GEZDGNBVGY3TQOJQ",
+                time
+            ),
+            "005924"
+        );
+    }
+
+    #[test]
+    fn test_totp_steam() {
+        // computed independently: the SHA1 HOTP value written in Steam's
+        // 26 character alphabet, 5 characters
+        let steam = [
+            (59, "PV9M4"),
+            (1_111_111_109, "PY4YB"),
+            (1_111_111_111, "5PP3V"),
+            (1_234_567_890, "VHHQY"),
+            (2_000_000_000, "9N776"),
+            (20_000_000_000, "R5DMB"),
+        ];
+        for (time, want) in steam {
+            assert_eq!(
+                totp_at(&format!("steam://{RFC6238_SHA1}"), time),
+                want
+            );
+            assert_eq!(
+                totp_at(
+                    &format!(
+                        "otpauth://totp/Steam:alice?secret={RFC6238_SHA1}\
+                         &algorithm=STEAM"
+                    ),
+                    time
+                ),
+                want
+            );
+        }
+    }
+
+    #[test]
+    fn test_totp_rejected_secrets() {
+        for secret in [
+            "not base32!",
+            "otpauth://hotp/rbw?secret=GEZDGNBV",
+            "otpauth://totp/rbw",
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=six",
+            "otpauth://totp/rbw?secret=GEZDGNBV&period=-30",
+            "otpauth://totp/rbw?secret=GEZDGNBV&algorithm=MD5",
+            "https://example.com/?secret=GEZDGNBV",
+        ] {
+            assert!(
+                parse_totp_secret(secret)
+                    .and_then(|params| generate_totp_at(params, 59))
+                    .is_err(),
+                "{secret:?}"
+            );
+        }
     }
 
     #[track_caller]
