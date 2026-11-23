@@ -31,6 +31,9 @@
 * `rbw code` and `rbw get --field totp` report an error for an `otpauth://`
   URI with `digits` outside 1 to 9 or a `period` of 0, and for a `steam:` URI
   without a secret, instead of crashing or printing a wrong code.
+* Text sent to pinentry is escaped, so a `%` or a newline in a prompt, such
+  as an error message from the server, no longer garbles it or cuts the
+  conversation with pinentry short.
 
 * The client now restarts the running agent after every upgrade. The protocol
   version it compares gave some releases the same number (1.17.1 and 1.18.0,

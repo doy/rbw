@@ -4,8 +4,11 @@ use std::convert::TryFrom as _;
 
 use tokio::io::AsyncWriteExt as _;
 
-// pinentry's own timeout error, GPG_ERR_TIMEOUT from GPG_ERR_SOURCE_PINENTRY
+// pinentry's errors are GPG_ERR_SOURCE_PINENTRY (5 << 24) plus the code
+// GPG_ERR_TIMEOUT
 const PINENTRY_ERR_TIMEOUT: &str = "83886142";
+// GPG_ERR_CANCELED, from the cancel button or closing the dialog
+const PINENTRY_ERR_CANCELED: &str = "83886179";
 
 // How long past its own timeout a pinentry may take to exit before it is
 // killed. Letting it exit by itself lets a terminal pinentry restore the
@@ -26,6 +29,54 @@ pub async fn getpin(
     environment: &crate::protocol::Environment,
     grab: bool,
 ) -> Result<crate::locked::Password> {
+    let mut child = spawn(pinentry, environment, grab)?;
+    // unwrap is safe because we specified stdin as piped in the command opts
+    // above
+    let mut stdin = child.stdin.take().unwrap();
+
+    let mut ncommands = 1;
+    send(&mut stdin, "SETTITLE rbw").await?;
+    ncommands += 1;
+    send(&mut stdin, &format!("SETPROMPT {}", assuan_escape(prompt))).await?;
+    ncommands += 1;
+    send(&mut stdin, &format!("SETDESC {}", assuan_escape(desc))).await?;
+    ncommands += 1;
+    if let Some(err) = err {
+        send(&mut stdin, &format!("SETERROR {}", assuan_escape(err))).await?;
+        ncommands += 1;
+    }
+    send(&mut stdin, "GETPIN").await?;
+    ncommands += 1;
+    drop(stdin);
+
+    let mut buf = crate::locked::Vec::new();
+    buf.zero();
+    let answer = async {
+        // unwrap is safe because we specified stdout as piped in the command
+        // opts above
+        let len = read_password(
+            ncommands,
+            buf.data_mut(),
+            child.stdout.as_mut().unwrap(),
+        )
+        .await?;
+        child
+            .wait()
+            .await
+            .map_err(|source| Error::PinentryWait { source })?;
+        Ok(len)
+    };
+    let len = with_timeout(pinentry, answer).await?;
+    buf.truncate(len);
+
+    Ok(crate::locked::Password::new(buf))
+}
+
+fn spawn(
+    pinentry: &Pinentry,
+    environment: &crate::protocol::Environment,
+    grab: bool,
+) -> Result<tokio::process::Child> {
     let mut opts = tokio::process::Command::new(&pinentry.program);
     opts.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -64,60 +115,25 @@ pub async fn getpin(
     }
     opts.envs(env_vars);
 
-    let mut child = opts.spawn().map_err(|source| Error::Spawn { source })?;
-    // unwrap is safe because we specified stdin as piped in the command opts
-    // above
-    let mut stdin = child.stdin.take().unwrap();
+    opts.spawn().map_err(|source| Error::Spawn { source })
+}
 
-    let mut ncommands = 1;
+async fn send(
+    stdin: &mut tokio::process::ChildStdin,
+    line: &str,
+) -> Result<()> {
     stdin
-        .write_all(b"SETTITLE rbw\n")
+        .write_all(format!("{line}\n").as_bytes())
         .await
-        .map_err(|source| Error::WriteStdin { source })?;
-    ncommands += 1;
-    stdin
-        .write_all(format!("SETPROMPT {prompt}\n").as_bytes())
-        .await
-        .map_err(|source| Error::WriteStdin { source })?;
-    ncommands += 1;
-    stdin
-        .write_all(format!("SETDESC {desc}\n").as_bytes())
-        .await
-        .map_err(|source| Error::WriteStdin { source })?;
-    ncommands += 1;
-    if let Some(err) = err {
-        stdin
-            .write_all(format!("SETERROR {err}\n").as_bytes())
-            .await
-            .map_err(|source| Error::WriteStdin { source })?;
-        ncommands += 1;
-    }
-    stdin
-        .write_all(b"GETPIN\n")
-        .await
-        .map_err(|source| Error::WriteStdin { source })?;
-    ncommands += 1;
-    drop(stdin);
+        .map_err(|source| Error::WriteStdin { source })
+}
 
-    let mut buf = crate::locked::Vec::new();
-    buf.zero();
-    let answer = async {
-        // unwrap is safe because we specified stdout as piped in the command
-        // opts above
-        let len = read_password(
-            ncommands,
-            buf.data_mut(),
-            child.stdout.as_mut().unwrap(),
-        )
-        .await?;
-        child
-            .wait()
-            .await
-            .map_err(|source| Error::PinentryWait { source })?;
-        Ok(len)
-    };
-    // enforce the timeout here too, for pinentry programs that ignore it
-    let len = if pinentry.timeout == 0 {
+// Enforces the timeout here too, for pinentry programs that ignore it.
+async fn with_timeout<T>(
+    pinentry: &Pinentry,
+    answer: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    if pinentry.timeout == 0 {
         answer.await
     } else {
         let limit =
@@ -125,10 +141,50 @@ pub async fn getpin(
         tokio::time::timeout(limit, answer)
             .await
             .unwrap_or(Err(Error::PinentryTimedOut))
-    }?;
-    buf.truncate(len);
+    }
+}
 
-    Ok(crate::locked::Password::new(buf))
+// Longest text, once escaped, sent as the argument of one Assuan command.
+// Assuan lines are limited to 1000 bytes, including the command name and
+// the newline.
+const MAX_ASSUAN_ARGUMENT: usize = 900;
+
+// Escapes text for an Assuan command line. A newline would end the command
+// and let the rest of the text run as another command, and pinentry decodes
+// %XX sequences, so '%', CR, LF and the other ASCII control characters are
+// sent as %XX. Text that would make the line too long is cut, without
+// splitting a character or a %XX sequence, and ends with "...".
+pub fn assuan_escape(text: &str) -> String {
+    use std::fmt::Write as _;
+
+    const ELLIPSIS: &str = "...";
+
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c == '%' || c.is_ascii_control() {
+            // writing to a String can't fail
+            let _ = write!(escaped, "%{:02X}", u32::from(c));
+        } else {
+            escaped.push(c);
+        }
+    }
+    if escaped.len() <= MAX_ASSUAN_ARGUMENT {
+        return escaped;
+    }
+
+    let mut cut = MAX_ASSUAN_ARGUMENT - ELLIPSIS.len();
+    while !escaped.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    // every '%' left in the text starts a %XX sequence
+    if let Some(start) = escaped[..cut].rfind('%') {
+        if start + 3 > cut {
+            cut = start;
+        }
+    }
+    escaped.truncate(cut);
+    escaped.push_str(ELLIPSIS);
+    escaped
 }
 
 // Whether the path is still a terminal that can be opened. Opened without
@@ -172,34 +228,8 @@ where
                 data.copy_within((nl + 1).., 0);
                 len -= nl + 1;
             } else if data.starts_with(b"ERR ") {
-                let line: Vec<u8> = data.iter().take(nl).copied().collect();
-                let line = String::from_utf8(line).unwrap();
-                let mut split = line.splitn(3, ' ');
-                let _ = split.next(); // ERR
-                let code = split.next();
-                match code {
-                    Some("83886179") => {
-                        return Err(Error::PinentryCancelled);
-                    }
-                    Some(PINENTRY_ERR_TIMEOUT) => {
-                        return Err(Error::PinentryTimedOut);
-                    }
-                    Some(code) => {
-                        if let Some(error) = split.next() {
-                            return Err(Error::PinentryErrorMessage {
-                                error: error.to_string(),
-                            });
-                        }
-                        return Err(Error::PinentryErrorMessage {
-                            error: format!("unknown error ({code})"),
-                        });
-                    }
-                    None => {
-                        return Err(Error::PinentryErrorMessage {
-                            error: "unknown error".to_string(),
-                        });
-                    }
-                }
+                let line = String::from_utf8_lossy(&data[..nl]).into_owned();
+                return Err(pinentry_error(&line));
             } else {
                 return Err(Error::FailedToParsePinentry {
                     out: String::from_utf8_lossy(data)
@@ -227,6 +257,27 @@ where
     len = percent_decode(&mut data[..len]);
 
     Ok(len)
+}
+
+// The error for an "ERR <code> <description>" line.
+fn pinentry_error(line: &str) -> Error {
+    let mut split = line.splitn(3, ' ');
+    let _ = split.next(); // ERR
+    match split.next() {
+        Some(PINENTRY_ERR_CANCELED) => Error::PinentryCancelled,
+        Some(PINENTRY_ERR_TIMEOUT) => Error::PinentryTimedOut,
+        Some(code) => split.next().map_or_else(
+            || Error::PinentryErrorMessage {
+                error: format!("unknown error ({code})"),
+            },
+            |error| Error::PinentryErrorMessage {
+                error: error.to_string(),
+            },
+        ),
+        None => Error::PinentryErrorMessage {
+            error: "unknown error".to_string(),
+        },
+    }
 }
 
 // not using the percent-encoding crate because it doesn't provide a way to do
@@ -361,6 +412,87 @@ mod tests {
             "echo OK; echo 'ERR 83886142 Timeout <Pinentry>'",
         );
         assert!(matches!(ask(&program).await, Err(Error::PinentryTimedOut)));
+    }
+
+    #[tokio::test]
+    async fn prompt_text_cannot_add_commands() {
+        let _guard = SPAWN_LOCK.lock().await;
+        let log = std::env::temp_dir()
+            .join(format!("rbw-pinentry-test-{}", std::process::id()))
+            .join("getpin.log");
+        let _ = std::fs::remove_file(&log);
+        let program = fake_pinentry(
+            "getpin",
+            &format!(
+                "echo OK\n\
+                 while IFS= read -r line; do\n\
+                 printf '%s\\n' \"$line\" >> '{}'\n\
+                 case \"$line\" in\n\
+                 GETPIN) echo 'D pass%25word'; echo OK; exit 0;;\n\
+                 *) echo OK;;\n\
+                 esac\n\
+                 done",
+                log.display()
+            ),
+        );
+        let password = getpin(
+            &Pinentry {
+                program: program.to_string_lossy().into_owned(),
+                timeout: 1,
+            },
+            "Master Password",
+            "Unlock 100%\nGETPIN",
+            Some("server said:\r\nBYE"),
+            &crate::protocol::Environment::default(),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(password.password(), b"pass%word");
+        assert_eq!(
+            std::fs::read_to_string(log).unwrap(),
+            "SETTITLE rbw\nSETPROMPT Master Password\n\
+             SETDESC Unlock 100%25%0AGETPIN\n\
+             SETERROR server said:%0D%0ABYE\nGETPIN\n"
+        );
+    }
+
+    #[test]
+    fn assuan_text_is_escaped() {
+        assert_eq!(assuan_escape("plain text"), "plain text");
+        assert_eq!(assuan_escape("100%"), "100%25");
+        assert_eq!(assuan_escape("a\nb\r\0c\x7f"), "a%0Ab%0D%00c%7F");
+        assert_eq!(assuan_escape("ssh (pid 1) \u{e9}"), "ssh (pid 1) \u{e9}");
+        // the escape itself is not decoded twice
+        assert_eq!(assuan_escape("%0A"), "%250A");
+    }
+
+    #[test]
+    fn long_assuan_text_is_cut() {
+        let cut = assuan_escape(&"x".repeat(5000));
+        assert_eq!(cut.len(), MAX_ASSUAN_ARGUMENT);
+        assert!(cut.ends_with("xx..."));
+
+        // never in the middle of a character
+        let cut = assuan_escape(&"\u{e9}".repeat(1000));
+        assert!(cut.len() <= MAX_ASSUAN_ARGUMENT);
+        assert!(cut.trim_end_matches("...").chars().all(|c| c == '\u{e9}'));
+
+        // never in the middle of a %XX sequence
+        for prefix in 0..3 {
+            let text = "x".repeat(prefix) + &"\n".repeat(1000);
+            let cut = assuan_escape(&text);
+            assert!(cut.len() <= MAX_ASSUAN_ARGUMENT);
+            let body = cut.strip_suffix("...").unwrap();
+            // a short last chunk would be a cut sequence
+            assert!(body.as_bytes()[prefix..]
+                .chunks(3)
+                .all(|chunk| chunk == b"%0A"));
+        }
+
+        // short enough text is not cut
+        let exact = "y".repeat(MAX_ASSUAN_ARGUMENT);
+        assert_eq!(assuan_escape(&exact), exact);
     }
 
     #[test]
