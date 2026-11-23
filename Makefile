@@ -50,34 +50,3 @@ pkg:
 
 pkg/$(DEB_PACKAGE): release completion | pkg
 	@cargo deb --no-build --target x86_64-unknown-linux-musl && mv target/x86_64-unknown-linux-musl/debian/$(DEB_PACKAGE) pkg
-
-pkg/$(DEB_PACKAGE).minisig: pkg/$(DEB_PACKAGE)
-	@minisign -Sm $<
-
-pkg/$(TGZ_PACKAGE): release completion | pkg
-	@tar czf $@ -C target/x86_64-unknown-linux-musl/release rbw rbw-agent completion
-
-release-dir-deb:
-	@ssh partofme mkdir -p releases/rbw/deb
-.PHONY: release-dir-deb
-
-publish: publish-crates-io publish-git-tags publish-deb publish-github
-.PHONY: publish
-
-publish-crates-io: test
-	@cargo publish
-.PHONY: publish-crates-io
-
-# force shell instead of exec to work around
-# https://savannah.gnu.org/bugs/?57962 since i have ~/.bin/git as a directory
-publish-git-tags: test
-	@:; git tag $(VERSION)
-	@:; git push --tags
-.PHONY: publish-git-tags
-
-publish-deb: test pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig release-dir-deb
-	@scp pkg/$(DEB_PACKAGE) pkg/$(DEB_PACKAGE).minisig partofme:releases/rbw/deb
-.PHONY: publish-deb
-
-publish-github: test pkg/$(TGZ_PACKAGE)
-	@perl -nle'print if /^## \Q[$(VERSION)]/../^## (?!\Q[$(VERSION)]\E)/' CHANGELOG.md | head -n-2 | gh release create $(VERSION) --verify-tag --notes-file - pkg/$(TGZ_PACKAGE)

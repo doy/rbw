@@ -1,0 +1,202 @@
+name: release
+
+# Pushing a version tag (such as 1.18.1) builds the release archives and .deb
+# packages, attaches them to the GitHub release, and publishes the version to
+# crates.io, the Homebrew tap and the AUR. Running the workflow by hand with an
+# existing tag does the same for that tag; steps that already happened (an
+# uploaded asset, a published crate) are replaced or skipped.
+#
+# Secrets, each optional: the step that needs a missing one is skipped.
+#   CARGO_REGISTRY_TOKEN  crates.io API token with the publish-update scope
+#   HOMEBREW_TAP_TOKEN    token that can push to TimotheFCN/homebrew-tap
+#   AUR_SSH_PRIVATE_KEY   SSH key of the AUR account that maintains rbw-ng-bin
+
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release, such as 1.18.0
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-24.04
+            deb: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            deb: true
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: aarch64-apple-darwin
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Check that the tag matches the crate version
+        run: |
+          version="$(cargo pkgid | sed 's/.*[#@]//')"
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::Tag $TAG doesn't match version $version in Cargo.toml"
+            exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y clang-18 llvm-18
+      - name: Build
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            export TARGET_CC=clang-18 TARGET_AR=llvm-ar-18
+          fi
+          cargo build --release --locked --target ${{ matrix.target }}
+      - name: Archive
+        run: packaging/archive.sh ${{ matrix.target }}
+      - if: matrix.deb
+        uses: cargo-bins/cargo-binstall@v1.28.0
+      - name: Debian package
+        if: matrix.deb
+        run: |
+          cargo binstall -y cargo-deb
+          cargo deb --no-build --target ${{ matrix.target }} --output dist/
+          cd dist && for deb in *.deb; do shasum -a 256 "$deb" > "$deb.sha256"; done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Create the release or update its assets
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            packaging/release-notes.sh "$TAG" > notes.md
+            gh release create "$TAG" --verify-tag --title "rbw-ng $TAG" --notes-file notes.md dist/*
+          fi
+
+  crates-io:
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::notice::CARGO_REGISTRY_TOKEN isn't set, skipping crates.io"
+            exit 0
+          fi
+          status="$(curl -s -o /dev/null -w '%{http_code}' -A 'rbw-ng release workflow' \
+            "https://crates.io/api/v1/crates/rbw-ng/$TAG")"
+          if [ "$status" = 200 ]; then
+            echo "::notice::rbw-ng $TAG is already on crates.io"
+            exit 0
+          fi
+          cargo publish --locked
+
+  homebrew:
+    needs: github-release
+    runs-on: ubuntu-24.04
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - run: packaging/homebrew/formula.sh "$TAG" dist > rbw-ng.rb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: homebrew-formula
+          path: rbw-ng.rb
+      - name: Push to the tap
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN isn't set, skipping the Homebrew tap"
+            exit 0
+          fi
+          git clone "https://x-access-token:$HOMEBREW_TAP_TOKEN@github.com/TimotheFCN/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp rbw-ng.rb tap/Formula/rbw-ng.rb
+          cd tap
+          git add Formula/rbw-ng.rb
+          if git diff --cached --quiet; then
+            echo "::notice::The tap already has rbw-ng $TAG"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "rbw-ng $TAG"
+          git push
+
+  aur:
+    needs: github-release
+    runs-on: ubuntu-24.04
+    env:
+      HAS_AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - run: packaging/aur/pkgbuild.sh "$TAG" dist > PKGBUILD
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aur-pkgbuild
+          path: PKGBUILD
+      - if: env.HAS_AUR_KEY != 'true'
+        run: echo "::notice::AUR_SSH_PRIVATE_KEY isn't set, skipping the AUR"
+      - if: env.HAS_AUR_KEY == 'true'
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: rbw-ng-bin
+          pkgbuild: PKGBUILD
+          commit_username: github-actions[bot]
+          commit_email: 41898282+github-actions[bot]@users.noreply.github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: rbw-ng ${{ env.TAG }}

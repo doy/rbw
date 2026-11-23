@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+* Release packages: prebuilt archives for Linux (x86_64 and aarch64, static
+  musl builds) and macOS (Intel and Apple Silicon), `.deb` packages for amd64
+  and arm64, a Homebrew formula (`brew install timothefcn/tap/rbw-ng`), the
+  `rbw-ng-bin` AUR package, and the `rbw-ng` crate on crates.io, which
+  `cargo binstall` can install from the prebuilt archives.
+* The documentation moved to the [wiki](https://github.com/TimotheFCN/rbw-ng/wiki).
+
 ## [1.18.0] - 2026-11-23
 
 ## Added

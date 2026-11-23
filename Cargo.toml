@@ -7,8 +7,9 @@ rust-version = "1.88.0"
 
 description = "Unofficial Bitwarden CLI, a maintained continuation of rbw"
 repository = "https://github.com/TimotheFCN/rbw-ng"
+documentation = "https://github.com/TimotheFCN/rbw-ng/wiki"
 readme = "README.md"
-keywords = ["bitwarden"]
+keywords = ["bitwarden", "vaultwarden", "password-manager", "cli", "ssh-agent"]
 categories = ["command-line-utilities", "cryptography"]
 license = "MIT"
 include = ["src/**/*", "bin/**/*", "LICENSE", "README.md", "CHANGELOG.md"]
@@ -138,7 +139,20 @@ missing_panics_doc = "allow"
 significant_drop_tightening = "allow"
 struct_field_names = "allow"
 
+# `cargo binstall rbw-ng` downloads the archives the release workflow builds.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/{ name }-{ version }-{ target }.tar.gz"
+bin-dir = "{ name }-{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
 [package.metadata.deb]
+maintainer = "Timothe F <7504193+TimotheFCN@users.noreply.github.com>"
+extended-description = """\
+rbw-ng is a maintained continuation of rbw, the unofficial command line \
+client for Bitwarden and Vaultwarden. A background agent keeps the vault \
+unlocked between commands, like ssh-agent, and can also serve SSH keys \
+stored in the vault. It installs the rbw and rbw-agent commands."""
+section = "utils"
 depends = "pinentry"
 conflicts = "rbw"
 replaces = "rbw"
@@ -171,7 +185,7 @@ assets = [
     ],
     [
         "README.md",
-        "usr/share/doc/rbw/README",
+        "usr/share/doc/rbw-ng/README",
         "644",
     ],
 ]
