@@ -32,6 +32,8 @@
   setting and an identity's company. It also dropped the URI checksums, after
   which the official clients hid the URIs of entries that have their own key.
 * `rbw edit` no longer adds the password to the history when it didn't change.
+* `rbw edit` syncs before opening the editor, so it no longer overwrites
+  changes made in another client since the last sync.
 * `rbw code` and `rbw get --field totp` report an error for an `otpauth://`
   URI with `digits` outside 1 to 9 or a `period` of 0, and for a `steam:` URI
   without a secret, instead of crashing or printing a wrong code.
