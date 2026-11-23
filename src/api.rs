@@ -1911,6 +1911,80 @@ mod tests {
         classify_login_error(&res, 400)
     }
 
+    // Answers one request with the given status and body, like the identity
+    // server would.
+    fn mock_identity(status: u16, body: &'static str) -> Client {
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = stream.read(&mut chunk).unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..n]);
+            }
+            let response = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        let url = format!("http://{addr}");
+        Client::new(&url, &url, &url, None)
+    }
+
+    #[test]
+    fn refresh_keeps_a_rotated_refresh_token() {
+        let client = mock_identity(
+            200,
+            r#"{"access_token":"new-access","refresh_token":"new-refresh"}"#,
+        );
+        let (access, refresh) = client.exchange_refresh_token("old").unwrap();
+        assert_eq!(access, "new-access");
+        assert_eq!(refresh.as_deref(), Some("new-refresh"));
+    }
+
+    #[test]
+    fn refresh_without_rotation_returns_no_refresh_token() {
+        let client = mock_identity(200, r#"{"access_token":"new-access"}"#);
+        let (_, refresh) = client.exchange_refresh_token("old").unwrap();
+        assert_eq!(refresh, None);
+    }
+
+    #[test]
+    fn rejected_refresh_token_is_reported() {
+        let client = mock_identity(400, r#"{"error":"invalid_grant"}"#);
+        assert!(matches!(
+            client.exchange_refresh_token("old"),
+            Err(Error::RefreshTokenInvalid)
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejected_refresh_token_is_reported_async() {
+        let client = mock_identity(401, r#"{"error":"invalid_grant"}"#);
+        assert!(matches!(
+            client.exchange_refresh_token_async("old").await,
+            Err(Error::RefreshTokenInvalid)
+        ));
+    }
+
+    #[test]
+    fn other_refresh_failures_keep_the_token() {
+        let client = mock_identity(502, "Bad Gateway");
+        assert!(matches!(
+            client.exchange_refresh_token("old"),
+            Err(Error::RequestFailed { status: 502 })
+        ));
+    }
+
     #[test]
     fn device_errors_are_told_apart() {
         assert!(matches!(

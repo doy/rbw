@@ -318,6 +318,33 @@ pub struct RefreshedTokens {
     pub refresh_token: Option<String>,
 }
 
+impl RefreshedTokens {
+    pub fn store_in(self, db: &mut crate::db::Db) {
+        db.access_token = Some(self.access_token);
+        if let Some(refresh_token) = self.refresh_token {
+            db.refresh_token = Some(refresh_token);
+        }
+    }
+}
+
+// The server will never accept this refresh token again. Forget it, so that
+// the next command logs in again instead of every request repeating the same
+// rejection, and so that `rbw login` has something to do. Rotating servers
+// also reject a token when two refreshes race, and then the stored token has
+// already been replaced by a valid one, so only forget it if it is still the
+// one that was sent.
+fn forget_rejected_refresh_token(
+    db: &mut crate::db::Db,
+    rejected: &str,
+) -> bool {
+    if db.refresh_token.as_deref() != Some(rejected) {
+        return false;
+    }
+    db.access_token = None;
+    db.refresh_token = None;
+    true
+}
+
 fn with_exchange_refresh_token<F, T>(
     access_token: &str,
     refresh_token: &str,
@@ -363,24 +390,49 @@ where
 }
 
 fn exchange_refresh_token(refresh_token: &str) -> Result<RefreshedTokens> {
-    let (client, _) = api_client()?;
-    let (access_token, refresh_token) =
-        client.exchange_refresh_token(refresh_token)?;
+    let (client, config) = api_client()?;
+    let (access_token, new_refresh_token) =
+        match client.exchange_refresh_token(refresh_token) {
+            Err(Error::RefreshTokenInvalid) => {
+                if let Some(email) = &config.email {
+                    let server = config.server_name();
+                    let mut db = crate::db::Db::load(&server, email)?;
+                    if forget_rejected_refresh_token(&mut db, refresh_token) {
+                        db.save(&server, email)?;
+                    }
+                }
+                return Err(Error::RefreshTokenInvalid);
+            }
+            res => res?,
+        };
     Ok(RefreshedTokens {
         access_token,
-        refresh_token,
+        refresh_token: new_refresh_token,
     })
 }
 
 async fn exchange_refresh_token_async(
     refresh_token: &str,
 ) -> Result<RefreshedTokens> {
-    let (client, _) = api_client()?;
-    let (access_token, refresh_token) =
-        client.exchange_refresh_token_async(refresh_token).await?;
+    let (client, config) = api_client_async().await?;
+    let (access_token, new_refresh_token) =
+        match client.exchange_refresh_token_async(refresh_token).await {
+            Err(Error::RefreshTokenInvalid) => {
+                if let Some(email) = &config.email {
+                    let server = config.server_name();
+                    let mut db =
+                        crate::db::Db::load_async(&server, email).await?;
+                    if forget_rejected_refresh_token(&mut db, refresh_token) {
+                        db.save_async(&server, email).await?;
+                    }
+                }
+                return Err(Error::RefreshTokenInvalid);
+            }
+            res => res?,
+        };
     Ok(RefreshedTokens {
         access_token,
-        refresh_token,
+        refresh_token: new_refresh_token,
     })
 }
 
@@ -405,4 +457,30 @@ async fn api_client_async(
         config.client_cert_path(),
     );
     Ok((client, config))
+}
+
+#[cfg(test)]
+mod tests {
+    fn db_with_tokens(refresh_token: &str) -> crate::db::Db {
+        let mut db = crate::db::Db::new();
+        db.access_token = Some("access".to_string());
+        db.refresh_token = Some(refresh_token.to_string());
+        db
+    }
+
+    #[test]
+    fn rejected_refresh_token_is_forgotten() {
+        let mut db = db_with_tokens("rejected");
+        assert!(super::forget_rejected_refresh_token(&mut db, "rejected"));
+        assert!(db.access_token.is_none());
+        assert!(db.refresh_token.is_none());
+    }
+
+    #[test]
+    fn newer_refresh_token_is_kept() {
+        // another process rotated the token after this one was sent
+        let mut db = db_with_tokens("rotated");
+        assert!(!super::forget_rejected_refresh_token(&mut db, "rejected"));
+        assert_eq!(db.refresh_token.as_deref(), Some("rotated"));
+    }
 }

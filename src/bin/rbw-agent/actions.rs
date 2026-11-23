@@ -692,7 +692,7 @@ pub async fn sync(
     sock: Option<&mut crate::sock::Sock>,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
-    let mut db = load_db().await?;
+    let db = load_db().await?;
 
     let access_token = if let Some(access_token) = &db.access_token {
         access_token.clone()
@@ -713,34 +713,13 @@ pub async fn sync(
             entries,
             user_id,
         ),
-    ) = match rbw::actions::sync(&access_token, &refresh_token).await {
-        Ok(res) => res,
-        // The server will never accept this refresh token again, so retrying
-        // on the sync interval only repeats the same rejection forever. Drop
-        // the tokens instead: that makes db.needs_login() true, so the next
-        // command the user runs goes through the ordinary login flow, and the
-        // syncs in between fail locally without touching the network.
-        Err(rbw::error::Error::RefreshTokenInvalid) => {
-            // Re-read rather than trusting the copy loaded above: a concurrent
-            // sync may have rotated the token while this request was in
-            // flight, in which case the server is rejecting a token that has
-            // already been superseded and the stored replacement is valid.
-            // Only clear if what we sent is still what is stored.
-            let mut current = load_db().await?;
-            if current.refresh_token.as_deref()
-                == Some(refresh_token.as_str())
-            {
-                current.access_token = None;
-                current.refresh_token = None;
-                save_db(&current).await?;
-            }
-            return Err(rbw::error::Error::RefreshTokenInvalid)
-                .context("failed to sync database from server");
-        }
-        Err(e) => {
-            return Err(e).context("failed to sync database from server")
-        }
-    };
+    ) = rbw::actions::sync(&access_token, &refresh_token)
+        .await
+        .context("failed to sync database from server")?;
+    // the rbw command line can write the db while the sync is in flight, for
+    // example to store tokens it refreshed, so apply the results to what is
+    // on disk now rather than to the copy read before the request
+    let mut db = load_db().await?;
     #[cfg(target_os = "macos")]
     let protected_key_changed = db
         .protected_key
@@ -748,10 +727,7 @@ pub async fn sync(
         .is_some_and(|old_protected_key| old_protected_key != protected_key);
     state.lock().await.set_master_password_reprompt(&entries);
     if let Some(tokens) = tokens {
-        db.access_token = Some(tokens.access_token);
-        if let Some(refresh_token) = tokens.refresh_token {
-            db.refresh_token = Some(refresh_token);
-        }
+        tokens.store_in(&mut db);
     }
     db.protected_key = Some(protected_key);
     db.protected_private_key = Some(protected_private_key);

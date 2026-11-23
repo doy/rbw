@@ -175,7 +175,7 @@ pub enum Error {
     #[error("This device has not yet been registered with the Bitwarden server. Run `rbw register` first, and then try again.")]
     RegistrationRequired,
 
-    #[error("refresh token is no longer valid, run `rbw login`")]
+    #[error("the server no longer accepts this login, run `rbw login` to log in again")]
     RefreshTokenInvalid,
 
     #[error("failed to remove db at {}", .file.display())]
