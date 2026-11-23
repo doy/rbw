@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.17.0] - Unreleased
+
+## Added
+
+* Login answers Bitwarden's new device verification: accounts without
+  two-step login are asked for the code Bitwarden emails when rbw logs in from
+  a new device (Hans, doy/rbw#319, fixes doy/rbw#318).
+* `pinentry_timeout` sets how long an unanswered pinentry prompt stays open.
+  Defaults to 120 seconds; `0` waits forever, as before.
+
+## Fixed
+
+* Logging in to recent Vaultwarden versions, which list recovery codes among
+  the two-step methods, no longer fails (Andreas Reischuck, doy/rbw#329).
+* The lock timeout now counts time the computer spends asleep, so a vault left
+  unlocked when closing a laptop is locked when it wakes (Peter Oettig,
+  doy/rbw#207).
+* Refresh tokens that the server rotates are saved, which fixes repeated login
+  failures against Vaultwarden behind an SSO provider. A refresh token the
+  server rejects is forgotten, so `rbw login` works again instead of every
+  sync failing (Fredrik Ekre, doy/rbw#378, and shan, doy/rbw#362).
+* pinentry no longer hangs forever, using a full CPU core, when an SSH request
+  arrives while the vault is locked and the last terminal has been closed
+  (Tin Lai, doy/rbw#348). The SSH agent can also prompt before any rbw command
+  has run (leiserfg, doy/rbw#388).
+* `ssh-add -l` shows the key comment, or the entry name for keys without one
+  (Christoph Blüm, doy/rbw#313). A malformed SSH key entry no longer hides
+  every other key.
+* The agent no longer exits, locking the vault, when accepting a connection
+  fails, and no longer panics when a client disconnects before receiving an
+  error (yoyo930021, doy/rbw#332).
+
+## Changed
+
+* `client_cert_path` is documented (zandivx, doy/rbw#340).
+
 ## [1.16.0] - Unreleased
 
 First release of `rbw-ng`, a maintained continuation of `rbw`. The commands,
