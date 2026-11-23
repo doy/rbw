@@ -1840,12 +1840,11 @@ pub fn edit(
 ) -> anyhow::Result<()> {
     unlock()?;
 
-    let mut db = load_db()?;
-    if db.user_id.is_none() {
-        crate::actions::sync()
-            .context("failed to sync user id before editing entry")?;
-        db = load_db()?;
-    }
+    // the edit sends the rest of the entry from the local copy, so start
+    // from the server's current version instead of overwriting changes made
+    // elsewhere since the last sync. this also fetches the user id.
+    crate::actions::sync().context("failed to sync before editing entry")?;
+    let db = load_db()?;
     let user_id = user_id(&db)?.to_string();
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
@@ -3543,10 +3542,15 @@ mod test {
 
     #[test]
     fn test_uri_checksum() {
-        // the base64 sha256, as the official clients compute it
+        // the base64 sha256, as the official clients compute it. test
+        // vectors from the Bitwarden SDK (bitwarden-vault, cipher/login.rs)
         assert_eq!(
             uri_checksum("https://example.com"),
             "EAaArVRs5qV39C9S3zO0z9ynVoWeZkuNfeMpsVDQnOk="
+        );
+        assert_eq!(
+            uri_checksum("https://test.com"),
+            "OWk2vQvwYD1nhLZdA+ltrpBWbDa2JmHyjUEWxRZSS8w="
         );
     }
 

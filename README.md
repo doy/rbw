@@ -217,8 +217,8 @@ field as a hidden field if the entry doesn't have it. Boolean fields take
 Changing a password moves the old one to the password history (`rbw history`).
 Before saving an edit, `rbw` fetches the entry from the server and keeps what
 it doesn't manage itself, such as the favorite and master password reprompt
-settings, passkeys and URI checksums. The rest of the entry is sent as it is in
-the local copy, so run `rbw sync` first if the entry was changed elsewhere.
+settings, passkeys and URI checksums. `rbw edit` syncs before opening the
+editor, so it starts from the entry's current version.
 
 ### SSH Agent
 
