@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.18.0] - Unreleased
+## [1.18.0] - 2026-11-23
 
 ## Added
 
