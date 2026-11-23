@@ -29,8 +29,9 @@ Compared to `rbw` 1.15.0, it adds:
 
 * Touch ID unlock on macOS, backed by a Secure Enclave key that never leaves
   the chip (see [Touch ID](#touch-id)).
-* Touch ID approval before each SSH signature on macOS, with the requesting
-  program named in the prompt.
+* Approval before each SSH signature, with Touch ID on macOS and a pinentry
+  dialog elsewhere, naming the key and the requesting program (see
+  [Approving SSH signatures](#approving-ssh-signatures)).
 * Fixes for `rbw edit` corrupting items that have their own encryption key,
   for edits refused by the server, for `rbw add` and `rbw edit` on
   Vaultwarden 1.37, and for requests that ignored `client_cert_path`.
@@ -97,8 +98,12 @@ configuration options:
   after the master password has unlocked it once in the current agent process.
   The Secure Enclave key and wrapped vault key are kept only in memory and are
   discarded when the agent exits. Defaults to `false`.
-* `touch_id_ssh`: On macOS, ask for Touch ID before the SSH agent signs
-  anything. Defaults to `false`.
+* `ssh_confirm`: Ask before the SSH agent signs anything, with Touch ID on
+  macOS and a pinentry dialog elsewhere. See [Approving SSH
+  signatures](#approving-ssh-signatures). Defaults to `false`.
+* `touch_id_ssh`: Deprecated name for `ssh_confirm`, from 1.17.0. A config
+  file with `touch_id_ssh` set to `true` keeps asking, and setting or unsetting
+  it with `rbw config` sets `ssh_confirm` instead.
 * `client_cert_path`: Path to a PEM file holding a client certificate and its
   private key, for servers that require mutual TLS. Unset by default.
 * `extra_headers`: HTTP headers to send with every request to the server,
@@ -194,18 +199,8 @@ master password or additional vault key material is written to disk. Entries
 configured to require master password reprompt continue to require the master
 password.
 
-The SSH agent can also ask before every signature:
-
-```sh
-rbw config set touch_id_ssh true
-```
-
-The prompt names the key and the program asking for it, for example "sign
-with the SSH key "github" for ssh (pid 4242), started by git". Touch ID, a
-paired Apple Watch or the login password can approve it, so this also works
-with the lid closed. If nobody approves, the signature is refused. With both
-settings on and a locked database, the first signature asks twice: once to
-unlock the database and once to approve the signature.
+The SSH agent can also ask for Touch ID before every signature, see
+[Approving SSH signatures](#approving-ssh-signatures).
 
 Run `rbw get <name>` to get your passwords. If you also want to get the username
 or the note associated, you can use the flag `--full`. You can also use the flag
@@ -285,7 +280,34 @@ directory instead:
 export SSH_AUTH_SOCK="${TMPDIR%/}/rbw-$(id -u)/ssh-agent-socket"
 ```
 
-To approve each signature with Touch ID, see [Touch ID](#touch-id).
+#### Approving SSH signatures
+
+The SSH agent can ask before every signature, so a program that reaches the
+agent socket (or a forwarded agent on another machine) can't use your keys
+without you noticing:
+
+```sh
+rbw config set ssh_confirm true
+```
+
+The prompt names the key, after its entry in the vault, and the program asking
+for it, for example "Allow ssh (pid 4242), started by git to sign with the SSH
+key "github"?". The program name comes from the process itself, which can call
+itself anything, so take it as a hint rather than proof.
+
+On macOS, Touch ID, a paired Apple Watch or the login password approves the
+signature, so this also works with the lid closed. Elsewhere, the configured
+`pinentry` shows an Allow/Deny dialog. Like the unlock prompt of the SSH agent,
+it uses the display and terminal of the last `rbw` command, skipping a terminal
+that has since been closed, and is dismissed after `pinentry_timeout` seconds.
+A terminal pinentry such as `pinentry-curses` can only ask on a terminal that
+is still open, so a graphical pinentry works better here.
+
+Only an explicit approval signs. Denying, closing the dialog, a timeout, or a
+pinentry that can't be shown refuse the signature, and the SSH client reports
+that the agent refused. Requests that arrive while a prompt is open wait for
+it, one prompt at a time. With a locked database, the first signature asks
+twice: once to unlock the database and once to approve the signature.
 
 ### 2FA support
 

@@ -18,6 +18,11 @@
   or another proxy that authenticates with a header (Ohad Lutzky,
   doy/rbw#310). Set them with `rbw config set extra_headers.NAME VALUE`.
   Invalid headers and the ones `rbw` sets itself are refused with an error.
+* `ssh_confirm` makes the SSH agent ask before every signature, on every
+  platform: Touch ID on macOS, as `touch_id_ssh` did, and a pinentry Allow/Deny
+  dialog elsewhere (Francesco Pompò, doy/rbw#335). The prompt names the key
+  and the program asking, now also on Linux. Only an explicit approval signs;
+  a cancel, a timeout or a pinentry that can't be shown refuses.
 
 ## Fixed
 
@@ -27,20 +32,20 @@
   setting and an identity's company. It also dropped the URI checksums, after
   which the official clients hid the URIs of entries that have their own key.
 * `rbw edit` no longer adds the password to the history when it didn't change.
-
 * `rbw code` and `rbw get --field totp` report an error for an `otpauth://`
   URI with `digits` outside 1 to 9 or a `period` of 0, and for a `steam:` URI
   without a secret, instead of crashing or printing a wrong code.
 * Text sent to pinentry is escaped, so a `%` or a newline in a prompt, such
   as an error message from the server, no longer garbles it or cuts the
   conversation with pinentry short.
-
 * The client now restarts the running agent after every upgrade. The protocol
   version it compares gave some releases the same number (1.17.1 and 1.18.0,
   for example), so the old agent kept running.
 
 ## Changed
 
+* `touch_id_ssh` is deprecated in favour of `ssh_confirm`. Configs that set it
+  keep asking, and `rbw config set touch_id_ssh` now sets `ssh_confirm`.
 * New config files are readable only by their owner.
 * `rbw get`, `list`, `search`, `code`, `edit`, `history` and `remove`, and
   `add`/`generate` with `--folder`, send one or two batched requests to the

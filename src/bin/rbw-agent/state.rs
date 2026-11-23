@@ -16,8 +16,8 @@ pub struct State {
     // Configuration changes stop the agent, so this startup snapshot avoids
     // rereading config on every successful password unlock.
     pub touch_id_unlock: bool,
-    #[cfg(target_os = "macos")]
-    pub touch_id_ssh: bool,
+    // Ask before every SSH signature, also a startup snapshot.
+    pub ssh_confirm: bool,
     #[cfg(target_os = "macos")]
     pub biometric_unlock: Option<std::sync::Arc<crate::biometric::Session>>,
 

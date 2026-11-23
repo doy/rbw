@@ -23,7 +23,14 @@ pub struct Config {
     pub pinentry_timeout: u64,
     #[serde(default)]
     pub touch_id_unlock: bool,
+    // Ask before every SSH agent signature. Read it with
+    // confirms_ssh_signatures(), which honours touch_id_ssh too.
     #[serde(default)]
+    pub ssh_confirm: bool,
+    // The macOS-only name of ssh_confirm in 1.17.0, still read so those
+    // configs keep asking. Setting either key through `rbw config` clears
+    // it in favour of ssh_confirm.
+    #[serde(default, skip_serializing_if = "is_false")]
     pub touch_id_ssh: bool,
     pub client_cert_path: Option<std::path::PathBuf>,
     // backcompat, no longer generated in new configs
@@ -51,6 +58,7 @@ impl Default for Config {
             pinentry: default_pinentry(),
             pinentry_timeout: default_pinentry_timeout(),
             touch_id_unlock: false,
+            ssh_confirm: false,
             touch_id_ssh: false,
             client_cert_path: None,
             device_id: None,
@@ -73,6 +81,11 @@ pub const fn default_pinentry_timeout() -> u64 {
 
 pub fn default_pinentry() -> String {
     "pinentry".to_string()
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde passes a reference
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Config {
@@ -237,6 +250,17 @@ impl Config {
                 },
             )
         })
+    }
+
+    pub fn confirms_ssh_signatures(&self) -> bool {
+        self.ssh_confirm || self.touch_id_ssh
+    }
+
+    // For `rbw config set` and `unset` of ssh_confirm and its old name
+    // touch_id_ssh: afterwards only ssh_confirm says whether to ask.
+    pub fn set_ssh_confirm(&mut self, enabled: bool) {
+        self.ssh_confirm = enabled;
+        self.touch_id_ssh = false;
     }
 
     pub fn client_cert_path(&self) -> Option<&std::path::Path> {
@@ -443,6 +467,45 @@ mod tests {
         let config: Config = serde_json::from_str("{}").unwrap();
         assert!(!config.touch_id_unlock);
         assert!(!config.touch_id_ssh);
+        assert!(!config.confirms_ssh_signatures());
         assert_eq!(config.pinentry_timeout, 120);
+    }
+
+    #[test]
+    fn touch_id_ssh_still_turns_on_ssh_confirm() {
+        let parse = |json| serde_json::from_str::<Config>(json).unwrap();
+
+        // a 1.17.0 config
+        let config = parse(r#"{"touch_id_ssh": true}"#);
+        assert!(config.confirms_ssh_signatures());
+        assert!(!config.ssh_confirm);
+        // and saved again unchanged, so a downgrade keeps asking
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["touch_id_ssh"], true);
+
+        assert!(
+            !parse(r#"{"touch_id_ssh": false}"#).confirms_ssh_signatures()
+        );
+        assert!(parse(r#"{"ssh_confirm": true}"#).confirms_ssh_signatures());
+        assert!(parse(r#"{"ssh_confirm": true, "touch_id_ssh": false}"#)
+            .confirms_ssh_signatures());
+        assert!(parse(r#"{"ssh_confirm": false, "touch_id_ssh": true}"#)
+            .confirms_ssh_signatures());
+
+        // turning it off through either key turns it off
+        let mut config = parse(r#"{"touch_id_ssh": true}"#);
+        config.set_ssh_confirm(false);
+        assert!(!config.confirms_ssh_signatures());
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["ssh_confirm"], false);
+        // the old key is only written while it is on
+        assert!(json.get("touch_id_ssh").is_none());
+
+        let mut config = Config::new();
+        config.set_ssh_confirm(true);
+        assert!(config.confirms_ssh_signatures());
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["ssh_confirm"], true);
+        assert!(json.get("touch_id_ssh").is_none());
     }
 }
