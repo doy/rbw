@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.0] - Unreleased
+
+## Added
+
+## Fixed
+
+## Changed
+
 ## [1.17.0] - 2026-11-23
 
 First release of `rbw-ng`, a maintained continuation of `rbw`. It also
