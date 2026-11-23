@@ -80,24 +80,40 @@ pub fn quit() -> anyhow::Result<()> {
     }
 }
 
-pub fn decrypt(
-    cipherstring: &str,
-    entry_key: Option<&str>,
-    org_id: Option<&str>,
-) -> anyhow::Result<String> {
-    let mut sock = connect()?;
-    sock.send(&rbw::protocol::Request::new(
+// decrypt a batch of cipherstrings with a single agent round trip; each
+// item succeeds or fails individually
+pub fn decrypt_many(
+    items: Vec<rbw::protocol::DecryptItem>,
+) -> anyhow::Result<Vec<Result<String, String>>> {
+    if items.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let req = rbw::protocol::Request::new(
         get_environment(),
-        rbw::protocol::Action::Decrypt {
-            cipherstring: cipherstring.to_string(),
-            entry_key: entry_key.map(std::string::ToString::to_string),
-            org_id: org_id.map(std::string::ToString::to_string),
-        },
-    ))?;
+        rbw::protocol::Action::DecryptMany { items },
+    );
+    let mut sock = connect()?;
+    sock.send(&req)?;
 
     let res = sock.recv()?;
     match res {
-        rbw::protocol::Response::Decrypt { plaintext } => Ok(plaintext),
+        rbw::protocol::Response::DecryptMany { plaintexts } => Ok(plaintexts),
+        rbw::protocol::Response::Error { error }
+            if error.contains("unknown variant `DecryptMany`") =>
+        {
+            // an agent from before batch decryption with the same protocol
+            // version (a development build, for example) can't parse the
+            // request. its error quotes the whole request, so don't show it,
+            // and decrypt one value per request like that agent expects.
+            log::debug!("agent does not support DecryptMany, falling back");
+            let (rbw::protocol::Action::DecryptMany { items }, _) =
+                req.into_parts()
+            else {
+                unreachable!()
+            };
+            items.iter().map(decrypt_one).collect()
+        }
         rbw::protocol::Response::Error { error } => {
             Err(anyhow::anyhow!("failed to decrypt: {error}"))
         }
@@ -105,23 +121,26 @@ pub fn decrypt(
     }
 }
 
-// decrypt a batch of cipherstrings with a single agent round trip; each
-// item succeeds or fails individually
-pub fn decrypt_many(
-    items: Vec<rbw::protocol::DecryptItem>,
-) -> anyhow::Result<Vec<Result<String, String>>> {
+// decrypt a single cipherstring. connection and protocol problems are
+// returned as errors, and a decryption failure reported by the agent as the
+// inner Err, matching one item of decrypt_many.
+fn decrypt_one(
+    item: &rbw::protocol::DecryptItem,
+) -> anyhow::Result<Result<String, String>> {
     let mut sock = connect()?;
     sock.send(&rbw::protocol::Request::new(
         get_environment(),
-        rbw::protocol::Action::DecryptMany { items },
+        rbw::protocol::Action::Decrypt {
+            cipherstring: item.cipherstring.clone(),
+            entry_key: item.entry_key.clone(),
+            org_id: item.org_id.clone(),
+        },
     ))?;
 
     let res = sock.recv()?;
     match res {
-        rbw::protocol::Response::DecryptMany { plaintexts } => Ok(plaintexts),
-        rbw::protocol::Response::Error { error } => {
-            Err(anyhow::anyhow!("failed to decrypt: {error}"))
-        }
+        rbw::protocol::Response::Decrypt { plaintext } => Ok(Ok(plaintext)),
+        rbw::protocol::Response::Error { error } => Ok(Err(error)),
         _ => Err(anyhow::anyhow!("unexpected message: {res:?}")),
     }
 }

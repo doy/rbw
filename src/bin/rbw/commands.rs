@@ -1635,13 +1635,7 @@ pub fn add(
             rbw::actions::list_folders(&access_token, &refresh_token)?;
         update_tokens(tokens, &mut access_token, &mut refresh_token);
 
-        let folders: Vec<(String, String)> = folders
-            .iter()
-            .cloned()
-            .map(|(id, name)| {
-                Ok((id, crate::actions::decrypt(&name, None, None)?))
-            })
-            .collect::<anyhow::Result<_>>()?;
+        let folders = decrypt_folder_names(folders)?;
 
         for (id, name) in folders {
             if name == folder_name {
@@ -1727,13 +1721,7 @@ pub fn generate(
                 rbw::actions::list_folders(&access_token, &refresh_token)?;
             update_tokens(tokens, &mut access_token, &mut refresh_token);
 
-            let folders: Vec<(String, String)> = folders
-                .iter()
-                .cloned()
-                .map(|(id, name)| {
-                    Ok((id, crate::actions::decrypt(&name, None, None)?))
-                })
-                .collect::<anyhow::Result<_>>()?;
+            let folders = decrypt_folder_names(folders)?;
 
             for (id, name) in folders {
                 if name == folder_name {
@@ -2132,10 +2120,12 @@ fn find_entry_raw(
 // fast when looking at the whole vault (e.g. finding an entry by name). to
 // batch these into a single round trip, the per-entry decryption functions
 // go through an EntryDecryptor: a recording pass first collects every
-// cipherstring they want (their control flow only depends on the entry
-// structure, never on decrypted values, so this is exact), then the whole
-// batch is decrypted with one agent request, and a replay pass hands the
-// results back out in the same order.
+// cipherstring they would want if every decryption succeeded, then the whole
+// batch is decrypted with one agent request, and a replay pass runs the same
+// functions again and hands each of them the result for its request. their
+// control flow depends on the entry structure and on which decryptions
+// failed, never on decrypted values, so the replay only asks for values the
+// recording pass saw.
 trait EntryDecryptor {
     fn decrypt(
         &self,
@@ -2166,33 +2156,46 @@ impl EntryDecryptor for RecordingDecryptor {
     }
 }
 
+// hands out the agent's results during the replay pass. results are looked
+// up by the request that produced them rather than by position: a failed
+// decryption can make the replay skip later requests (for example, one
+// unreadable uri ends the uri list in decrypt_cipher), and a positional
+// replay would then hand every following result to the wrong field.
+// requesting anything that wasn't recorded is an error.
 struct ReplayingDecryptor(
-    std::cell::RefCell<std::vec::IntoIter<Result<String, String>>>,
+    std::collections::HashMap<
+        rbw::protocol::DecryptItem,
+        Result<String, String>,
+    >,
 );
 
 impl EntryDecryptor for ReplayingDecryptor {
     fn decrypt(
         &self,
-        _cipherstring: &str,
-        _entry_key: Option<&str>,
-        _org_id: Option<&str>,
+        cipherstring: &str,
+        entry_key: Option<&str>,
+        org_id: Option<&str>,
     ) -> anyhow::Result<String> {
+        let item = rbw::protocol::DecryptItem {
+            cipherstring: cipherstring.to_string(),
+            entry_key: entry_key.map(std::string::ToString::to_string),
+            org_id: org_id.map(std::string::ToString::to_string),
+        };
         self.0
-            .borrow_mut()
-            .next()
+            .get(&item)
             .ok_or_else(|| {
-                anyhow::anyhow!("agent returned too few decryption results")
+                anyhow::anyhow!(
+                    "batch decryption asked for a value it didn't record"
+                )
             })?
+            .clone()
             .map_err(|e| anyhow::anyhow!("failed to decrypt: {e}"))
     }
 }
 
 fn record_batch<T>(
     entries: &[rbw::db::Entry],
-    each: &impl Fn(
-        &rbw::db::Entry,
-        &dyn EntryDecryptor,
-    ) -> anyhow::Result<T>,
+    each: &impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
 ) -> Vec<rbw::protocol::DecryptItem> {
     let recorder = RecordingDecryptor::default();
     for entry in entries {
@@ -2205,24 +2208,20 @@ fn record_batch<T>(
 
 fn replay_batch<T>(
     entries: &[rbw::db::Entry],
-    each: &impl Fn(
-        &rbw::db::Entry,
-        &dyn EntryDecryptor,
-    ) -> anyhow::Result<T>,
+    each: &impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
+    items: Vec<rbw::protocol::DecryptItem>,
     results: Vec<Result<String, String>>,
 ) -> anyhow::Result<Vec<T>> {
-    let replayer =
-        ReplayingDecryptor(std::cell::RefCell::new(results.into_iter()));
-    let decrypted = entries
-        .iter()
-        .map(|entry| each(entry, &replayer))
-        .collect::<anyhow::Result<Vec<T>>>()?;
-    if replayer.0.borrow_mut().next().is_some() {
+    if items.len() != results.len() {
         return Err(anyhow::anyhow!(
-            "agent returned too many decryption results"
+            "agent returned {} decryption results for {} values",
+            results.len(),
+            items.len()
         ));
     }
-    Ok(decrypted)
+    let replayer =
+        ReplayingDecryptor(items.into_iter().zip(results).collect());
+    entries.iter().map(|entry| each(entry, &replayer)).collect()
 }
 
 fn batch_decrypt<T>(
@@ -2230,12 +2229,41 @@ fn batch_decrypt<T>(
     each: impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
 ) -> anyhow::Result<Vec<T>> {
     let items = record_batch(entries, &each);
-    let results = if items.is_empty() {
-        vec![]
-    } else {
-        crate::actions::decrypt_many(items)?
-    };
-    replay_batch(entries, &each, results)
+    // the request takes the items, and the replay needs them to match up
+    // the results, so send a copy
+    let results = crate::actions::decrypt_many(items.clone())?;
+    replay_batch(entries, &each, items, results)
+}
+
+// decrypts folder names from the server with one agent request. any failure
+// is fatal, as it was when each name took its own request.
+fn decrypt_folder_names(
+    folders: Vec<(String, String)>,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let items = folders
+        .iter()
+        .map(|(_, name)| rbw::protocol::DecryptItem {
+            cipherstring: name.clone(),
+            entry_key: None,
+            org_id: None,
+        })
+        .collect();
+    let names = crate::actions::decrypt_many(items)?;
+    if names.len() != folders.len() {
+        return Err(anyhow::anyhow!(
+            "agent returned {} decryption results for {} folders",
+            names.len(),
+            folders.len()
+        ));
+    }
+    folders
+        .into_iter()
+        .zip(names)
+        .map(|((id, _), name)| {
+            name.map(|name| (id, name))
+                .map_err(|e| anyhow::anyhow!("failed to decrypt: {e}"))
+        })
+        .collect()
 }
 
 fn decrypt_cipher_batched(
@@ -4358,12 +4386,91 @@ mod test {
         a.0 == b.0 && a.1 == b.1
     }
 
+    // an entry exercising every decryption site: login with username,
+    // password, totp, uris, custom fields (text and hidden), notes,
+    // history, folder, and an individual entry key. every "cipherstring"
+    // starts with the given prefix, so results can be traced back to the
+    // entry they came from.
+    fn make_full_entry(prefix: &str) -> rbw::db::Entry {
+        let s = |field: &str| format!("{prefix} {field}");
+        rbw::db::Entry {
+            id: uuid::Uuid::new_v4().to_string(),
+            org_id: Some("org".to_string()),
+            folder: Some(s("folder")),
+            folder_id: None,
+            name: s("name"),
+            data: rbw::db::EntryData::Login {
+                username: Some(s("username")),
+                password: Some(s("password")),
+                totp: Some(s("totp")),
+                uris: vec![
+                    rbw::db::Uri {
+                        uri: s("uri 1"),
+                        match_type: None,
+                    },
+                    rbw::db::Uri {
+                        uri: s("uri 2"),
+                        match_type: None,
+                    },
+                ],
+            },
+            fields: vec![
+                rbw::db::Field {
+                    ty: Some(rbw::api::FieldType::Text),
+                    name: Some(s("field name")),
+                    value: Some(s("field value")),
+                    linked_id: None,
+                },
+                rbw::db::Field {
+                    ty: Some(rbw::api::FieldType::Hidden),
+                    name: Some(s("hidden name")),
+                    value: Some(s("hidden value")),
+                    linked_id: None,
+                },
+            ],
+            notes: Some(s("notes")),
+            history: vec![rbw::db::HistoryEntry {
+                last_used_date: "2020-01-01".to_string(),
+                password: s("old password"),
+            }],
+            key: Some("entry key".to_string()),
+            master_password_reprompt: rbw::api::CipherRepromptType::None,
+        }
+    }
+
+    // stands in for the agent: "decrypts" by adding a marker, and fails the
+    // cipherstrings for which fail returns true
+    fn fake_agent(
+        items: &[rbw::protocol::DecryptItem],
+        fail: impl Fn(&str) -> bool,
+    ) -> Vec<Result<String, String>> {
+        items
+            .iter()
+            .map(|item| {
+                if fail(&item.cipherstring) {
+                    Err(format!("cannot decrypt {}", item.cipherstring))
+                } else {
+                    Ok(format!("plain {}", item.cipherstring))
+                }
+            })
+            .collect()
+    }
+
+    fn replay_with<T>(
+        entries: &[rbw::db::Entry],
+        each: impl Fn(&rbw::db::Entry, &dyn EntryDecryptor) -> anyhow::Result<T>,
+        fail: impl Fn(&str) -> bool,
+    ) -> anyhow::Result<Vec<T>> {
+        let items = record_batch(entries, &each);
+        let results = fake_agent(&items, fail);
+        replay_batch(entries, &each, items, results)
+    }
+
     #[test]
     fn test_batch_decrypt_record_replay() {
-        // the recording pass and the replay pass must request exactly the
-        // same decryptions in the same order; a replay with exactly as
-        // many results as were recorded consumes all of them, and extra
-        // results are an error
+        // the replay pass must only ask for decryptions the recording pass
+        // saw, and a result count that doesn't match what was recorded is
+        // an error
         fn check<T>(
             entries: &[rbw::db::Entry],
             each: impl Fn(
@@ -4372,61 +4479,23 @@ mod test {
             ) -> anyhow::Result<T>,
         ) -> Vec<rbw::protocol::DecryptItem> {
             let items = record_batch(entries, &each);
-            assert!(!items.is_empty());
-            let results = vec![Ok(String::new()); items.len()];
-            replay_batch(entries, &each, results).unwrap();
-            let results = vec![Ok(String::new()); items.len() + 1];
-            assert!(replay_batch(entries, &each, results).is_err());
+            assert_ne!(items.len(), 0);
+            let results = fake_agent(&items, |_| false);
+            replay_batch(entries, &each, items.clone(), results).unwrap();
+            let mut results = fake_agent(&items, |_| false);
+            results.push(Ok(String::new()));
+            assert!(
+                replay_batch(entries, &each, items.clone(), results).is_err()
+            );
+            let mut results = fake_agent(&items, |_| false);
+            results.pop();
+            assert!(
+                replay_batch(entries, &each, items.clone(), results).is_err()
+            );
             items
         }
 
-        // an entry exercising every decryption site: login with username,
-        // password, totp, uris, custom fields (text and hidden), notes,
-        // history, folder, and an individual entry key
-        let entry = rbw::db::Entry {
-            id: uuid::Uuid::new_v4().to_string(),
-            org_id: Some("org".to_string()),
-            folder: Some("encrypted folder".to_string()),
-            folder_id: None,
-            name: "encrypted name".to_string(),
-            data: rbw::db::EntryData::Login {
-                username: Some("encrypted username".to_string()),
-                password: Some("encrypted password".to_string()),
-                totp: Some("encrypted totp".to_string()),
-                uris: vec![
-                    rbw::db::Uri {
-                        uri: "encrypted uri 1".to_string(),
-                        match_type: None,
-                    },
-                    rbw::db::Uri {
-                        uri: "encrypted uri 2".to_string(),
-                        match_type: None,
-                    },
-                ],
-            },
-            fields: vec![
-                rbw::db::Field {
-                    ty: Some(rbw::api::FieldType::Text),
-                    name: Some("encrypted field name".to_string()),
-                    value: Some("encrypted field value".to_string()),
-                    linked_id: None,
-                },
-                rbw::db::Field {
-                    ty: Some(rbw::api::FieldType::Hidden),
-                    name: Some("encrypted hidden name".to_string()),
-                    value: Some("encrypted hidden value".to_string()),
-                    linked_id: None,
-                },
-            ],
-            notes: Some("encrypted notes".to_string()),
-            history: vec![rbw::db::HistoryEntry {
-                last_used_date: "2020-01-01".to_string(),
-                password: "encrypted old password".to_string(),
-            }],
-            key: Some("entry key".to_string()),
-            master_password_reprompt: rbw::api::CipherRepromptType::None,
-        };
-        let entries = vec![entry.clone(), entry];
+        let entries = vec![make_full_entry("a"), make_full_entry("b")];
 
         let search_items = check(&entries, |entry, decryptor| {
             decrypt_search_cipher(entry, decryptor)
@@ -4435,14 +4504,197 @@ mod test {
         // trigger master password reprompt)
         assert!(!search_items
             .iter()
-            .any(|item| item.cipherstring == "encrypted hidden value"));
+            .any(|item| item.cipherstring.ends_with("hidden value")));
 
         check(&entries, |entry, decryptor| {
             decrypt_cipher(entry, decryptor)
         });
-        check(&entries, |entry, decryptor| {
+        let list_items = check(&entries, |entry, decryptor| {
             decrypt_list_cipher(entry, &ListField::all(), decryptor)
         });
+        assert!(!list_items
+            .iter()
+            .any(|item| item.cipherstring.ends_with("password")));
+
+        // folders are always decrypted with the user's own key
+        for item in &list_items {
+            if item.cipherstring.ends_with("folder") {
+                assert_eq!(item.entry_key, None);
+                assert_eq!(item.org_id, None);
+            } else {
+                assert_eq!(item.entry_key.as_deref(), Some("entry key"));
+                assert_eq!(item.org_id.as_deref(), Some("org"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_batch_decrypt_results_land_in_their_fields() {
+        let entries = vec![make_full_entry("a"), make_full_entry("b")];
+        let decrypted = replay_with(
+            &entries,
+            |entry, decryptor| decrypt_cipher(entry, decryptor),
+            |_| false,
+        )
+        .unwrap();
+        for (prefix, cipher) in ["a", "b"].iter().zip(&decrypted) {
+            let p = |field: &str| format!("plain {prefix} {field}");
+            assert_eq!(cipher.name, p("name"));
+            assert_eq!(cipher.folder, Some(p("folder")));
+            assert_eq!(cipher.notes, Some(p("notes")));
+            assert_eq!(cipher.history[0].password, p("old password"));
+            assert_eq!(cipher.fields[1].name, Some(p("hidden name")));
+            assert_eq!(cipher.fields[1].value, Some(p("hidden value")));
+            let DecryptedData::Login {
+                username,
+                password,
+                totp,
+                uris,
+            } = &cipher.data
+            else {
+                panic!("not a login");
+            };
+            assert_eq!(username, &Some(p("username")));
+            assert_eq!(password, &Some(p("password")));
+            assert_eq!(totp, &Some(p("totp")));
+            let uris: Vec<_> =
+                uris.iter().flatten().map(|u| u.uri.clone()).collect();
+            assert_eq!(uris, vec![p("uri 1"), p("uri 2")]);
+        }
+    }
+
+    #[test]
+    fn test_batch_decrypt_keeps_per_field_failure_handling() {
+        let entries = vec![make_full_entry("a"), make_full_entry("b")];
+
+        // failures in optional fields only drop those fields, in this entry
+        let decrypted = replay_with(
+            &entries,
+            |entry, decryptor| decrypt_cipher(entry, decryptor),
+            |c| {
+                c.starts_with("a ")
+                    && ["folder", "notes", "password", "totp", "uri 1"]
+                        .iter()
+                        .any(|field| c.ends_with(field))
+                    && !c.ends_with("old password")
+            },
+        )
+        .unwrap();
+        assert_eq!(decrypted[0].folder, None);
+        assert_eq!(decrypted[0].notes, None);
+        let DecryptedData::Login {
+            username,
+            password,
+            totp,
+            uris,
+        } = &decrypted[0].data
+        else {
+            panic!("not a login");
+        };
+        assert_eq!(username, &Some("plain a username".to_string()));
+        assert_eq!(password, &None);
+        assert_eq!(totp, &None);
+        // as before batching, one unreadable uri drops the whole list here
+        assert!(uris.is_none());
+        assert_eq!(decrypted[1].folder, Some("plain b folder".to_string()));
+        assert_eq!(decrypted[1].notes, Some("plain b notes".to_string()));
+
+        // the entry name, custom fields and history are required
+        for required in ["b name", "b hidden value", "b old password"] {
+            let err = replay_with(
+                &entries,
+                |entry, decryptor| decrypt_cipher(entry, decryptor),
+                |c| c == required,
+            )
+            .err()
+            .unwrap();
+            assert!(format!("{err:#}").contains(required), "{err:#}");
+        }
+
+        // list and search tolerate the same fields as before: user and uris
+        // in both, and notes in search
+        let listed = replay_with(
+            &entries,
+            |entry, decryptor| {
+                decrypt_list_cipher(entry, &ListField::all(), decryptor)
+            },
+            |c| c.ends_with("username") || c.ends_with("uri 1"),
+        )
+        .unwrap();
+        assert_eq!(listed[0].user, None);
+        assert_eq!(listed[0].uris, Some(vec!["plain a uri 2".to_string()]));
+        assert!(replay_with(
+            &entries,
+            |entry, decryptor| {
+                decrypt_list_cipher(entry, &ListField::all(), decryptor)
+            },
+            |c| c.ends_with("folder"),
+        )
+        .is_err());
+        let found = replay_with(
+            &entries,
+            |entry, decryptor| decrypt_search_cipher(entry, decryptor),
+            |c| c.ends_with("username") || c.ends_with("notes"),
+        )
+        .unwrap();
+        assert_eq!(found[1].user, None);
+        assert_eq!(found[1].notes, None);
+        assert!(replay_with(
+            &entries,
+            |entry, decryptor| decrypt_search_cipher(entry, decryptor),
+            |c| c.ends_with("name"),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_batch_decrypt_rejects_unrecorded_requests() {
+        let entries = vec![make_full_entry("a")];
+        let each = |entry: &rbw::db::Entry,
+                    decryptor: &dyn EntryDecryptor| {
+            decrypt_cipher(entry, decryptor)
+        };
+        let mut items = record_batch(&entries, &each);
+        let results = fake_agent(&items, |_| false);
+        // the entry name is required, so this has to fail the replay
+        let name = items
+            .iter_mut()
+            .find(|item| item.cipherstring == "a name")
+            .unwrap();
+        name.cipherstring.push_str(" changed");
+        assert!(replay_batch(&entries, &each, items, results).is_err());
+    }
+
+    #[test]
+    fn test_old_agent_rejects_decrypt_many_recognizably() {
+        // decrypt_many falls back to single requests when the agent's error
+        // contains this text, which is what serde says when an agent built
+        // before DecryptMany existed parses the request
+        #[derive(serde::Deserialize, Debug)]
+        #[serde(tag = "type")]
+        #[allow(dead_code)]
+        enum OldAction {
+            Decrypt {
+                cipherstring: String,
+                entry_key: Option<String>,
+                org_id: Option<String>,
+            },
+            Version,
+        }
+        let request =
+            serde_json::to_string(&rbw::protocol::Action::DecryptMany {
+                items: vec![rbw::protocol::DecryptItem {
+                    cipherstring: "2.x|y|z".to_string(),
+                    entry_key: None,
+                    org_id: None,
+                }],
+            })
+            .unwrap();
+        let err = serde_json::from_str::<OldAction>(&request).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown variant `DecryptMany`"),
+            "{err}"
+        );
     }
 
     fn make_entry(

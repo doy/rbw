@@ -205,7 +205,9 @@ pub enum Action {
     Version,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, Hash,
+)]
 pub struct DecryptItem {
     pub cipherstring: String,
     pub entry_key: Option<String>,
@@ -216,9 +218,19 @@ pub struct DecryptItem {
 #[serde(tag = "type")]
 pub enum Response {
     Ack,
-    Error { error: String },
-    Decrypt { plaintext: String },
-    DecryptMany { plaintexts: Vec<Result<String, String>> },
-    Encrypt { cipherstring: String },
-    Version { version: u32 },
+    Error {
+        error: String,
+    },
+    Decrypt {
+        plaintext: String,
+    },
+    DecryptMany {
+        plaintexts: Vec<Result<String, String>>,
+    },
+    Encrypt {
+        cipherstring: String,
+    },
+    Version {
+        version: u32,
+    },
 }
