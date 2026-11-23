@@ -6,7 +6,19 @@
 
 ## Fixed
 
+* The client now restarts the running agent after every upgrade. The protocol
+  version it compares gave some releases the same number (1.17.1 and 1.18.0,
+  for example), so the old agent kept running.
+
 ## Changed
+
+* `rbw get`, `list`, `search`, `code`, `edit`, `history` and `remove`, and
+  `add`/`generate` with `--folder`, send one or two batched requests to the
+  agent instead of one request per field of every entry, which took
+  over a second with a few hundred entries on macOS (Christoph, doy/rbw#359;
+  the same approach was proposed by Benedikt Bartscher in doy/rbw#344).
+  Cancelling a master password reprompt now also skips the remaining prompts
+  for that command.
 
 ## [1.17.0] - 2026-11-23
 
