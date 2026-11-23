@@ -3462,6 +3462,19 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                     }
                     None => TOTP_DEFAULT_STEP,
                 };
+                // a code is the HOTP value modulo 10^digits, which has to
+                // fit in 32 bits
+                if !(1..=9).contains(&digits) {
+                    return Err(anyhow::anyhow!(
+                        "digits parameter in totp url must be between 1 \
+                         and 9"
+                    ));
+                }
+                if period == 0 {
+                    return Err(anyhow::anyhow!(
+                        "period parameter in totp url must be greater than 0"
+                    ));
+                }
 
                 Ok(TotpParams {
                     secret,
@@ -3471,7 +3484,9 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                 })
             }
             "steam" => {
-                let steam_secret = u.host_str().unwrap();
+                let steam_secret = u.host_str().ok_or_else(|| {
+                    anyhow::anyhow!("steam totp url must have a secret")
+                })?;
 
                 Ok(TotpParams {
                     secret: decode_totp_secret(steam_secret)?,
@@ -5130,6 +5145,12 @@ mod test {
             "otpauth://totp/rbw?secret=GEZDGNBV&period=-30",
             "otpauth://totp/rbw?secret=GEZDGNBV&algorithm=MD5",
             "https://example.com/?secret=GEZDGNBV",
+            // these used to panic or give a code of the wrong length
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=0",
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=10",
+            "otpauth://totp/rbw?secret=GEZDGNBV&digits=300",
+            "otpauth://totp/rbw?secret=GEZDGNBV&period=0",
+            "steam:GEZDGNBV",
         ] {
             assert!(
                 parse_totp_secret(secret)
