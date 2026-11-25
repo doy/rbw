@@ -96,6 +96,14 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `touchid` *(macOS only)*: Whether to unlock the local vault with macOS
+  Touch ID (or Apple Watch) instead of prompting for the master password
+  after logging in. Stores the derived 64-byte master key (never the master
+  password) in the macOS login keychain, automatically falls back to
+  `pinentry` when unavailable or when "Use Master Password" is selected, and
+  removes the stored key when disabled or on `rbw purge`. Entries marked with
+  master password re-prompt still require the master password. Defaults to
+  `false`.
 
 ### Profiles
 

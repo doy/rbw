@@ -1269,6 +1269,25 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             config.sync_interval = interval;
         }
         "pinentry" => config.pinentry = value.to_string(),
+        "touchid" => {
+            #[cfg(target_os = "macos")]
+            {
+                let enabled: bool = value
+                    .parse()
+                    .context("failed to parse value for touchid")?;
+                config.touchid = enabled;
+                if !enabled {
+                    delete_touchid_key(&config);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = value;
+                return Err(anyhow::anyhow!(
+                    "touchid is only supported on macOS"
+                ));
+            }
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1298,6 +1317,19 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             config.lock_timeout = rbw::config::default_lock_timeout();
         }
         "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        "touchid" => {
+            #[cfg(target_os = "macos")]
+            {
+                config.touchid = false;
+                delete_touchid_key(&config);
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                return Err(anyhow::anyhow!(
+                    "touchid is only supported on macOS"
+                ));
+            }
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1943,9 +1975,24 @@ pub fn lock() -> anyhow::Result<()> {
 pub fn purge() -> anyhow::Result<()> {
     stop_agent()?;
 
+    if let Ok(config) = rbw::config::Config::load() {
+        delete_touchid_key(&config);
+    }
     remove_db()?;
 
     Ok(())
+}
+
+fn delete_touchid_key(config: &rbw::config::Config) {
+    if let Some(email) = &config.email {
+        if let Err(e) = rbw::touchid::delete_key(
+            &rbw::dirs::profile(),
+            &config.server_name(),
+            email,
+        ) {
+            log::warn!("failed to delete touch id key from keychain: {e}");
+        }
+    }
 }
 
 pub fn stop_agent() -> anyhow::Result<()> {

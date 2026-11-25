@@ -347,13 +347,18 @@ async fn login_success(
         ));
     };
 
-    let res = rbw::actions::unlock(
+    let identity = rbw::identity::Identity::new(
         &email,
         &password,
         kdf,
         iterations,
         memory,
         parallelism,
+    )
+    .context("failed to unlock database")?;
+
+    let res = rbw::actions::unlock_with_master_keys(
+        &identity.keys,
         &protected_key,
         &protected_private_key,
         &db.protected_org_keys,
@@ -368,7 +373,42 @@ async fn login_success(
         Err(e) => return Err(e).context("failed to unlock database"),
     }
 
+    store_touchid_key_if_enabled(&email, identity.keys).await;
+
     Ok(())
+}
+
+async fn store_touchid_key_if_enabled(
+    email: &str,
+    master_keys: rbw::locked::Keys,
+) {
+    let config = match rbw::config::Config::load_async().await {
+        Ok(config) => config,
+        Err(e) => {
+            log::warn!("failed to load config for touch id storage: {e}");
+            return;
+        }
+    };
+    if !config.touchid {
+        return;
+    }
+
+    let profile = rbw::dirs::profile();
+    let server = config.server_name();
+    let email = email.to_string();
+    match tokio::task::spawn_blocking(move || {
+        rbw::touchid::store_key(&profile, &server, &email, &master_keys)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            log::warn!("failed to store touch id key in keychain: {e}");
+        }
+        Err(e) => {
+            log::warn!("touch id key storage task failed: {e}");
+        }
+    }
 }
 
 async fn unlock_state(
@@ -376,6 +416,7 @@ async fn unlock_state(
     environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
     if state.lock().await.needs_unlock() {
+        let config = rbw::config::Config::load_async().await?;
         let db = load_db().await?;
 
         let Some(kdf) = db.kdf else {
@@ -402,7 +443,72 @@ async fn unlock_state(
             ));
         };
 
-        let email = config_email().await?;
+        let Some(email) = config.email.clone() else {
+            return Err(anyhow::anyhow!(
+                "failed to find email address in config"
+            ));
+        };
+
+        if config.touchid {
+            let profile = rbw::dirs::profile();
+            let server = config.server_name();
+            let email_for_touchid = email.clone();
+            let reason = format!("unlock the local database for '{profile}'");
+            let outcome = tokio::task::spawn_blocking(move || {
+                rbw::touchid::unlock(
+                    &profile,
+                    &server,
+                    &email_for_touchid,
+                    &reason,
+                )
+            })
+            .await
+            .context("touch id authentication task failed")?;
+
+            match outcome {
+                rbw::touchid::AuthOutcome::Authenticated(master_keys) => {
+                    match rbw::actions::unlock_with_master_keys(
+                        &master_keys,
+                        &protected_key,
+                        &protected_private_key,
+                        &db.protected_org_keys,
+                    ) {
+                        Ok((keys, org_keys)) => {
+                            unlock_success(state, keys, org_keys).await?;
+                            return Ok(());
+                        }
+                        Err(rbw::error::Error::IncorrectPassword {
+                            ..
+                        }) => {
+                            log::warn!(
+                                "stored touch id key is no longer valid; \
+                                falling back to master password"
+                            );
+                            let profile = rbw::dirs::profile();
+                            let server = config.server_name();
+                            let email_for_delete = email.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                rbw::touchid::delete_key(
+                                    &profile,
+                                    &server,
+                                    &email_for_delete,
+                                )
+                            })
+                            .await;
+                        }
+                        Err(e) => {
+                            return Err(e)
+                                .context("failed to unlock database");
+                        }
+                    }
+                }
+                rbw::touchid::AuthOutcome::Cancelled => {
+                    return Err(rbw::error::Error::TouchIdCancelled)
+                        .context("failed to unlock database");
+                }
+                rbw::touchid::AuthOutcome::Fallback => {}
+            }
+        }
 
         let mut err_msg = None;
         for i in 1_u8..=3 {
@@ -414,7 +520,7 @@ async fn unlock_state(
                 None
             };
             let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
+                &config.pinentry,
                 "Master Password",
                 &format!(
                     "Unlock the local database for '{}'",
@@ -426,19 +532,24 @@ async fn unlock_state(
             )
             .await
             .context("failed to read password from pinentry")?;
-            match rbw::actions::unlock(
+            let identity = rbw::identity::Identity::new(
                 &email,
                 &password,
                 kdf,
                 iterations,
                 memory,
                 parallelism,
+            )
+            .context("failed to unlock database")?;
+            match rbw::actions::unlock_with_master_keys(
+                &identity.keys,
                 &protected_key,
                 &protected_private_key,
                 &db.protected_org_keys,
             ) {
                 Ok((keys, org_keys)) => {
                     unlock_success(state, keys, org_keys).await?;
+                    store_touchid_key_if_enabled(&email, identity.keys).await;
                     break;
                 }
                 Err(rbw::error::Error::IncorrectPassword { message }) => {

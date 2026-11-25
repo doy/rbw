@@ -92,6 +92,8 @@ impl Password {
     }
 }
 
+pub const KEYS_LEN: usize = 64;
+
 #[derive(Clone)]
 pub struct Keys {
     keys: Vec,
@@ -100,6 +102,19 @@ pub struct Keys {
 impl Keys {
     pub fn new(keys: Vec) -> Self {
         Self { keys }
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != KEYS_LEN {
+            return None;
+        }
+        let mut keys = Vec::new();
+        keys.extend(bytes.iter().copied());
+        Some(Self::new(keys))
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.keys.data()[0..KEYS_LEN]
     }
 
     pub fn enc_key(&self) -> &[u8] {
@@ -162,4 +177,21 @@ impl ApiKey {
     pub fn client_secret(&self) -> &[u8] {
         self.client_secret.password()
     }
+}
+
+#[test]
+fn test_keys_roundtrip_bytes() {
+    let mut raw = [0_u8; KEYS_LEN];
+    for (i, byte) in raw.iter_mut().enumerate() {
+        *byte = u8::try_from(i).unwrap();
+    }
+    let keys = Keys::from_bytes(&raw).unwrap();
+    assert_eq!(keys.as_bytes(), &raw);
+    assert_eq!(keys.enc_key(), &raw[0..32]);
+    assert_eq!(keys.mac_key(), &raw[32..64]);
+
+    assert!(Keys::from_bytes(&[]).is_none());
+    assert!(Keys::from_bytes(&raw[0..32]).is_none());
+    assert!(Keys::from_bytes(&raw[0..63]).is_none());
+    assert!(Keys::from_bytes(&[0_u8; 65]).is_none());
 }

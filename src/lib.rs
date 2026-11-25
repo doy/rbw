@@ -14,4 +14,5 @@ pub mod pinentry;
 mod prelude;
 pub mod protocol;
 pub mod pwgen;
+pub mod touchid;
 pub mod wordlist;

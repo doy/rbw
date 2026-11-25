@@ -19,6 +19,12 @@ pub struct Config {
     #[serde(default = "default_pinentry")]
     pub pinentry: String,
     pub client_cert_path: Option<std::path::PathBuf>,
+    #[serde(default)]
+    #[cfg_attr(
+        not(target_os = "macos"),
+        serde(skip_serializing_if = "std::ops::Not::not")
+    )]
+    pub touchid: bool,
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
@@ -37,6 +43,7 @@ impl Default for Config {
             sync_interval: default_sync_interval(),
             pinentry: default_pinentry(),
             client_cert_path: None,
+            touchid: false,
             device_id: None,
         }
     }
@@ -246,4 +253,18 @@ pub async fn device_id(config: &Config) -> Result<String> {
         })?;
         Ok(id)
     }
+}
+
+#[test]
+fn test_config_touchid_serde() {
+    let old_json = r#"{"email":"user@example.com"}"#;
+    let config: Config = serde_json::from_str(old_json).unwrap();
+    assert!(!config.touchid);
+
+    let enabled_json = r#"{"email":"user@example.com","touchid":true}"#;
+    let config: Config = serde_json::from_str(enabled_json).unwrap();
+    assert!(config.touchid);
+
+    let serialized = serde_json::to_string(&config).unwrap();
+    assert!(serialized.contains("\"touchid\":true"));
 }

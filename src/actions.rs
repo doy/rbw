@@ -98,9 +98,26 @@ pub fn unlock<S: std::hash::BuildHasher>(
         parallelism,
     )?;
 
+    unlock_with_master_keys(
+        &identity.keys,
+        protected_key,
+        protected_private_key,
+        protected_org_keys,
+    )
+}
+
+pub fn unlock_with_master_keys<S: std::hash::BuildHasher>(
+    master_keys: &crate::locked::Keys,
+    protected_key: &str,
+    protected_private_key: &str,
+    protected_org_keys: &std::collections::HashMap<String, String, S>,
+) -> Result<(
+    crate::locked::Keys,
+    std::collections::HashMap<String, crate::locked::Keys>,
+)> {
     let protected_key =
         crate::cipherstring::CipherString::new(protected_key)?;
-    let key = match protected_key.decrypt_locked_symmetric(&identity.keys) {
+    let key = match protected_key.decrypt_locked_symmetric(master_keys) {
         Ok(master_keys) => crate::locked::Keys::new(master_keys),
         Err(Error::InvalidMac) => {
             return Err(Error::IncorrectPassword {
@@ -112,21 +129,17 @@ pub fn unlock<S: std::hash::BuildHasher>(
 
     let protected_private_key =
         crate::cipherstring::CipherString::new(protected_private_key)?;
-    let private_key =
-        match protected_private_key.decrypt_locked_symmetric(&key) {
-            Ok(private_key) => crate::locked::PrivateKey::new(private_key),
-            Err(e) => return Err(e),
-        };
+    let private_key = crate::locked::PrivateKey::new(
+        protected_private_key.decrypt_locked_symmetric(&key)?,
+    );
 
     let mut org_keys = std::collections::HashMap::new();
     for (org_id, protected_org_key) in protected_org_keys {
         let protected_org_key =
             crate::cipherstring::CipherString::new(protected_org_key)?;
-        let org_key =
-            match protected_org_key.decrypt_locked_asymmetric(&private_key) {
-                Ok(org_key) => crate::locked::Keys::new(org_key),
-                Err(e) => return Err(e),
-            };
+        let org_key = crate::locked::Keys::new(
+            protected_org_key.decrypt_locked_asymmetric(&private_key)?,
+        );
         org_keys.insert(org_id.clone(), org_key);
     }
 
@@ -367,4 +380,50 @@ async fn api_client_async(
         config.client_cert_path(),
     );
     Ok((client, config))
+}
+
+#[test]
+fn test_unlock_with_master_keys() {
+    let master_keys =
+        crate::locked::Keys::from_bytes(&[0x11_u8; crate::locked::KEYS_LEN])
+            .unwrap();
+    let wrong_master_keys =
+        crate::locked::Keys::from_bytes(&[0x22_u8; crate::locked::KEYS_LEN])
+            .unwrap();
+    let user_keys =
+        crate::locked::Keys::from_bytes(&[0x33_u8; crate::locked::KEYS_LEN])
+            .unwrap();
+
+    let protected_key = crate::cipherstring::CipherString::encrypt_symmetric(
+        &master_keys,
+        user_keys.as_bytes(),
+    )
+    .unwrap()
+    .to_string();
+    let protected_private_key =
+        crate::cipherstring::CipherString::encrypt_symmetric(
+            &user_keys,
+            b"dummy-private-key",
+        )
+        .unwrap()
+        .to_string();
+    let org_keys = std::collections::HashMap::new();
+
+    let (unlocked_key, unlocked_orgs) = unlock_with_master_keys(
+        &master_keys,
+        &protected_key,
+        &protected_private_key,
+        &org_keys,
+    )
+    .unwrap();
+    assert_eq!(unlocked_key.as_bytes(), user_keys.as_bytes());
+    assert!(unlocked_orgs.is_empty());
+
+    let err = unlock_with_master_keys(
+        &wrong_master_keys,
+        &protected_key,
+        &protected_private_key,
+        &org_keys,
+    );
+    assert!(matches!(err, Err(Error::IncorrectPassword { .. })));
 }

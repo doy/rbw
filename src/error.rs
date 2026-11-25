@@ -243,6 +243,12 @@ pub enum Error {
 
     #[error("invalid kdf type: {ty}")]
     InvalidKdfType { ty: String },
+
+    #[error("touch id cancelled")]
+    TouchIdCancelled,
+
+    #[error("failed to access keychain: {message}")]
+    Keychain { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

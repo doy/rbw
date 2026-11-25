@@ -88,6 +88,22 @@ arboard = { version = "3.6.1", default-features = false, features = [
     "wayland-data-control",
 ], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.3"
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "NSError",
+    "NSString",
+    "std",
+] }
+objc2-local-authentication = { version = "0.3.2", default-features = false, features = [
+    "LAContext",
+    "LAError",
+    "block2",
+    "std",
+] }
+security-framework = "3.5.1"
+
 [features]
 default = ["clipboard"]
 clipboard = ["arboard"]
