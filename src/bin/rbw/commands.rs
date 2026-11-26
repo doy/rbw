@@ -1284,9 +1284,8 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             }
         }
         "yubikey" => {
-            let enabled: bool = value
-                .parse()
-                .context("failed to parse value for yubikey")?;
+            let enabled: bool =
+                value.parse().context("failed to parse value for yubikey")?;
             config.yubikey = enabled;
             if !enabled {
                 delete_yubikey_keys(&config);
@@ -2086,11 +2085,15 @@ pub fn lock() -> anyhow::Result<()> {
 }
 
 pub fn purge() -> anyhow::Result<()> {
+    let config = rbw::config::Config::load().ok();
+    if let Some(config) = &config {
+        delete_touchid_key(config);
+    }
+
     stop_agent()?;
 
-    if let Ok(config) = rbw::config::Config::load() {
-        delete_touchid_key(&config);
-        delete_yubikey_keys(&config);
+    if let Some(config) = &config {
+        delete_yubikey_keys(config);
     }
     remove_db()?;
 
@@ -2098,13 +2101,24 @@ pub fn purge() -> anyhow::Result<()> {
 }
 
 fn delete_touchid_key(config: &rbw::config::Config) {
-    if let Some(email) = &config.email
-        && let Err(e) = rbw::touchid::delete_key(
-            &rbw::dirs::profile(),
-            &config.server_name(),
-            email,
-        )
+    let Some(email) = &config.email else {
+        return;
+    };
+    let profile = rbw::dirs::profile();
+    let server = config.server_name();
+    if !rbw::touchid::has_key(&profile, &server, email) {
+        return;
+    }
+
+    // Touch ID keychain items are created by `rbw-agent`, so ask the agent
+    // (the owning binary) to delete the item first to avoid macOS Keychain
+    // `errSecInvalidOwnerEdit` (-25244) ACL errors.
+    if ensure_agent().is_ok() && crate::actions::delete_touchid_key().is_ok()
     {
+        return;
+    }
+
+    if let Err(e) = rbw::touchid::delete_key(&profile, &server, email) {
         log::warn!("failed to delete touch id key from keychain: {e}");
     }
 }

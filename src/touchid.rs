@@ -28,6 +28,8 @@ mod platform {
     use super::{AuthOutcome, keychain_account, keychain_service};
 
     const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+    const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25244;
+    const SECURITY_CLI_ERR_ITEM_NOT_FOUND: i32 = 44;
 
     pub fn has_key(profile: &str, server: &str, email: &str) -> bool {
         let service = keychain_service(profile);
@@ -62,6 +64,30 @@ mod platform {
         })
     }
 
+    fn delete_key_via_security_cli(
+        service: &str,
+        account: &str,
+    ) -> std::result::Result<(), String> {
+        let output = std::process::Command::new("/usr/bin/security")
+            .args(["delete-generic-password", "-s", service, "-a", account])
+            .output()
+            .map_err(|e| format!("failed to run /usr/bin/security: {e}"))?;
+
+        if output.status.success()
+            || output.status.code() == Some(SECURITY_CLI_ERR_ITEM_NOT_FOUND)
+        {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        if detail.is_empty() {
+            Err(format!("/usr/bin/security exited with {}", output.status))
+        } else {
+            Err(detail.to_string())
+        }
+    }
+
     pub fn delete_key(
         profile: &str,
         server: &str,
@@ -74,6 +100,15 @@ mod platform {
         ) {
             Ok(()) => Ok(()),
             Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
+            Err(e) if e.code() == ERR_SEC_INVALID_OWNER_EDIT => {
+                delete_key_via_security_cli(&service, &account).map_err(|_| {
+                    Error::Keychain {
+                        message: format!(
+                            "{e} (delete '{service}' for '{account}' in Keychain Access if it was created by an older build)"
+                        ),
+                    }
+                })
+            }
             Err(e) => Err(Error::Keychain {
                 message: e.to_string(),
             }),

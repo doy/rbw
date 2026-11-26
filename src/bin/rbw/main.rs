@@ -340,7 +340,9 @@ enum YubikeyAction {
     },
     #[command(about = "List enrolled security keys for local vault unlock")]
     List,
-    #[command(about = "Remove an enrolled security key by label or ID prefix")]
+    #[command(
+        about = "Remove an enrolled security key by label or ID prefix"
+    )]
     Remove {
         #[arg(help = "Label or credential ID prefix of the key to remove")]
         key: String,
@@ -387,7 +389,9 @@ fn main() {
             Config::Unset { key } => commands::config_unset(&key),
         },
         Opt::Register => commands::register(),
-        Opt::Login { passkey, password } => commands::login(passkey, password),
+        Opt::Login { passkey, password } => {
+            commands::login(passkey, password)
+        }
         Opt::Yubikey { action } => match action {
             YubikeyAction::Enroll { label } => {
                 commands::yubikey_enroll(label.as_deref())

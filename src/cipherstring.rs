@@ -207,7 +207,8 @@ impl CipherString {
         keys: &crate::locked::Keys,
     ) -> Result<crate::locked::Vec> {
         let mut res = self.decrypt_locked_symmetric(keys)?;
-        let unpadded_len = pkcs7_unpad(res.data()).ok_or(Error::Padding)?.len();
+        let unpadded_len =
+            pkcs7_unpad(res.data()).ok_or(Error::Padding)?.len();
         res.data_mut()[unpadded_len..].zeroize();
         res.truncate(unpadded_len);
         Ok(res)
@@ -223,14 +224,13 @@ impl CipherString {
         } = self
         {
             let privkey_data = private_key.private_key();
-            let pkey = rsa::PrivateKey::from_pkcs8_der(privkey_data).or_else(
-                |_| {
+            let pkey = rsa::PrivateKey::from_pkcs8_der(privkey_data)
+                .or_else(|_| {
                     let unpadded =
                         pkcs7_unpad(privkey_data).ok_or(Error::Padding)?;
                     rsa::PrivateKey::from_pkcs8_der(unpadded)
                         .map_err(|source| Error::RsaPkcs8 { source })
-                },
-            )?;
+                })?;
             let mut bytes = match algorithm {
                 AsymmetricAlgorithm::RsaOaepSha1 => pkey
                     .decrypt(rsa::Oaep::<sha1::Sha1>::new(), ciphertext)
@@ -383,11 +383,9 @@ fn test_asymmetric_oaep_sha1_and_sha256() {
     let ct_sha1 = rsa_pub
         .encrypt(&mut rand::rng(), rsa::Oaep::<sha1::Sha1>::new(), &secret)
         .unwrap();
-    let cs4 = CipherString::new(&format!(
-        "4.{}",
-        crate::base64::encode(&ct_sha1)
-    ))
-    .unwrap();
+    let cs4 =
+        CipherString::new(&format!("4.{}", crate::base64::encode(&ct_sha1)))
+            .unwrap();
     assert_eq!(
         cs4.decrypt_locked_asymmetric(&private_key).unwrap().data(),
         &secret
@@ -403,11 +401,7 @@ fn test_asymmetric_oaep_sha1_and_sha256() {
     );
 
     let ct_sha256 = rsa_pub
-        .encrypt(
-            &mut rand::rng(),
-            rsa::Oaep::<sha2::Sha256>::new(),
-            &secret,
-        )
+        .encrypt(&mut rand::rng(), rsa::Oaep::<sha2::Sha256>::new(), &secret)
         .unwrap();
     let cs3 = CipherString::new(&format!(
         "3.{}",

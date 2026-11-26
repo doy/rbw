@@ -20,7 +20,9 @@ pub enum AuthOutcome {
     Cancelled,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq,
+)]
 pub struct EnrolledKey {
     pub label: String,
     pub credential_id: String,
@@ -30,7 +32,9 @@ pub struct EnrolledKey {
     pub wrapped_key: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq,
+)]
 pub struct YubikeyStore {
     pub version: u32,
     pub rp_id: String,
@@ -52,10 +56,14 @@ pub fn load_store(server: &str, email: &str) -> Result<Option<YubikeyStore>> {
     load_store_from_path(&path)
 }
 
-fn load_store_from_path(path: &std::path::Path) -> Result<Option<YubikeyStore>> {
+fn load_store_from_path(
+    path: &std::path::Path,
+) -> Result<Option<YubikeyStore>> {
     let contents = match std::fs::read_to_string(path) {
         Ok(contents) => contents,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(None);
+        }
         Err(e) => {
             return Err(Error::YubikeyStorage {
                 message: format!("failed to read {}: {e}", path.display()),
@@ -63,8 +71,10 @@ fn load_store_from_path(path: &std::path::Path) -> Result<Option<YubikeyStore>> 
         }
     };
     let store: YubikeyStore =
-        serde_json::from_str(&contents).map_err(|e| Error::YubikeyStorage {
-            message: format!("failed to parse {}: {e}", path.display()),
+        serde_json::from_str(&contents).map_err(|e| {
+            Error::YubikeyStorage {
+                message: format!("failed to parse {}: {e}", path.display()),
+            }
         })?;
     Ok(Some(store))
 }
@@ -122,24 +132,24 @@ fn save_store_to_path(
     }
     drop(file);
 
-    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&tmp_path);
-            Error::YubikeyStorage {
-                message: format!(
-                    "failed to set permissions on {}: {e}",
-                    tmp_path.display()
-                ),
-            }
-        })?;
+    std::fs::set_permissions(
+        &tmp_path,
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        Error::YubikeyStorage {
+            message: format!(
+                "failed to set permissions on {}: {e}",
+                tmp_path.display()
+            ),
+        }
+    })?;
 
     std::fs::rename(&tmp_path, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp_path);
         Error::YubikeyStorage {
-            message: format!(
-                "failed to replace {}: {e}",
-                path.display()
-            ),
+            message: format!("failed to replace {}: {e}", path.display()),
         }
     })?;
 
@@ -168,11 +178,7 @@ fn delete_keys_at_path(path: &std::path::Path) -> Result<()> {
     }
 }
 
-pub fn remove_key(
-    server: &str,
-    email: &str,
-    selector: &str,
-) -> Result<bool> {
+pub fn remove_key(server: &str, email: &str, selector: &str) -> Result<bool> {
     let path = crate::dirs::yubikey_file(server, email);
     remove_key_at_path(&path, selector)
 }
@@ -245,7 +251,8 @@ pub fn unwrap_master_keys(
 ) -> Result<crate::locked::Keys> {
     let wrapping_key = derive_wrapping_key(salt, hmac_secret)?;
     let cipherstring = crate::cipherstring::CipherString::new(wrapped_key)?;
-    let raw = cipherstring.decrypt_locked_symmetric_unpadded(&wrapping_key)?;
+    let raw =
+        cipherstring.decrypt_locked_symmetric_unpadded(&wrapping_key)?;
     crate::locked::Keys::from_bytes(raw.data()).ok_or_else(|| {
         Error::YubikeyStorage {
             message: format!(
@@ -359,7 +366,8 @@ pub fn unlock_entry(
             return Err(e);
         }
     };
-    let unwrapped = unwrap_master_keys(&entry.wrapped_key, &salt, &hmac_res.secret);
+    let unwrapped =
+        unwrap_master_keys(&entry.wrapped_key, &salt, &hmac_res.secret);
     salt.zeroize();
     unwrapped
 }
@@ -370,9 +378,10 @@ mod tests {
 
     #[test]
     fn test_wrap_and_unwrap_master_keys_roundtrip() {
-        let master_keys =
-            crate::locked::Keys::from_bytes(&[0x5a_u8; crate::locked::KEYS_LEN])
-                .unwrap();
+        let master_keys = crate::locked::Keys::from_bytes(
+            &[0x5a_u8; crate::locked::KEYS_LEN],
+        )
+        .unwrap();
         let salt = [0x11_u8; 32];
         let secret = [0x22_u8; 32];
         let wrong_secret = [0x33_u8; 32];
@@ -402,7 +411,9 @@ mod tests {
                     label: "primary".to_string(),
                     credential_id: "cred_primary_1234".to_string(),
                     aaguid: "00".repeat(16),
-                    salt: crate::base64::encode_url_safe_no_pad([0x11_u8; 32]),
+                    salt: crate::base64::encode_url_safe_no_pad(
+                        [0x11_u8; 32],
+                    ),
                     uv: false,
                     wrapped_key: "2.a|b|c".to_string(),
                 },
@@ -410,7 +421,9 @@ mod tests {
                     label: "backup".to_string(),
                     credential_id: "cred_backup_5678".to_string(),
                     aaguid: "ff".repeat(16),
-                    salt: crate::base64::encode_url_safe_no_pad([0x22_u8; 32]),
+                    salt: crate::base64::encode_url_safe_no_pad(
+                        [0x22_u8; 32],
+                    ),
                     uv: true,
                     wrapped_key: "2.d|e|f".to_string(),
                 },
@@ -418,7 +431,8 @@ mod tests {
         };
 
         save_store_to_path(&path, &store).unwrap();
-        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let mode =
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
 
         let loaded = load_store_from_path(&path).unwrap().unwrap();

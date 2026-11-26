@@ -20,6 +20,10 @@ pub fn yubikey_enroll(label: Option<&str>) -> anyhow::Result<()> {
     })
 }
 
+pub fn delete_touchid_key() -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::DeleteTouchIdKey)
+}
+
 pub fn unlock() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Unlock)
 }

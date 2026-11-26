@@ -178,6 +178,7 @@ pub enum Action {
     YubikeyEnroll {
         label: Option<String>,
     },
+    DeleteTouchIdKey,
     Decrypt {
         cipherstring: String,
         entry_key: Option<String>,

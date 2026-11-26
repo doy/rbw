@@ -153,9 +153,8 @@ pub async fn login(
                         rbw::api::TwoFactorProviderType::Yubikey,
                         rbw::api::TwoFactorProviderType::Email,
                     ];
-                    let has_other_supported = supported_types
-                        .iter()
-                        .any(|p| providers.contains(p));
+                    let has_other_supported =
+                        supported_types.iter().any(|p| providers.contains(p));
 
                     if rbw::fido2::is_supported()
                         && providers.contains(
@@ -351,8 +350,10 @@ pub async fn login_passkey(
                         )
                     })
                     .await
-                    .map_err(|e| rbw::error::Error::Fido2 {
-                        message: format!("FIDO2 task failed: {e}"),
+                    .map_err(|e| {
+                        rbw::error::Error::Fido2 {
+                            message: format!("FIDO2 task failed: {e}"),
+                        }
                     })?
                 }
             },
@@ -679,6 +680,24 @@ async fn login_success(
     Ok(())
 }
 
+pub async fn delete_touchid_key(
+    sock: &mut crate::sock::Sock,
+) -> anyhow::Result<()> {
+    let config = rbw::config::Config::load_async().await?;
+    if let Some(email) = config.email.clone() {
+        let profile = rbw::dirs::profile();
+        let server = config.server_name();
+        tokio::task::spawn_blocking(move || {
+            rbw::touchid::delete_key(&profile, &server, &email)
+        })
+        .await
+        .context("touch id key deletion task failed")?
+        .context("failed to delete touch id key from keychain")?;
+    }
+    respond_ack(sock).await?;
+    Ok(())
+}
+
 async fn store_touchid_key_if_enabled(
     email: &str,
     master_keys: rbw::locked::Keys,
@@ -820,7 +839,9 @@ pub async fn yubikey_enroll(
     let config = rbw::config::Config::load_async().await?;
     let db = load_db().await?;
     let Some(email) = config.email.clone() else {
-        return Err(anyhow::anyhow!("failed to find email address in config"));
+        return Err(anyhow::anyhow!(
+            "failed to find email address in config"
+        ));
     };
     let Some(kdf) = db.kdf else {
         return Err(anyhow::anyhow!("failed to find kdf type in db"));
@@ -1029,8 +1050,12 @@ async fn unlock_state(
                                 )
                             })
                             .await
-                            .map_err(|e| rbw::error::Error::Fido2 {
-                                message: format!("FIDO2 PRF task failed: {e}"),
+                            .map_err(|e| {
+                                rbw::error::Error::Fido2 {
+                                    message: format!(
+                                        "FIDO2 PRF task failed: {e}"
+                                    ),
+                                }
                             })?
                         }
                     },
@@ -1089,28 +1114,27 @@ async fn unlock_state(
             {
                 let rp_id = store.rp_id.clone();
                 let keys_for_probe = store.keys.clone();
-                let matched_entry =
-                    tokio::task::spawn_blocking(move || {
-                        for entry in keys_for_probe {
-                            if let Ok(cred_id) = rbw::base64::decode_url_safe(
-                                &entry.credential_id,
-                            ) && rbw::fido2::has_matching_credential(
+                let matched_entry = tokio::task::spawn_blocking(move || {
+                    for entry in keys_for_probe {
+                        if let Ok(cred_id) =
+                            rbw::base64::decode_url_safe(&entry.credential_id)
+                            && rbw::fido2::has_matching_credential(
                                 &rp_id,
                                 &[cred_id],
-                            ) {
-                                return Some(entry);
-                            }
+                            )
+                        {
+                            return Some(entry);
                         }
-                        None
-                    })
-                    .await
-                    .unwrap_or(None);
+                    }
+                    None
+                })
+                .await
+                .unwrap_or(None);
 
                 if let Some(entry) = matched_entry {
-                    let cred_id = rbw::base64::decode_url_safe(
-                        &entry.credential_id,
-                    )
-                    .unwrap_or_default();
+                    let cred_id =
+                        rbw::base64::decode_url_safe(&entry.credential_id)
+                            .unwrap_or_default();
                     let uv_policy = if entry.uv {
                         rbw::fido2::UvPolicy::Required
                     } else {
@@ -1143,11 +1167,13 @@ async fn unlock_state(
                                     )
                                 })
                                 .await
-                                .map_err(|e| rbw::error::Error::Fido2 {
-                                    message: format!(
-                                        "YubiKey unlock task failed: {e}"
-                                    ),
-                                })?
+                                .map_err(
+                                    |e| rbw::error::Error::Fido2 {
+                                        message: format!(
+                                            "YubiKey unlock task failed: {e}"
+                                        ),
+                                    },
+                                )?
                             }
                         },
                     )
@@ -1166,9 +1192,11 @@ async fn unlock_state(
                                         .await?;
                                     return Ok(());
                                 }
-                                Err(rbw::error::Error::IncorrectPassword {
-                                    ..
-                                }) => {
+                                Err(
+                                    rbw::error::Error::IncorrectPassword {
+                                        ..
+                                    },
+                                ) => {
                                     log::warn!(
                                         "stored YubiKey key '{}' is no longer valid; \
                                         removing stale entry and falling back",
@@ -1181,8 +1209,9 @@ async fn unlock_state(
                                     );
                                 }
                                 Err(e) => {
-                                    return Err(e)
-                                        .context("failed to unlock database");
+                                    return Err(e).context(
+                                        "failed to unlock database",
+                                    );
                                 }
                             }
                         }
@@ -1640,10 +1669,7 @@ pub async fn version(sock: &mut crate::sock::Sock) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn send_status(
-    sock: Option<&mut crate::sock::Sock>,
-    message: &str,
-) {
+async fn send_status(sock: Option<&mut crate::sock::Sock>, message: &str) {
     if let Some(sock) = sock {
         let _ = sock
             .send(&rbw::protocol::Response::Status {
@@ -1780,7 +1806,9 @@ where
             Ok(val) => return Ok(val),
             Err(rbw::error::Error::Fido2PinInvalid { retries }) => {
                 if attempt == 3 || retries == Some(0) {
-                    return Err(rbw::error::Error::Fido2PinInvalid { retries });
+                    return Err(rbw::error::Error::Fido2PinInvalid {
+                        retries,
+                    });
                 }
                 err_msg = Some(retries.map_or_else(
                     || "Invalid FIDO2 PIN".to_string(),

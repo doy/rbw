@@ -535,8 +535,7 @@ fn test_decrypt_user_key_with_prf() {
             &expected_user_key,
         )
         .unwrap();
-    let enc_user_key_sha1 =
-        format!("4.{}", crate::base64::encode(&ct_sha1));
+    let enc_user_key_sha1 = format!("4.{}", crate::base64::encode(&ct_sha1));
     let unwrapped_sha1 = decrypt_user_key_with_prf(
         &prf_output,
         &encrypted_private_key,

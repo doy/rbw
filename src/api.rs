@@ -1133,8 +1133,9 @@ impl Client {
         if res.status() == reqwest::StatusCode::OK {
             let connect_res: ConnectTokenRes = res.json_with_path().await?;
             let key = connect_res.key.ok_or_else(|| Error::Fido2 {
-                message: "server login response did not include protected key"
-                    .to_string(),
+                message:
+                    "server login response did not include protected key"
+                        .to_string(),
             })?;
             Ok((connect_res.access_token, connect_res.refresh_token, key))
         } else {
@@ -2006,7 +2007,10 @@ mod tests {
                 let opts =
                     parse_webauthn_2fa_options(&providers_data).unwrap();
                 assert_eq!(opts.challenge, "dGVzdC1jaGFsbGVuZ2U");
-                assert_eq!(opts.rp_id.as_deref(), Some("vault.bitwarden.com"));
+                assert_eq!(
+                    opts.rp_id.as_deref(),
+                    Some("vault.bitwarden.com")
+                );
                 assert_eq!(opts.allow_credentials.len(), 1);
                 assert_eq!(opts.allow_credentials[0].id, "Y3JlZC0x");
                 assert_eq!(

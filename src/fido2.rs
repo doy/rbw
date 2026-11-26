@@ -87,7 +87,9 @@ pub fn webauthn_origin_from_ui_url(ui_url: &str) -> Result<String> {
     let origin = parsed.origin();
     if !origin.is_tuple() {
         return Err(Error::Fido2 {
-            message: format!("ui_url '{ui_url}' does not have a valid origin"),
+            message: format!(
+                "ui_url '{ui_url}' does not have a valid origin"
+            ),
         });
     }
     Ok(origin.ascii_serialization())
@@ -265,6 +267,91 @@ mod transport {
         build_client_data_json, decide_uv_for_device,
     };
 
+    type HidJob = Box<dyn FnOnce() + Send + 'static>;
+
+    struct ZeroizingString(String);
+
+    impl ZeroizingString {
+        fn as_str(&self) -> &str {
+            &self.0
+        }
+    }
+
+    impl Drop for ZeroizingString {
+        fn drop(&mut self) {
+            self.0.zeroize();
+        }
+    }
+
+    struct ZeroizingBytes32([u8; 32]);
+
+    impl Drop for ZeroizingBytes32 {
+        fn drop(&mut self) {
+            self.0.zeroize();
+        }
+    }
+
+    /// `hidapi` on macOS initializes a process-global `IOHIDManagerRef`
+    /// scheduled on the calling thread's `CFRunLoop`. If that thread later
+    /// exits (such as an idle Tokio `spawn_blocking` worker), subsequent
+    /// `hid_enumerate` calls dereference the freed `CFRunLoop` and abort with
+    /// `SIGTRAP`. Running all `ctap-hid-fido2` / `hidapi` operations on a
+    /// single persistent OS thread keeps its `CFRunLoop` alive for the
+    /// lifetime of the process and serializes HID access.
+    pub(super) fn run_on_hid_thread<T, F>(f: F) -> Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> Result<T> + Send + 'static,
+    {
+        static HID_TX: std::sync::OnceLock<
+            std::result::Result<std::sync::mpsc::Sender<HidJob>, String>,
+        > = std::sync::OnceLock::new();
+
+        let tx = HID_TX
+            .get_or_init(|| {
+                let (tx, rx) = std::sync::mpsc::channel::<HidJob>();
+                std::thread::Builder::new()
+                    .name("rbw-fido2-hid".to_string())
+                    .spawn(move || {
+                        for job in rx {
+                            job();
+                        }
+                    })
+                    .map(|_| tx)
+                    .map_err(|e| {
+                        format!(
+                            "failed to spawn FIDO2 HID worker thread: {e}"
+                        )
+                    })
+            })
+            .as_ref()
+            .map_err(|message| Error::Fido2 {
+                message: message.clone(),
+            })?;
+
+        let (res_tx, res_rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(Box::new(move || {
+            let res =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+                    .unwrap_or_else(|_| {
+                        Err(Error::Fido2 {
+                            message: "FIDO2 HID operation panicked"
+                                .to_string(),
+                        })
+                    });
+            let _ = res_tx.send(res);
+        }))
+        .map_err(|_| Error::Fido2 {
+            message: "FIDO2 HID worker thread is no longer running"
+                .to_string(),
+        })?;
+
+        res_rx.recv().map_err(|_| Error::Fido2 {
+            message: "FIDO2 HID worker thread exited unexpectedly"
+                .to_string(),
+        })?
+    }
+
     fn lib_cfg() -> LibCfg {
         let mut cfg = LibCfg::init();
         cfg.enable_log = false;
@@ -297,7 +384,9 @@ mod transport {
         product_string: &str,
     ) -> Result<DeviceInfo> {
         let info = key.get_info().map_err(|e| Error::Fido2 {
-            message: format!("failed to query security key capabilities: {e}"),
+            message: format!(
+                "failed to query security key capabilities: {e}"
+            ),
         })?;
 
         let option_is_true = |name: &str| {
@@ -307,14 +396,14 @@ mod transport {
                 .is_some_and(|(_, v)| *v)
         };
 
-        let aaguid = info
-            .aaguid
-            .iter()
-            .fold(String::with_capacity(32), |mut acc, b| {
+        let aaguid = info.aaguid.iter().fold(
+            String::with_capacity(32),
+            |mut acc, b| {
                 use std::fmt::Write as _;
                 let _ = write!(acc, "{b:02x}");
                 acc
-            });
+            },
+        );
 
         Ok(DeviceInfo {
             product_string: if product_string.is_empty() {
@@ -451,25 +540,33 @@ mod transport {
     }
 
     pub fn has_connected_device() -> bool {
-        !list_devices().is_empty()
+        run_on_hid_thread(|| Ok(!list_devices().is_empty())).unwrap_or(false)
     }
 
     pub fn has_matching_credential(
         rp_id: &str,
         credential_ids: &[Vec<u8>],
     ) -> bool {
-        let devs = list_devices();
-        if devs.is_empty() || credential_ids.is_empty() {
+        if credential_ids.is_empty() {
             return false;
         }
-        for dev in &devs {
-            if let Ok((key, _)) = open_device(dev)
-                && silent_probe_device(&key, rp_id, credential_ids)
-            {
-                return true;
+        let rp_id = rp_id.to_string();
+        let credential_ids = credential_ids.to_vec();
+        run_on_hid_thread(move || {
+            let devs = list_devices();
+            if devs.is_empty() {
+                return Ok(false);
             }
-        }
-        false
+            for dev in &devs {
+                if let Ok((key, _)) = open_device(dev)
+                    && silent_probe_device(&key, &rp_id, &credential_ids)
+                {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
+        .unwrap_or(false)
     }
 
     pub fn inspect_device(
@@ -478,16 +575,42 @@ mod transport {
         require_hmac_secret: bool,
         require_rk: bool,
     ) -> Result<DeviceInfo> {
-        let (_, info) = select_device(
-            rp_id,
-            allow_credentials,
-            require_hmac_secret,
-            require_rk,
-        )?;
-        Ok(info)
+        let rp_id = rp_id.map(std::string::ToString::to_string);
+        let allow_credentials = allow_credentials.to_vec();
+        run_on_hid_thread(move || {
+            let (_, info) = select_device(
+                rp_id.as_deref(),
+                &allow_credentials,
+                require_hmac_secret,
+                require_rk,
+            )?;
+            Ok(info)
+        })
     }
 
     pub fn make_hmac_secret_credential(
+        rp_id: &str,
+        user_id: &[u8],
+        user_name: &str,
+        uv_policy: UvPolicy,
+        pin: Option<&str>,
+    ) -> Result<CreatedHmacCredential> {
+        let rp_id = rp_id.to_string();
+        let user_id = user_id.to_vec();
+        let user_name = user_name.to_string();
+        let pin = pin.map(|p| ZeroizingString(p.to_string()));
+        run_on_hid_thread(move || {
+            make_hmac_secret_credential_inner(
+                &rp_id,
+                &user_id,
+                &user_name,
+                uv_policy,
+                pin.as_ref().map(ZeroizingString::as_str),
+            )
+        })
+    }
+
+    fn make_hmac_secret_credential_inner(
         rp_id: &str,
         user_id: &[u8],
         user_name: &str,
@@ -521,7 +644,10 @@ mod transport {
                 builder = builder.without_pin_and_uv();
                 false
             }
-            (None, PinDecision::PromptPin { .. } | PinDecision::PinNotSet) => {
+            (
+                None,
+                PinDecision::PromptPin { .. } | PinDecision::PinNotSet,
+            ) => {
                 return Err(Error::Fido2PinRequired);
             }
         };
@@ -540,9 +666,10 @@ mod transport {
                 }
             })?;
 
-        let hmac_enabled = attestation.extensions.iter().any(|ext| {
-            matches!(ext, MakeExtension::HmacSecret(Some(true)))
-        });
+        let hmac_enabled = attestation
+            .extensions
+            .iter()
+            .any(|ext| matches!(ext, MakeExtension::HmacSecret(Some(true))));
         if !hmac_enabled {
             return Err(Error::Fido2Unsupported {
                 message: format!(
@@ -570,7 +697,9 @@ mod transport {
     fn extract_hmac_secret(extensions: &[GetExtension]) -> Option<[u8; 32]> {
         for ext in extensions {
             match ext {
-                GetExtension::HmacSecret(Some(secret)) => return Some(*secret),
+                GetExtension::HmacSecret(Some(secret)) => {
+                    return Some(*secret);
+                }
                 GetExtension::HmacSecret2(Some((secret1, _))) => {
                     return Some(*secret1);
                 }
@@ -581,6 +710,28 @@ mod transport {
     }
 
     pub fn get_hmac_secret(
+        rp_id: &str,
+        credential_ids: &[Vec<u8>],
+        salt: &[u8; 32],
+        uv: bool,
+        pin: Option<&str>,
+    ) -> Result<HmacSecretResult> {
+        let rp_id = rp_id.to_string();
+        let credential_ids = credential_ids.to_vec();
+        let salt = ZeroizingBytes32(*salt);
+        let pin = pin.map(|p| ZeroizingString(p.to_string()));
+        run_on_hid_thread(move || {
+            get_hmac_secret_inner(
+                &rp_id,
+                &credential_ids,
+                &salt.0,
+                uv,
+                pin.as_ref().map(ZeroizingString::as_str),
+            )
+        })
+    }
+
+    fn get_hmac_secret_inner(
         rp_id: &str,
         credential_ids: &[Vec<u8>],
         salt: &[u8; 32],
@@ -682,6 +833,34 @@ mod transport {
         uv_policy: UvPolicy,
         pin: Option<&str>,
     ) -> Result<String> {
+        let rp_id = rp_id.to_string();
+        let origin = origin.to_string();
+        let challenge = challenge.to_string();
+        let allow_credentials = allow_credentials.to_vec();
+        let appid = appid.map(std::string::ToString::to_string);
+        let pin = pin.map(|p| ZeroizingString(p.to_string()));
+        run_on_hid_thread(move || {
+            assert_webauthn_2fa_inner(
+                &rp_id,
+                &origin,
+                &challenge,
+                &allow_credentials,
+                appid.as_deref(),
+                uv_policy,
+                pin.as_ref().map(ZeroizingString::as_str),
+            )
+        })
+    }
+
+    fn assert_webauthn_2fa_inner(
+        rp_id: &str,
+        origin: &str,
+        challenge: &str,
+        allow_credentials: &[Vec<u8>],
+        appid: Option<&str>,
+        uv_policy: UvPolicy,
+        pin: Option<&str>,
+    ) -> Result<String> {
         enum AttemptErr {
             NoCredentials(anyhow::Error),
             Ctap(anyhow::Error),
@@ -720,7 +899,8 @@ mod transport {
                     Ok(assertions) => (assertions, true),
                     Err(AttemptErr::App(err)) => return Err(err),
                     Err(
-                        AttemptErr::NoCredentials(err) | AttemptErr::Ctap(err),
+                        AttemptErr::NoCredentials(err)
+                        | AttemptErr::Ctap(err),
                     ) => {
                         return Err(classify_ctap_error(&key, &err));
                     }
@@ -782,6 +962,30 @@ mod transport {
         preferred_email: Option<&str>,
         pin: Option<&str>,
     ) -> Result<PasskeyAssertionResult> {
+        let rp_id = rp_id.to_string();
+        let origin = origin.to_string();
+        let challenge = challenge.to_string();
+        let preferred_email =
+            preferred_email.map(std::string::ToString::to_string);
+        let pin = pin.map(|p| ZeroizingString(p.to_string()));
+        run_on_hid_thread(move || {
+            assert_passkey_login_inner(
+                &rp_id,
+                &origin,
+                &challenge,
+                preferred_email.as_deref(),
+                pin.as_ref().map(ZeroizingString::as_str),
+            )
+        })
+    }
+
+    fn assert_passkey_login_inner(
+        rp_id: &str,
+        origin: &str,
+        challenge: &str,
+        preferred_email: Option<&str>,
+        pin: Option<&str>,
+    ) -> Result<PasskeyAssertionResult> {
         let (key, info) = select_device(None, &[], false, true)?;
         let client_data_json = build_client_data_json(challenge, origin);
 
@@ -792,10 +996,8 @@ mod transport {
             None
         };
 
-        let mut builder = GetAssertionArgsBuilder::new(
-            rp_id,
-            client_data_json.as_bytes(),
-        );
+        let mut builder =
+            GetAssertionArgsBuilder::new(rp_id, client_data_json.as_bytes());
         if let Some(ref exts) = extensions {
             builder = builder.extensions(exts);
         }
@@ -856,8 +1058,12 @@ mod transport {
             )
             .credential_id(&chosen.credential_id)
             .extensions(&exts);
-            targeted =
-                apply_uv_to_builder(targeted, &info, UvPolicy::Required, pin)?;
+            targeted = apply_uv_to_builder(
+                targeted,
+                &info,
+                UvPolicy::Required,
+                pin,
+            )?;
             let targeted_args = targeted.build();
             if let Ok(mut targeted_assertions) =
                 key.get_assertion_with_args(&targeted_args)
@@ -946,7 +1152,8 @@ mod transport {
 
     fn unsupported() -> Error {
         Error::Fido2Unsupported {
-            message: "rbw was compiled without the `fido2` feature".to_string(),
+            message: "rbw was compiled without the `fido2` feature"
+                .to_string(),
         }
     }
 
@@ -1249,5 +1456,23 @@ mod tests {
             decide_uv_for_device(&yubikey_bio, UvPolicy::Discouraged),
             PinDecision::UseBuiltinUv
         );
+    }
+
+    #[cfg(feature = "fido2")]
+    #[test]
+    fn test_hid_worker_uses_single_persistent_thread() {
+        let caller_id = std::thread::current().id();
+        let id1 =
+            transport::run_on_hid_thread(|| Ok(std::thread::current().id()))
+                .unwrap();
+        assert_ne!(id1, caller_id);
+
+        let id2 = std::thread::spawn(|| {
+            transport::run_on_hid_thread(|| Ok(std::thread::current().id()))
+                .unwrap()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(id1, id2);
     }
 }

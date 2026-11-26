@@ -73,13 +73,16 @@ impl Agent {
                     tokio::spawn(async move {
                         let res =
                             handle_request(&mut sock, state.clone()).await;
-                        if let Err(e) = res {
-                            // unwrap is the only option here
-                            sock.send(&rbw::protocol::Response::Error {
-                                error: format!("{e:#}"),
-                            })
-                            .await
-                            .unwrap();
+                        if let Err(e) = res
+                            && let Err(send_err) = sock
+                                .send(&rbw::protocol::Response::Error {
+                                    error: format!("{e:#}"),
+                                })
+                                .await
+                        {
+                            log::warn!(
+                                "failed to send error response to client: {send_err:#}"
+                            );
                         }
                     });
                 }
@@ -145,6 +148,10 @@ async fn handle_request(
             )
             .await?;
             true
+        }
+        rbw::protocol::Action::DeleteTouchIdKey => {
+            crate::actions::delete_touchid_key(sock).await?;
+            false
         }
         rbw::protocol::Action::CheckLock => {
             crate::actions::check_lock(sock, state.clone()).await?;
