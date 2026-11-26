@@ -809,33 +809,44 @@ impl ConfigFile {
         unreachable!()
     }
 
+    pub fn find_duplicate_identity(
+        &self,
+        ignore_name: Option<&str>,
+        base_url: Option<&str>,
+        email: Option<&str>,
+    ) -> Option<String> {
+        let email = email.map(str::trim).filter(|e| !e.is_empty())?;
+        let target_server = canonical_server_key(base_url);
+        let target_email = email.to_ascii_lowercase();
+        for entry in self.entries() {
+            if ignore_name == Some(entry.name.as_str()) {
+                continue;
+            }
+            if let Some(existing_email) = entry.config.email.as_deref()
+                && existing_email.trim().to_ascii_lowercase() == target_email
+                && canonical_server_key(entry.config.base_url.as_deref())
+                    == target_server
+            {
+                return Some(entry.name);
+            }
+        }
+        None
+    }
+
     pub fn check_duplicate_identity(
         &self,
         ignore_name: Option<&str>,
         base_url: Option<&str>,
         email: Option<&str>,
     ) -> Result<()> {
-        let Some(email) = email.map(str::trim).filter(|e| !e.is_empty())
-        else {
-            return Ok(());
-        };
-        let target_server = canonical_server_key(base_url);
-        let target_email = email.to_ascii_lowercase();
-        for (existing_name, existing) in &self.accounts {
-            if ignore_name == Some(existing_name.as_str()) {
-                continue;
-            }
-            if let Some(existing_email) = existing.email.as_deref()
-                && existing_email.trim().to_ascii_lowercase() == target_email
-                && canonical_server_key(existing.base_url.as_deref())
-                    == target_server
-            {
-                return Err(Error::AccountDuplicateIdentity {
-                    email: email.to_string(),
-                    server: server_display_name_from_base_url(base_url),
-                    existing: existing_name.clone(),
-                });
-            }
+        if let Some(existing) =
+            self.find_duplicate_identity(ignore_name, base_url, email)
+        {
+            return Err(Error::AccountDuplicateIdentity {
+                email: email.unwrap_or_default().trim().to_string(),
+                server: server_display_name_from_base_url(base_url),
+                existing,
+            });
         }
         Ok(())
     }
@@ -1226,6 +1237,25 @@ mod tests {
         assert_eq!(resolved.server_display_name(), "vault.nullbyte.ninja");
         assert_eq!(resolved.lock_timeout, 1800);
         assert!(resolved.touchid);
+
+        // Duplicate detection catches legacy account even before migration
+        assert_eq!(
+            cf.find_duplicate_identity(
+                None,
+                Some("https://vault.nullbyte.ninja"),
+                Some("dat.nguyen@bitbytelab.io"),
+            )
+            .as_deref(),
+            Some("vault.nullbyte.ninja")
+        );
+        assert!(
+            cf.find_duplicate_identity(
+                None,
+                None,
+                Some("dat.nguyen@bitbytelab.io"),
+            )
+            .is_none()
+        );
 
         // Adding a second account with the SAME email on bitwarden.com
         let added = cf

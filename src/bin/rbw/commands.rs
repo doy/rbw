@@ -1375,6 +1375,17 @@ pub fn account_add(opts: AccountAddOpts<'_>) -> anyhow::Result<()> {
         );
     }
 
+    if let Some(explicit_name) = opts.name {
+        rbw::config::validate_account_name(explicit_name)?;
+        if cf.entries().iter().any(|e| e.name == explicit_name) {
+            return Err(anyhow::Error::new(
+                rbw::error::Error::AccountAlreadyExists {
+                    account: explicit_name.to_string(),
+                },
+            ));
+        }
+    }
+
     let base_url = if let Some(server) = opts.server {
         rbw::config::normalize_server_input(server)
     } else if interactive {
@@ -1439,6 +1450,130 @@ pub fn account_add(opts: AccountAddOpts<'_>) -> anyhow::Result<()> {
         trimmed.to_string()
     };
 
+    let server_display =
+        rbw::config::server_display_name_from_base_url(base_url.as_deref());
+
+    // Fail fast / handle duplicate (server, email) before prompting further
+    if let Some(existing_name) =
+        cf.find_duplicate_identity(None, base_url.as_deref(), Some(&email))
+    {
+        if !interactive {
+            return Err(anyhow::Error::new(
+                rbw::error::Error::AccountDuplicateIdentity {
+                    email,
+                    server: server_display,
+                    existing: existing_name,
+                },
+            ));
+        }
+
+        let unlocked = unlocked_account_set();
+        let existing_entry = cf
+            .entries()
+            .into_iter()
+            .find(|e| e.name == existing_name)
+            .ok_or_else(|| rbw::error::Error::AccountNotFound {
+                account: existing_name.clone(),
+            })?;
+        let status = account_status(&existing_entry.config, &unlocked);
+
+        eprintln!(
+            "Account '{existing_name}' ({email} @ {server_display}) already exists [{}].",
+            status.label()
+        );
+
+        let use_label = if status == AccountStatus::LoggedOut {
+            format!("Use '{existing_name}' and log in")
+        } else if !existing_entry.active && !opts.no_switch {
+            format!("Switch to '{existing_name}'")
+        } else {
+            format!("Keep '{existing_name}' as active")
+        };
+
+        let choices = [
+            crate::prompt::SelectItem {
+                label: use_label,
+                highlight: true,
+            },
+            crate::prompt::SelectItem {
+                label: format!("Rename '{existing_name}'"),
+                highlight: false,
+            },
+            crate::prompt::SelectItem {
+                label: "Cancel".to_string(),
+                highlight: false,
+            },
+        ];
+
+        let Some(action) =
+            crate::prompt::select("Account already exists", &choices, 0)?
+        else {
+            eprintln!("Cancelled.");
+            return Ok(());
+        };
+
+        match action {
+            0 => {
+                cf.migrate_legacy_if_needed();
+                if opts.no_switch {
+                    cf.save()?;
+                    println!(
+                        "Keeping existing account '{existing_name}' ({email} @ {server_display}) [{}]",
+                        status.label()
+                    );
+                } else {
+                    let changed = cf.switch_account(&existing_name)?;
+                    cf.save()?;
+                    if changed {
+                        println!(
+                            "Switched active account to '{existing_name}' ({email} @ {server_display}) [{}]",
+                            status.label()
+                        );
+                    } else {
+                        println!(
+                            "Using existing account '{existing_name}' ({email} @ {server_display}) [{}]",
+                            status.label()
+                        );
+                    }
+                }
+                if !opts.no_login
+                    && (opts.login
+                        || opts.passkey
+                        || status == AccountStatus::LoggedOut)
+                {
+                    login(Some(&existing_name), opts.passkey, false)?;
+                }
+                return Ok(());
+            }
+            1 => {
+                let Some(new_name) =
+                    crate::prompt::input("New account name", opts.name)?
+                else {
+                    eprintln!("Cancelled.");
+                    return Ok(());
+                };
+                cf.rename_account(&existing_name, &new_name)?;
+                if !opts.no_switch {
+                    cf.switch_account(&new_name)?;
+                }
+                cf.save()?;
+                println!("Renamed account '{existing_name}' to '{new_name}'");
+                if !opts.no_login
+                    && (opts.login
+                        || opts.passkey
+                        || status == AccountStatus::LoggedOut)
+                {
+                    login(Some(&new_name), opts.passkey, false)?;
+                }
+                return Ok(());
+            }
+            _ => {
+                eprintln!("Cancelled.");
+                return Ok(());
+            }
+        }
+    }
+
     let name = if let Some(name) = opts.name {
         Some(name.to_string())
     } else if interactive {
@@ -1452,6 +1587,12 @@ pub fn account_add(opts: AccountAddOpts<'_>) -> anyhow::Result<()> {
             eprintln!("Cancelled.");
             return Ok(());
         };
+        rbw::config::validate_account_name(&chosen)?;
+        if preview.accounts.contains_key(&chosen) {
+            return Err(anyhow::Error::new(
+                rbw::error::Error::AccountAlreadyExists { account: chosen },
+            ));
+        }
         Some(chosen)
     } else {
         None
@@ -1470,7 +1611,7 @@ pub fn account_add(opts: AccountAddOpts<'_>) -> anyhow::Result<()> {
     let account_cfg = rbw::config::AccountConfig {
         email: Some(email.clone()),
         sso_id: opts.sso_id.map(str::to_string),
-        base_url: base_url.clone(),
+        base_url,
         identity_url: opts.identity_url.map(str::to_string),
         ui_url: opts.ui_url.map(str::to_string),
         notifications_url: opts.notifications_url.map(str::to_string),
@@ -1484,8 +1625,6 @@ pub fn account_add(opts: AccountAddOpts<'_>) -> anyhow::Result<()> {
         cf.add_account(name.as_deref(), account_cfg, !opts.no_switch)?;
     cf.save()?;
 
-    let server_display =
-        rbw::config::server_display_name_from_base_url(base_url.as_deref());
     let active_suffix = if cf.effective_active_account_name().as_deref()
         == Some(&final_name)
     {

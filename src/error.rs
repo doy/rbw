@@ -7,7 +7,7 @@ pub enum Error {
     AccountAlreadyExists { account: String },
 
     #[error(
-        "account for '{email}' on '{server}' already exists as '{existing}'"
+        "account for '{email}' on '{server}' already exists as '{existing}' (use 'rbw switch {existing}' or 'rbw account list')"
     )]
     AccountDuplicateIdentity {
         email: String,
