@@ -96,7 +96,7 @@ impl<'de> serde::Deserialize<'de> for Uri {
                             return Err(serde::de::Error::unknown_field(
                                 key,
                                 &["uri", "match_type"],
-                            ))
+                            ));
                         }
                     }
                 }
@@ -175,6 +175,16 @@ pub struct HistoryEntry {
     pub password: String,
 }
 
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
+)]
+pub struct WebAuthnPrfData {
+    pub rp_id: String,
+    pub credential_id: String,
+    pub encrypted_private_key: String,
+    pub encrypted_user_key: String,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
 pub struct Db {
     pub access_token: Option<String>,
@@ -187,6 +197,8 @@ pub struct Db {
     pub protected_key: Option<String>,
     pub protected_private_key: Option<String>,
     pub protected_org_keys: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webauthn_prf: Option<WebAuthnPrfData>,
 
     pub entries: Vec<Entry>,
 }
@@ -297,20 +309,51 @@ impl Db {
     pub fn remove(server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
         let res = std::fs::remove_file(&file);
-        if let Err(e) = &res {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                return Ok(());
-            }
+        if let Err(e) = &res
+            && e.kind() == std::io::ErrorKind::NotFound
+        {
+            return Ok(());
         }
         res.map_err(|source| Error::RemoveDb { source, file })?;
         Ok(())
     }
 
     pub fn needs_login(&self) -> bool {
-        self.access_token.is_none()
-            || self.refresh_token.is_none()
-            || self.iterations.is_none()
-            || self.kdf.is_none()
-            || self.protected_key.is_none()
+        if self.access_token.is_none() || self.refresh_token.is_none() {
+            return true;
+        }
+        let has_master_password = self.iterations.is_some()
+            && self.kdf.is_some()
+            && self.protected_key.is_some();
+        let has_webauthn_prf = self.webauthn_prf.is_some();
+        !has_master_password && !has_webauthn_prf
     }
+}
+
+#[test]
+fn test_db_needs_login_and_webauthn_prf_serde() {
+    let old_json = r#"{"access_token":"a","refresh_token":"r","kdf":"0","iterations":100000,"protected_key":"2.a|b|c","protected_private_key":null,"protected_org_keys":{},"entries":[]}"#;
+    let db: Db = serde_json::from_str(old_json).unwrap();
+    assert!(db.webauthn_prf.is_none());
+    assert!(!db.needs_login());
+
+    let prf_only = Db {
+        access_token: Some("a".to_string()),
+        refresh_token: Some("r".to_string()),
+        webauthn_prf: Some(WebAuthnPrfData {
+            rp_id: "vault.bitwarden.com".to_string(),
+            credential_id: "cred123".to_string(),
+            encrypted_private_key: "2.a|b|c".to_string(),
+            encrypted_user_key: "4.xyz".to_string(),
+        }),
+        ..Db::default()
+    };
+    assert!(!prf_only.needs_login());
+    let serialized = serde_json::to_string(&prf_only).unwrap();
+    let roundtrip: Db = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(roundtrip.webauthn_prf, prf_only.webauthn_prf);
+    assert!(!roundtrip.needs_login());
+
+    let empty = Db::new();
+    assert!(empty.needs_login());
 }

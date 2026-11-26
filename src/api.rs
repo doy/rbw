@@ -62,10 +62,13 @@ pub enum TwoFactorProviderType {
 impl TwoFactorProviderType {
     pub fn message(&self) -> &str {
         match *self {
-            Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
+            Self::Authenticator => {
+                "Enter the 6 digit verification code from your authenticator app."
+            }
             Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
-            _ => "Enter the code."
+            Self::WebAuthn => "Insert and touch your FIDO2 security key.",
+            _ => "Enter the code.",
         }
     }
 
@@ -74,6 +77,7 @@ impl TwoFactorProviderType {
             Self::Authenticator => "Authenticator App",
             Self::Yubikey => "Yubikey",
             Self::Email => "Email Code",
+            Self::WebAuthn => "Security Key (WebAuthn)",
             _ => "Two Factor Authentication",
         }
     }
@@ -312,6 +316,7 @@ enum ConnectTokenAuth {
     Password(ConnectTokenPassword),
     AuthCode(ConnectTokenAuthCode),
     ClientCredentials(ConnectTokenClientCredentials),
+    WebAuthn(ConnectTokenWebAuthn),
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -333,12 +338,99 @@ struct ConnectTokenClientCredentials {
     client_secret: String,
 }
 
+#[derive(serde::Serialize, Debug)]
+struct ConnectTokenWebAuthn {
+    token: String,
+    #[serde(rename = "deviceResponse")]
+    device_response: String,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WebAuthnAssertionOptions {
+    pub challenge: String,
+    #[serde(alias = "rpId", alias = "RpId")]
+    pub rp_id: Option<String>,
+    #[serde(default, alias = "AllowCredentials")]
+    pub allow_credentials: Vec<WebAuthnCredentialDescriptor>,
+    #[serde(alias = "UserVerification")]
+    pub user_verification: Option<String>,
+    #[serde(alias = "Timeout")]
+    pub timeout: Option<u64>,
+    #[serde(alias = "Extensions")]
+    pub extensions: Option<WebAuthnRequestExtensions>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct WebAuthnCredentialDescriptor {
+    #[serde(alias = "Id")]
+    pub id: String,
+    #[serde(rename = "type", alias = "Type")]
+    pub ty: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct WebAuthnRequestExtensions {
+    #[serde(alias = "AppID", alias = "appId")]
+    pub appid: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WebAuthnLoginAssertionOptionsRes {
+    #[serde(alias = "Options")]
+    pub options: WebAuthnAssertionOptions,
+    #[serde(alias = "Token")]
+    pub token: String,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct WebAuthnPrfOption {
+    #[serde(rename = "EncryptedPrivateKey", alias = "encryptedPrivateKey")]
+    pub encrypted_private_key: String,
+    #[serde(rename = "EncryptedUserKey", alias = "encryptedUserKey")]
+    pub encrypted_user_key: String,
+    #[serde(rename = "CredentialId", alias = "credentialId")]
+    pub credential_id: Option<String>,
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
+struct UserDecryptionOptions {
+    #[serde(rename = "WebAuthnPrfOption", alias = "webAuthnPrfOption")]
+    webauthn_prf_option: Option<WebAuthnPrfOption>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebAuthnLoginRes {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub key: Option<String>,
+    pub kdf: Option<KdfType>,
+    pub kdf_iterations: Option<u32>,
+    pub kdf_memory: Option<u32>,
+    pub kdf_parallelism: Option<u32>,
+    pub webauthn_prf_option: Option<WebAuthnPrfOption>,
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct ConnectTokenRes {
     access_token: String,
     refresh_token: String,
     #[serde(rename = "Key", alias = "key")]
-    key: String,
+    key: Option<String>,
+    #[serde(rename = "Kdf", alias = "kdf")]
+    kdf: Option<KdfType>,
+    #[serde(rename = "KdfIterations", alias = "kdfIterations")]
+    kdf_iterations: Option<u32>,
+    #[serde(rename = "KdfMemory", alias = "kdfMemory")]
+    kdf_memory: Option<u32>,
+    #[serde(rename = "KdfParallelism", alias = "kdfParallelism")]
+    kdf_parallelism: Option<u32>,
+    #[serde(
+        rename = "UserDecryptionOptions",
+        alias = "userDecryptionOptions"
+    )]
+    user_decryption_options: Option<UserDecryptionOptions>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -349,6 +441,9 @@ struct ConnectErrorRes {
     error_model: Option<ConnectErrorResErrorModel>,
     #[serde(rename = "TwoFactorProviders", alias = "twoFactorProviders")]
     two_factor_providers: Option<Vec<TwoFactorProviderType>>,
+    #[serde(rename = "TwoFactorProviders2", alias = "twoFactorProviders2")]
+    two_factor_providers2:
+        Option<std::collections::HashMap<String, serde_json::Value>>,
     #[serde(
         rename = "SsoEmail2faSessionToken",
         alias = "ssoEmail2faSessionToken"
@@ -1037,11 +1132,99 @@ impl Client {
 
         if res.status() == reqwest::StatusCode::OK {
             let connect_res: ConnectTokenRes = res.json_with_path().await?;
-            Ok((
-                connect_res.access_token,
-                connect_res.refresh_token,
-                connect_res.key,
-            ))
+            let key = connect_res.key.ok_or_else(|| Error::Fido2 {
+                message:
+                    "server login response did not include protected key"
+                        .to_string(),
+            })?;
+            Ok((connect_res.access_token, connect_res.refresh_token, key))
+        } else {
+            let code = res.status().as_u16();
+            match res.text().await {
+                Ok(body) => match body.clone().json_with_path() {
+                    Ok(json) => Err(classify_login_error(&json, code)),
+                    Err(e) => {
+                        log::warn!("{e}: {body}");
+                        Err(Error::RequestFailed { status: code })
+                    }
+                },
+                Err(e) => {
+                    log::warn!("failed to read response body: {e}");
+                    Err(Error::RequestFailed { status: code })
+                }
+            }
+        }
+    }
+
+    pub async fn webauthn_login_assertion_options(
+        &self,
+    ) -> Result<WebAuthnLoginAssertionOptionsRes> {
+        let client = self.reqwest_client().await?;
+        let res = client
+            .get(self.identity_url("/accounts/webauthn/assertion-options"))
+            .send()
+            .await
+            .map_err(|source| Error::Reqwest { source })?;
+        match res.status() {
+            reqwest::StatusCode::OK => res.json_with_path().await,
+            reqwest::StatusCode::NOT_FOUND
+            | reqwest::StatusCode::METHOD_NOT_ALLOWED => {
+                Err(Error::PasskeyLoginUnsupported {
+                    status: res.status().as_u16(),
+                })
+            }
+            status => {
+                let code = status.as_u16();
+                log::warn!("{code}: {:?}", res.text().await);
+                Err(Error::RequestFailed { status: code })
+            }
+        }
+    }
+
+    pub async fn login_webauthn(
+        &self,
+        device_id: &str,
+        token: &str,
+        device_response: &str,
+    ) -> Result<WebAuthnLoginRes> {
+        let connect_req = ConnectTokenReq {
+            auth: ConnectTokenAuth::WebAuthn(ConnectTokenWebAuthn {
+                token: token.to_string(),
+                device_response: device_response.to_string(),
+            }),
+            grant_type: "webauthn".to_string(),
+            scope: "api offline_access".to_string(),
+            client_id: "cli".to_string(),
+            device_type: u32::from(DEVICE_TYPE),
+            device_identifier: device_id.to_string(),
+            device_name: "rbw".to_string(),
+            device_push_token: String::new(),
+            two_factor_token: None,
+            two_factor_provider: None,
+        };
+
+        let client = self.reqwest_client().await?;
+        let res = client
+            .post(self.identity_url("/connect/token"))
+            .form(&connect_req)
+            .send()
+            .await
+            .map_err(|source| Error::Reqwest { source })?;
+
+        if res.status() == reqwest::StatusCode::OK {
+            let connect_res: ConnectTokenRes = res.json_with_path().await?;
+            Ok(WebAuthnLoginRes {
+                access_token: connect_res.access_token,
+                refresh_token: connect_res.refresh_token,
+                key: connect_res.key,
+                kdf: connect_res.kdf,
+                kdf_iterations: connect_res.kdf_iterations,
+                kdf_memory: connect_res.kdf_memory,
+                kdf_parallelism: connect_res.kdf_parallelism,
+                webauthn_prf_option: connect_res
+                    .user_decryption_options
+                    .and_then(|o| o.webauthn_prf_option),
+            })
         } else {
             let code = res.status().as_u16();
             match res.text().await {
@@ -1700,7 +1883,9 @@ fn sso_query_code(
 
     if received_state.split("_identifier=").next().unwrap() != state {
         return Err(Error::FailedToProcessSSOCallback {
-            msg: format!("SSO callback states do not match, sent: {state}, received: {received_state}"),
+            msg: format!(
+                "SSO callback states do not match, sent: {state}, received: {received_state}"
+            ),
         });
     }
 
@@ -1724,6 +1909,10 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
                 {
                     return Error::TwoFactorRequired {
                         providers: providers.clone(),
+                        providers_data: error_res
+                            .two_factor_providers2
+                            .clone()
+                            .unwrap_or_default(),
                         sso_email_2fa_session_token: error_res
                             .sso_email_2fa_session_token
                             .clone(),
@@ -1741,20 +1930,18 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "" => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_desc.is_none() || error_desc == Some("") {
-                if let Some(error_model) = error_res.error_model.as_ref() {
-                    let message = error_model.message.as_str().to_string();
-                    match message.as_str() {
-                        "Username or password is incorrect. Try again"
-                        | "TOTP code is not a number" => {
+            if (error_desc.is_none() || error_desc == Some(""))
+                && let Some(error_model) = error_res.error_model.as_ref()
+            {
+                let message = error_model.message.as_str().to_string();
+                match message.as_str() {
+                    "Username or password is incorrect. Try again"
+                    | "TOTP code is not a number" => {
+                        return Error::IncorrectPassword { message };
+                    }
+                    s => {
+                        if s.starts_with("Invalid TOTP code! Server time: ") {
                             return Error::IncorrectPassword { message };
-                        }
-                        s => {
-                            if s.starts_with(
-                                "Invalid TOTP code! Server time: ",
-                            ) {
-                                return Error::IncorrectPassword { message };
-                            }
                         }
                     }
                 }
@@ -1765,4 +1952,122 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+pub fn parse_webauthn_2fa_options<S: std::hash::BuildHasher>(
+    providers_data: &std::collections::HashMap<String, serde_json::Value, S>,
+) -> Option<WebAuthnAssertionOptions> {
+    let raw = providers_data.get("7")?;
+    if raw.is_null() {
+        return None;
+    }
+    let opts: WebAuthnAssertionOptions =
+        serde_json::from_value(raw.clone()).ok()?;
+    if opts.challenge.is_empty() || opts.allow_credentials.is_empty() {
+        return None;
+    }
+    Some(opts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_two_factor_providers2_webauthn_bitwarden_and_vaultwarden() {
+        let bitwarden_json = r#"{
+            "error": "invalid_grant",
+            "error_description": "Two factor required.",
+            "TwoFactorProviders": ["0", "7"],
+            "TwoFactorProviders2": {
+                "0": null,
+                "7": {
+                    "challenge": "dGVzdC1jaGFsbGVuZ2U",
+                    "timeout": 60000,
+                    "rpId": "vault.bitwarden.com",
+                    "allowCredentials": [
+                        {"type": "public-key", "id": "Y3JlZC0x"}
+                    ],
+                    "userVerification": "discouraged",
+                    "extensions": {
+                        "appid": "https://vault.bitwarden.com/app-id.json"
+                    }
+                }
+            }
+        }"#;
+        let err_res: ConnectErrorRes =
+            serde_json::from_str(bitwarden_json).unwrap();
+        match classify_login_error(&err_res, 400) {
+            Error::TwoFactorRequired {
+                providers,
+                providers_data,
+                ..
+            } => {
+                assert!(providers.contains(&TwoFactorProviderType::WebAuthn));
+                let opts =
+                    parse_webauthn_2fa_options(&providers_data).unwrap();
+                assert_eq!(opts.challenge, "dGVzdC1jaGFsbGVuZ2U");
+                assert_eq!(
+                    opts.rp_id.as_deref(),
+                    Some("vault.bitwarden.com")
+                );
+                assert_eq!(opts.allow_credentials.len(), 1);
+                assert_eq!(opts.allow_credentials[0].id, "Y3JlZC0x");
+                assert_eq!(
+                    opts.extensions.unwrap().appid.as_deref(),
+                    Some("https://vault.bitwarden.com/app-id.json")
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        // Vaultwarden #7094 edge case: provider 7 advertised with null data
+        let vw_null_json = r#"{
+            "error": "invalid_grant",
+            "error_description": "Two factor required.",
+            "TwoFactorProviders": ["0", "7"],
+            "TwoFactorProviders2": {"0": null, "7": null}
+        }"#;
+        let err_res: ConnectErrorRes =
+            serde_json::from_str(vw_null_json).unwrap();
+        if let Error::TwoFactorRequired { providers_data, .. } =
+            classify_login_error(&err_res, 400)
+        {
+            assert!(parse_webauthn_2fa_options(&providers_data).is_none());
+        } else {
+            panic!("expected TwoFactorRequired");
+        }
+    }
+
+    #[test]
+    fn test_parse_connect_token_res_with_webauthn_prf_option() {
+        let json = r#"{
+            "access_token": "tok_a",
+            "refresh_token": "tok_r",
+            "Key": "2.iv|ct|mac",
+            "Kdf": 0,
+            "KdfIterations": 600000,
+            "UserDecryptionOptions": {
+                "HasMasterPassword": true,
+                "WebAuthnPrfOption": {
+                    "EncryptedPrivateKey": "2.p_iv|p_ct|p_mac",
+                    "EncryptedUserKey": "4.u_ct",
+                    "CredentialId": "Y3JlZC0x"
+                }
+            }
+        }"#;
+        let res: ConnectTokenRes = serde_json::from_str(json).unwrap();
+        assert_eq!(res.access_token, "tok_a");
+        assert_eq!(res.key.as_deref(), Some("2.iv|ct|mac"));
+        assert_eq!(res.kdf, Some(KdfType::Pbkdf2));
+        assert_eq!(res.kdf_iterations, Some(600_000));
+        let prf = res
+            .user_decryption_options
+            .unwrap()
+            .webauthn_prf_option
+            .unwrap();
+        assert_eq!(prf.encrypted_private_key, "2.p_iv|p_ct|p_mac");
+        assert_eq!(prf.encrypted_user_key, "4.u_ct");
+        assert_eq!(prf.credential_id.as_deref(), Some("Y3JlZC0x"));
+    }
 }

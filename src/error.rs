@@ -1,5 +1,31 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("account '{account}' not found")]
+    AccountNotFound { account: String },
+
+    #[error("account '{account}' already exists")]
+    AccountAlreadyExists { account: String },
+
+    #[error(
+        "account for '{email}' on '{server}' already exists as '{existing}' (use 'rbw switch {existing}' or 'rbw account list')"
+    )]
+    AccountDuplicateIdentity {
+        email: String,
+        server: String,
+        existing: String,
+    },
+
+    #[error("ambiguous account '{selector}'; matches: {matches}")]
+    AccountAmbiguous { selector: String, matches: String },
+
+    #[error(
+        "invalid account name '{name}': use only ASCII letters, digits, '-', '_', '.', or '@'"
+    )]
+    InvalidAccountName { name: String },
+
+    #[error("no accounts configured")]
+    NoAccountsConfigured,
+
     #[error("email address not set")]
     ConfigMissingEmail,
 
@@ -22,7 +48,7 @@ pub enum Error {
     CreateSSOCallbackServer { err: std::io::Error },
 
     #[error("failed to decrypt")]
-    Decrypt { source: block_padding::UnpadError },
+    Decrypt { source: block_padding::Error },
 
     #[error("failed to find free port in {range}")]
     FailedToFindFreePort { range: String },
@@ -169,7 +195,9 @@ pub enum Error {
     #[error("error waiting for pinentry to exit")]
     PinentryWait { source: tokio::io::Error },
 
-    #[error("This device has not yet been registered with the Bitwarden server. Run `rbw register` first, and then try again.")]
+    #[error(
+        "This device has not yet been registered with the Bitwarden server. Run `rbw register` first, and then try again."
+    )]
     RegistrationRequired,
 
     #[error("failed to remove db at {}", .file.display())]
@@ -226,12 +254,15 @@ pub enum Error {
     #[error("error spawning pinentry")]
     Spawn { source: tokio::io::Error },
 
-    #[error("cipherstring type {ty} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again.")]
+    #[error(
+        "cipherstring type {ty} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again."
+    )]
     TooOldCipherStringType { ty: String },
 
     #[error("two factor required")]
     TwoFactorRequired {
         providers: Vec<crate::api::TwoFactorProviderType>,
+        providers_data: std::collections::HashMap<String, serde_json::Value>,
         sso_email_2fa_session_token: Option<String>,
     },
 
@@ -243,6 +274,41 @@ pub enum Error {
 
     #[error("invalid kdf type: {ty}")]
     InvalidKdfType { ty: String },
+
+    #[error("touch id cancelled")]
+    TouchIdCancelled,
+
+    #[error("failed to access keychain: {message}")]
+    Keychain { message: String },
+
+    #[error("FIDO2 security key error: {message}")]
+    Fido2 { message: String },
+
+    #[error("no FIDO2 security key found")]
+    Fido2NoDevice,
+
+    #[error("FIDO2 support is unavailable: {message}")]
+    Fido2Unsupported { message: String },
+
+    #[error("FIDO2 security key requires a PIN or user verification")]
+    Fido2PinRequired,
+
+    #[error("invalid FIDO2 PIN{}", .retries.map_or_else(String::new, |r| format!(" ({r} attempts remaining)")))]
+    Fido2PinInvalid { retries: Option<i32> },
+
+    #[error("FIDO2 security key PIN is blocked")]
+    Fido2PinBlocked,
+
+    #[error("FIDO2 security key operation cancelled")]
+    Fido2Cancelled,
+
+    #[error(
+        "server does not support passkey login (GET /accounts/webauthn/assertion-options returned {status}); Vaultwarden currently supports WebAuthn 2FA via regular `rbw login` only"
+    )]
+    PasskeyLoginUnsupported { status: u16 },
+
+    #[error("failed to access local YubiKey store: {message}")]
+    YubikeyStorage { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

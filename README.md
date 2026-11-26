@@ -96,14 +96,83 @@ configuration options:
 * `pinentry`: The
   [pinentry](https://www.gnupg.org/related_software/pinentry/index.html)
   executable to use. Defaults to `pinentry`.
+* `touchid` *(macOS only)*: Whether to unlock the local vault with macOS
+  Touch ID (or Apple Watch) instead of prompting for the master password
+  after logging in. Stores the derived 64-byte master key (never the master
+  password) in the macOS login keychain, automatically falls back to
+  `pinentry` when unavailable or when "Use Master Password" is selected, and
+  removes the stored key when disabled or on `rbw purge`. Entries marked with
+  master password re-prompt still require the master password. Defaults to
+  `false`.
+* `yubikey`: Whether to unlock the local vault using a FIDO2 security key
+  (e.g. YubiKey 5, YubiKey Bio, Security Key NFC/C) via the CTAP2 `hmac-secret`
+  extension. Wraps the derived 64-byte master key using a key derived from the
+  security key and stores only the ciphertext in `data_dir` (`0o600`), falls
+  back to Touch ID / `pinentry` when no matching key is plugged in, and removes
+  stored keys when disabled or on `rbw purge`. Use `rbw yubikey enroll`,
+  `rbw yubikey list`, `rbw yubikey remove`, and `rbw yubikey clear` to manage
+  primary and backup keys. Entries marked with master password re-prompt still
+  require the master password. Defaults to `false`.
+* `yubikey_uv`: Whether local FIDO2 `hmac-secret` unlock requires User
+  Verification (FIDO2 PIN or biometric sensor) in addition to touching the
+  security key. Defaults to `false` (touch-only, unless the key enforces
+  `alwaysUv`).
+* `passkey_login`: Whether `rbw login` defaults to passwordless passkey login
+  (WebAuthn PRF) instead of master password login. Can always be overridden per
+  command with `rbw login --passkey` or `rbw login --password`. Defaults to
+  `false`.
+
+### Multiple Accounts & Vault Servers
+
+`rbw` supports managing and switching between multiple Bitwarden / Vaultwarden
+accounts (including the same email address across different vault servers)
+within a single `rbw-agent` daemon:
+
+```sh
+# Interactive wizard to add an account (supports bitwarden.com, bitwarden.eu, or self-hosted URLs)
+rbw account add
+
+# Or add non-interactively
+rbw account add nullbyte --email user@example.com --server https://vault.example.com
+rbw account add personal --email user@example.com --server bitwarden.com --login
+
+# List configured accounts and their live lock state (aliases: ls, status)
+rbw account list
+
+# Switch active account interactively (arrow-key picker) or directly
+rbw switch
+rbw switch personal
+rbw account switch --email user@example.com --server bitwarden.com
+
+# Run a single command against another account without changing the active account
+rbw -a nullbyte ls
+RBW_ACCOUNT=personal rbw get github
+
+# Lock only the active account, or lock every account at once
+rbw lock
+rbw lock --all
+
+# Rename or remove an account (use --keep-data to retain local DB/Touch ID/YubiKey keys)
+rbw account rename personal bw
+rbw account remove bw
+```
+
+Switching accounts keeps previously unlocked accounts unlocked in `rbw-agent`
+memory until their individual `lock_timeout` expires or `rbw lock` /
+`rbw lock --all` is run. Per-account configuration overrides can be set with
+`rbw config set` (and global defaults with `rbw config set --global`). The
+built-in SSH agent dynamically serves SSH keys for the currently active account.
+
+Existing single-account `config.json` files continue to work unchanged and are
+migrated automatically when you add another account.
 
 ### Profiles
 
-`rbw` supports different configuration profiles, which can be switched
-between by using the `RBW_PROFILE` environment variable. Setting it to a name
-(for example, `RBW_PROFILE=work` or `RBW_PROFILE=personal`) can be used to
-switch between several different vaults - each will use its own separate
-configuration, local vault, and agent.
+`rbw` also supports completely isolated configuration profiles via the
+`RBW_PROFILE` environment variable. Setting it to a name (for example,
+`RBW_PROFILE=work` or `RBW_PROFILE=personal`) gives that profile its own
+separate configuration file, local cache, data directory, runtime sockets, and
+background `rbw-agent` process.
 
 ## Usage
 
@@ -153,15 +222,25 @@ export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/rbw/ssh-agent-socket"
 If you're using a profile, the socket will be located at
 `"XDG_RUNTIME_DIR/rbw-<profile>/ssh-agent-socket"`.
 
-### 2FA support
+### 2FA and Passkey support
 
-`rbw` supports the following 2FA mechanisms :
+`rbw` supports the following 2FA mechanisms:
 
 * Email
 * Authenticator App
 * Yubico OTP security key (https://support.yubico.com/hc/en-us/articles/360013712639-Testing-Yubico-OTP)
+* FIDO2 / WebAuthn security key (native CTAP2 over USB HID on macOS and Linux)
 
-WebAuthn / Passkey and Duo security are unsupported 2FA mechanisms.
+Duo security is an unsupported 2FA mechanism.
+
+`rbw` also supports passwordless passkey login (`rbw login --passkey`) with
+WebAuthn PRF vault decryption on servers that support `grant_type=webauthn`
+(official Bitwarden servers; Vaultwarden currently supports FIDO2 WebAuthn 2FA
+via regular `rbw login`).
+
+On Linux, native FIDO2 access uses `hidraw` and requires udev permissions for
+FIDO devices (handled automatically by modern `systemd`, or via `libfido2` /
+`fido2` udev rules).
 
 If you use only unsupported 2FA mechanism, you need to add a supported 2FA
 mechanism on your bitwarden account to use rbw. It allows you to use rbw

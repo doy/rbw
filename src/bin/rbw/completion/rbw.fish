@@ -1,11 +1,20 @@
+function __fish_rbw_account_names
+    command rbw account list --raw 2>/dev/null | string match -rg '"name":\s*"([^"]+)"'
+end
+
 function __fish_rbw_get_completion_name
     set -l cmd (commandline -xpc)
     set -e cmd[1] # rbw
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    argparse -i a/account= folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
     set -e argv[1] # get
 
-    set -l candidates (command rbw list --fields name,folder,user)
+    set -l account_args
+    if set -q _flag_account
+        set account_args --account $_flag_account
+    end
+
+    set -l candidates (command rbw $account_args list --fields name,folder,user)
     # if folder is set, filter by it
     if set -q _flag_folder
         set candidates (printf '%s\n' $candidates | string match -er "^[^\t]*\t$_flag_folder\t")
@@ -57,13 +66,22 @@ function __fish_rbw_get_completion_fields
         set -e cmd[-1] # -f/--field
     end
 
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    argparse -i a/account= folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
     set -e argv[1] # get
 
+    set -l account_args
+    if set -q _flag_account
+        set account_args --account $_flag_account
+    end
+
     if test (count $argv) -gt 0
-        command rbw get "$argv[1]" --list-fields 2>/dev/null
+        command rbw $account_args get "$argv[1]" --list-fields 2>/dev/null
     end
 end
+
+complete -f -c rbw -s a -l account -r -d 'Account name, email, or server' -a '(__fish_rbw_account_names)'
+complete -f -c rbw -n '__fish_seen_subcommand_from switch' -a '(__fish_rbw_account_names)'
+complete -f -c rbw -n '__fish_seen_subcommand_from account; and __fish_seen_subcommand_from switch remove rm rename' -a '(__fish_rbw_account_names)'
 
 complete -f -c rbw -n '__fish_seen_subcommand_from get edit' -a '(__fish_rbw_get_completion_name)'
 

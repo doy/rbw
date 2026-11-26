@@ -9,28 +9,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --all-targets --all-features
   build-musl:
     runs-on: ubuntu-latest
     steps:
-      - run: sudo apt-get install clang-18
-      - uses: actions/checkout@v3
+      - run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev
+          sudo ln -sfn /usr/include/linux /usr/include/x86_64-linux-musl/linux
+          sudo ln -sfn /usr/include/asm-generic /usr/include/x86_64-linux-musl/asm-generic
+          sudo ln -sfn /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/asm
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo build --all-targets --all-features --target x86_64-unknown-linux-musl
+      - run: CC_x86_64_unknown_linux_musl=musl-gcc cargo build --all-targets --all-features --target x86_64-unknown-linux-musl
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --all-targets --all-features
   build-android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall cross
@@ -38,28 +43,34 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
   test-musl:
     runs-on: ubuntu-latest
     steps:
-      - run: sudo apt-get install clang-18
-      - uses: actions/checkout@v3
+      - run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev
+          sudo ln -sfn /usr/include/linux /usr/include/x86_64-linux-musl/linux
+          sudo ln -sfn /usr/include/asm-generic /usr/include/x86_64-linux-musl/asm-generic
+          sudo ln -sfn /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/asm
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - run: TARGET_CC=clang-18 TARGET_AR=llvm-ar-18 cargo test --all-features --target x86_64-unknown-linux-musl
+      - run: CC_x86_64_unknown_linux_musl=musl-gcc cargo test --all-features --target x86_64-unknown-linux-musl
   test-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all-features
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -67,11 +78,12 @@ jobs:
       - run: cargo binstall cargo-deny
       - run: cargo clippy --all-targets --all-features -- -Dwarnings
       - run: cargo fmt --check
-      - run: cargo deny check
+      - run: cargo deny --all-features check
   doc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: RUSTDOCFLAGS="-Dwarnings" cargo doc --all-features
       - run: cargo test --doc --all-features
