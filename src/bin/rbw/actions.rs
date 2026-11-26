@@ -201,3 +201,21 @@ fn get_environment() -> rbw::protocol::Environment {
         .collect();
     rbw::protocol::Environment::new(tty, env_vars)
 }
+
+pub fn status() -> anyhow::Result<rbw::db::Status> {
+    // Do not use connect(): it starts the agent.
+    let mut sock = match crate::sock::Sock::connect() {
+        Ok(sock) => sock,
+        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused) => {
+            let config = rbw::config::Config::load()?;
+            let email = config.email.as_deref().context("email is not configured")?;
+            return Ok(rbw::db::Db::load(&config.server_name(), email)?.status(true));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    sock.send(&rbw::protocol::Request::new(get_environment(), rbw::protocol::Action::Status))?;
+    match sock.recv()? {
+        rbw::protocol::Response::Status { status } => Ok(status),
+        _ => anyhow::bail!("failed to read agent status"),
+    }
+}

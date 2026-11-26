@@ -179,6 +179,10 @@ pub struct HistoryEntry {
 pub struct Db {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub last_sync: Option<u64>,
+    #[serde(default)]
+    pub last_error: Option<StatusError>,
 
     pub kdf: Option<crate::api::KdfType>,
     pub iterations: Option<u32>,
@@ -326,5 +330,80 @@ mod persistence_tests {
         assert!(atomic_save(&target, b"replacement").is_err());
         assert_eq!(std::fs::read(target.join("cached")).unwrap(), b"preserved");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+}
+
+/// Closed vocabulary: never persist or print server/pinentry text.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusError { SyncFailed }
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct Status {
+    pub locked: bool,
+    pub last_sync: Option<u64>,
+    pub access_token_expires_at: Option<u64>,
+    pub refresh_token_expires_at: Option<u64>,
+    pub last_error: Option<StatusError>,
+}
+
+impl Db {
+    pub fn status(&self, locked: bool) -> Status {
+        Status {
+            locked,
+            last_sync: self.last_sync,
+            access_token_expires_at: token_expiry(self.access_token.as_deref()),
+            refresh_token_expires_at: token_expiry(self.refresh_token.as_deref()),
+            last_error: self.last_error,
+        }
+    }
+}
+
+pub fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
+// Untrusted display hint, never an authorization decision. Limit decoded data.
+fn token_expiry(token: Option<&str>) -> Option<u64> {
+    use base64::Engine as _;
+    let token = token?;
+    if token.len() > 16384 { return None; }
+    let mut parts = token.split('.');
+    parts.next()?;
+    let payload = parts.next()?;
+    parts.next()?;
+    if parts.next().is_some() || payload.len() > 8192 { return None; }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
+    #[derive(serde::Deserialize)]
+    struct Claims { exp: u64 }
+    serde_json::from_slice::<Claims>(&bytes).ok().map(|claims| claims.exp)
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    #[test]
+    fn status_is_bounded_and_handles_opaque_tokens() {
+        let mut db = Db::new();
+        db.access_token = Some(format!("header.{}.signature", crate::base64::encode_url_safe_no_pad(
+            br#"{"exp":12345,"secret":"MUST_NOT_APPEAR"}"#,
+        )));
+        db.refresh_token = Some("opaque-MUST_NOT_APPEAR".into());
+        db.last_sync = Some(42);
+        db.last_error = Some(StatusError::SyncFailed);
+        let status = db.status(false);
+        assert_eq!(status.access_token_expires_at, Some(12345));
+        assert_eq!(status.refresh_token_expires_at, None);
+        let json = serde_json::to_value(status).unwrap();
+        assert_eq!(json.as_object().unwrap().len(), 5);
+        assert_eq!(json["locked"], false);
+        assert_eq!(json["last_sync"], 42);
+        assert_eq!(json["last_error"], "sync_failed");
+        assert!(!json.to_string().contains("MUST_NOT_APPEAR"));
+        for token in ["bad", "a.%%%.c", "a.e30.c", "a.eyJleHAiOi0xfQ.c", "a.eyJleHAiOiJzZWNyZXQifQ.c"] {
+            assert_eq!(token_expiry(Some(token)), None);
+        }
+        assert_eq!(token_expiry(Some(&"x".repeat(16385))), None);
     }
 }

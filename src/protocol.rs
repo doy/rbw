@@ -172,6 +172,7 @@ pub enum Action {
     Register,
     Unlock,
     CheckLock,
+    Status,
     Lock,
     Sync,
     Decrypt {
@@ -194,6 +195,7 @@ pub enum Action {
 #[serde(tag = "type")]
 pub enum Response {
     Ack,
+    Status { status: crate::db::Status },
     Error { error: String },
     Decrypt { plaintext: String },
     Encrypt { cipherstring: String },

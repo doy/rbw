@@ -48,6 +48,9 @@ enum Opt {
     #[command(about = "Check if the local Bitwarden database is unlocked")]
     Unlocked,
 
+    #[command(about = "Report nonsecret local status as JSON without unlocking")]
+    Status,
+
     #[command(about = "Update the local copy of the Bitwarden database")]
     Sync,
 
@@ -249,6 +252,7 @@ impl Opt {
             Self::Login => "login".to_string(),
             Self::Unlock => "unlock".to_string(),
             Self::Unlocked => "unlocked".to_string(),
+            Self::Status => "status".to_string(),
             Self::Sync => "sync".to_string(),
             Self::List { .. } => "list".to_string(),
             Self::Get { .. } => "get".to_string(),
@@ -336,6 +340,10 @@ fn main() {
         Opt::Login => commands::login(),
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
+        Opt::Status => {
+            println!("{}", serde_json::to_string(&actions::status()?)?);
+            Ok(())
+        }
         Opt::Sync => commands::sync(),
         Opt::List { fields, raw } => commands::list(&fields, raw),
         Opt::Get {

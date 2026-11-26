@@ -131,6 +131,10 @@ async fn handle_request(
             crate::actions::unlock(sock, state.clone(), &environment).await?;
             true
         }
+        rbw::protocol::Action::Status => {
+            crate::actions::status(sock, state.clone()).await?;
+            return Ok(());
+        }
         rbw::protocol::Action::CheckLock => {
             crate::actions::check_lock(sock, state.clone()).await?;
             false

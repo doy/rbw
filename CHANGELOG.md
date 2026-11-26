@@ -2,6 +2,10 @@
 
 ## Unreleased (jieniu)
 
+* Add JSON-only `rbw status`: locked state, last successful sync, token expiry
+  hints, and a fixed nonsecret error code. It never starts the agent, contacts
+  the server, or unlocks the vault. Opaque/malformed token expiries are null.
+
 * Persist rotated refresh tokens at every refresh caller, including failed
   operation retries (adapted from Fredrik Ekre's e1fd97a3, upstream PR #378).
   Replace database files atomically with private same-directory temporary files,

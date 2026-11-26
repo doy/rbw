@@ -509,6 +509,20 @@ pub async fn sync(
     sock: Option<&mut crate::sock::Sock>,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
+    let result = sync_inner(sock, state).await;
+    if result.is_err() {
+        if let Ok(mut db) = load_db().await {
+            db.last_error = Some(rbw::db::StatusError::SyncFailed);
+            save_db(&db).await?;
+        }
+    }
+    result
+}
+
+async fn sync_inner(
+    sock: Option<&mut crate::sock::Sock>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+) -> anyhow::Result<()> {
     let mut db = load_db().await?;
 
     let access_token = if let Some(access_token) = &db.access_token {
@@ -539,6 +553,8 @@ pub async fn sync(
     db.protected_private_key = Some(protected_private_key);
     db.protected_org_keys = protected_org_keys;
     db.entries = entries;
+    db.last_sync = Some(rbw::db::unix_now());
+    db.last_error = None;
     save_db(&db).await?;
 
     if let Err(e) = subscribe_to_notifications(state.clone()).await {
@@ -953,4 +969,14 @@ pub async fn find_ssh_private_key(
     }
 
     Err(anyhow::anyhow!("No matching private key found"))
+}
+
+pub async fn status(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+) -> anyhow::Result<()> {
+    let db = load_db().await?;
+    let locked = state.lock().await.needs_unlock();
+    sock.send(&rbw::protocol::Response::Status { status: db.status(locked) }).await?;
+    Ok(())
 }
