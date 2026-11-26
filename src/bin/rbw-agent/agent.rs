@@ -2,22 +2,18 @@ use anyhow::Context as _;
 use futures_util::StreamExt as _;
 
 pub struct Agent {
-    timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
-    sync_timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
+    event_r: tokio::sync::mpsc::UnboundedReceiver<crate::state::AgentEvent>,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 }
 
 impl Agent {
     pub fn new(
-        timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
-        sync_timer_r: tokio::sync::mpsc::UnboundedReceiver<()>,
+        event_r: tokio::sync::mpsc::UnboundedReceiver<
+            crate::state::AgentEvent,
+        >,
         state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     ) -> Self {
-        Self {
-            timer_r,
-            sync_timer_r,
-            state,
-        }
+        Self { event_r, state }
     }
 
     pub async fn run(
@@ -26,42 +22,18 @@ impl Agent {
     ) -> anyhow::Result<()> {
         pub enum Event {
             Request(std::io::Result<tokio::net::UnixStream>),
-            Timeout(()),
-            Sync(()),
+            Agent(crate::state::AgentEvent),
         }
-
-        let notifications = self
-            .state
-            .lock()
-            .await
-            .notifications_handler
-            .get_channel()
-            .await;
-        let notifications =
-            tokio_stream::wrappers::UnboundedReceiverStream::new(
-                notifications,
-            )
-            .map(|message| match message {
-                crate::notifications::Message::Logout => Event::Timeout(()),
-                crate::notifications::Message::Sync => Event::Sync(()),
-            })
-            .boxed();
 
         let mut stream = futures_util::stream::select_all([
             tokio_stream::wrappers::UnixListenerStream::new(listener)
                 .map(Event::Request)
                 .boxed(),
             tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.timer_r,
+                self.event_r,
             )
-            .map(Event::Timeout)
+            .map(Event::Agent)
             .boxed(),
-            tokio_stream::wrappers::UnboundedReceiverStream::new(
-                self.sync_timer_r,
-            )
-            .map(Event::Sync)
-            .boxed(),
-            notifications,
         ]);
         while let Some(event) = stream.next().await {
             match event {
@@ -86,21 +58,47 @@ impl Agent {
                         }
                     });
                 }
-                Event::Timeout(()) => {
-                    self.state.lock().await.clear();
+                Event::Agent(crate::state::AgentEvent::Timeout(key)) => {
+                    self.state.lock().await.clear_account(&key);
                 }
-                Event::Sync(()) => {
+                Event::Agent(crate::state::AgentEvent::Sync(key)) => {
                     let state = self.state.clone();
                     tokio::spawn(async move {
+                        let config_opt =
+                            rbw::config::ConfigFile::load_async()
+                                .await
+                                .ok()
+                                .and_then(|cf| cf.find_by_key(&key))
+                                .map(|(_, cfg)| cfg);
+
+                        let Some(config) = config_opt else {
+                            let evicted =
+                                state.lock().await.evict_account(&key);
+                            if let Some(acct) = evicted {
+                                acct.shutdown().await;
+                            }
+                            return;
+                        };
+
                         // this could fail if we aren't logged in, but we
                         // don't care about that
-                        if let Err(e) =
-                            crate::actions::sync(None, state.clone()).await
+                        if let Err(e) = crate::actions::sync_for_config(
+                            None,
+                            state.clone(),
+                            &config,
+                            &key,
+                        )
+                        .await
                         {
                             eprintln!("failed to sync: {e:#}");
                         }
+
+                        let mut guard = state.lock().await;
+                        if let Some(acct) = guard.account_mut(&key) {
+                            acct.update_timeouts(&config);
+                            acct.set_sync_timeout();
+                        }
                     });
-                    self.state.lock().await.set_sync_timeout();
                 }
             }
         }
@@ -120,50 +118,94 @@ async fn handle_request(
             return Ok(());
         }
     };
-    let (action, environment) = req.into_parts();
-    let set_timeout = match &action {
-        rbw::protocol::Action::Register => {
-            crate::actions::register(sock, &environment).await?;
-            true
-        }
-        rbw::protocol::Action::Login => {
-            crate::actions::login(sock, state.clone(), &environment).await?;
-            true
-        }
-        rbw::protocol::Action::LoginPasskey => {
-            crate::actions::login_passkey(sock, state.clone(), &environment)
-                .await?;
-            true
-        }
-        rbw::protocol::Action::Unlock => {
-            crate::actions::unlock(sock, state.clone(), &environment).await?;
-            true
-        }
-        rbw::protocol::Action::YubikeyEnroll { label } => {
+    let (action, environment, account) = req.into_parts();
+    let timeout_key: Option<rbw::config::AccountKey> = match &action {
+        rbw::protocol::Action::Register => Some(
+            crate::actions::register(sock, account.as_deref(), &environment)
+                .await?,
+        ),
+        rbw::protocol::Action::Login => Some(
+            crate::actions::login(
+                sock,
+                state.clone(),
+                account.as_deref(),
+                &environment,
+            )
+            .await?,
+        ),
+        rbw::protocol::Action::LoginPasskey => Some(
+            crate::actions::login_passkey(
+                sock,
+                state.clone(),
+                account.as_deref(),
+                &environment,
+            )
+            .await?,
+        ),
+        rbw::protocol::Action::Unlock => Some(
+            crate::actions::unlock(
+                sock,
+                state.clone(),
+                account.as_deref(),
+                &environment,
+            )
+            .await?,
+        ),
+        rbw::protocol::Action::YubikeyEnroll { label } => Some(
             crate::actions::yubikey_enroll(
                 sock,
                 state.clone(),
+                account.as_deref(),
                 &environment,
                 label.as_deref(),
             )
+            .await?,
+        ),
+        rbw::protocol::Action::DeleteTouchIdKey { server, email } => {
+            crate::actions::delete_touchid_key(
+                sock,
+                account.as_deref(),
+                server.as_deref(),
+                email.as_deref(),
+            )
             .await?;
-            true
-        }
-        rbw::protocol::Action::DeleteTouchIdKey => {
-            crate::actions::delete_touchid_key(sock).await?;
-            false
+            None
         }
         rbw::protocol::Action::CheckLock => {
-            crate::actions::check_lock(sock, state.clone()).await?;
-            false
+            crate::actions::check_lock(
+                sock,
+                state.clone(),
+                account.as_deref(),
+            )
+            .await?;
+            None
         }
         rbw::protocol::Action::Lock => {
-            crate::actions::lock(sock, state.clone()).await?;
-            false
+            crate::actions::lock(sock, state.clone(), account.as_deref())
+                .await?;
+            None
+        }
+        rbw::protocol::Action::LockAll => {
+            crate::actions::lock_all(sock, state.clone()).await?;
+            None
+        }
+        rbw::protocol::Action::AccountStates => {
+            crate::actions::account_states(sock, state.clone()).await?;
+            None
+        }
+        rbw::protocol::Action::EvictAccount { server, email } => {
+            crate::actions::evict_account(sock, state.clone(), server, email)
+                .await?;
+            None
         }
         rbw::protocol::Action::Sync => {
-            crate::actions::sync(Some(sock), state.clone()).await?;
-            false
+            crate::actions::sync(
+                Some(sock),
+                state.clone(),
+                account.as_deref(),
+            )
+            .await?;
+            None
         }
         rbw::protocol::Action::Decrypt {
             cipherstring,
@@ -173,43 +215,47 @@ async fn handle_request(
             let cipherstring = cipherstring.clone();
             let entry_key = entry_key.clone();
             let org_id = org_id.clone();
-            crate::actions::decrypt(
-                sock,
-                state.clone(),
-                &environment,
-                &cipherstring,
-                entry_key.as_deref(),
-                org_id.as_deref(),
+            Some(
+                crate::actions::decrypt(
+                    sock,
+                    state.clone(),
+                    account.as_deref(),
+                    &environment,
+                    &cipherstring,
+                    entry_key.as_deref(),
+                    org_id.as_deref(),
+                )
+                .await?,
             )
-            .await?;
-            true
         }
-        rbw::protocol::Action::Encrypt { plaintext, org_id } => {
+        rbw::protocol::Action::Encrypt { plaintext, org_id } => Some(
             crate::actions::encrypt(
                 sock,
                 state.clone(),
+                account.as_deref(),
                 plaintext,
                 org_id.as_deref(),
             )
-            .await?;
-            true
-        }
+            .await?,
+        ),
         rbw::protocol::Action::ClipboardStore { text } => {
             crate::actions::clipboard_store(sock, state.clone(), text)
                 .await?;
-            true
+            None
         }
         rbw::protocol::Action::Quit => std::process::exit(0),
         rbw::protocol::Action::Version => {
             crate::actions::version(sock).await?;
-            false
+            None
         }
     };
 
     let mut state = state.lock().await;
     state.set_last_environment(environment);
-    if set_timeout {
-        state.set_timeout();
+    if let Some(key) = timeout_key
+        && let Some(acct) = state.account(&key)
+    {
+        acct.set_timeout();
     }
 
     Ok(())

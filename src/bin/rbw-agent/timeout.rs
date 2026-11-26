@@ -10,6 +10,7 @@ enum Streams {
 enum Action {
     Set(std::time::Duration),
     Clear,
+    Shutdown,
 }
 
 pub struct Timeout {
@@ -47,8 +48,13 @@ impl Timeout {
                     (_, Event::Request(Action::Clear)) => {
                         stream.remove(&Streams::Timer);
                     }
+                    (_, Event::Request(Action::Shutdown)) => {
+                        break;
+                    }
                     (_, Event::Timer) => {
-                        timer_w.send(()).unwrap();
+                        if timer_w.send(()).is_err() {
+                            break;
+                        }
                     }
                 }
             }
@@ -57,10 +63,16 @@ impl Timeout {
     }
 
     pub fn set(&self, dur: std::time::Duration) {
-        self.req_w.send(Action::Set(dur)).unwrap();
+        let _ = self.req_w.send(Action::Set(dur));
     }
 
     pub fn clear(&self) {
-        self.req_w.send(Action::Clear).unwrap();
+        let _ = self.req_w.send(Action::Clear);
+    }
+}
+
+impl Drop for Timeout {
+    fn drop(&mut self) {
+        let _ = self.req_w.send(Action::Shutdown);
     }
 }

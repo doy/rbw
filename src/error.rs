@@ -1,5 +1,31 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("account '{account}' not found")]
+    AccountNotFound { account: String },
+
+    #[error("account '{account}' already exists")]
+    AccountAlreadyExists { account: String },
+
+    #[error(
+        "account for '{email}' on '{server}' already exists as '{existing}'"
+    )]
+    AccountDuplicateIdentity {
+        email: String,
+        server: String,
+        existing: String,
+    },
+
+    #[error("ambiguous account '{selector}'; matches: {matches}")]
+    AccountAmbiguous { selector: String, matches: String },
+
+    #[error(
+        "invalid account name '{name}': use only ASCII letters, digits, '-', '_', '.', or '@'"
+    )]
+    InvalidAccountName { name: String },
+
+    #[error("no accounts configured")]
+    NoAccountsConfigured,
+
     #[error("email address not set")]
     ConfigMissingEmail,
 

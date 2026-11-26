@@ -22,14 +22,17 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub fn new() -> Self {
-        Self {
+    pub fn with_channel()
+    -> (Self, tokio::sync::mpsc::UnboundedReceiver<Message>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let handler = Self {
             write: None,
             read_handle: None,
             sending_channels: std::sync::Arc::new(tokio::sync::RwLock::new(
-                Vec::new(),
+                vec![tx],
             )),
-        }
+        };
+        (handler, rx)
     }
 
     pub async fn connect(
@@ -37,7 +40,7 @@ impl Handler {
         url: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.is_connected() {
-            self.disconnect().await?;
+            self.disconnect_ws().await;
         }
 
         let (write, read_handle) =
@@ -55,28 +58,22 @@ impl Handler {
             && !self.read_handle.as_ref().unwrap().is_finished()
     }
 
-    pub async fn disconnect(
-        &mut self,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.sending_channels.write().await.clear();
+    async fn disconnect_ws(&mut self) {
         if let Some(mut write) = self.write.take() {
-            write
+            let _ = write
                 .send(tokio_tungstenite::tungstenite::Message::Close(None))
-                .await?;
-            write.close().await?;
-            self.read_handle.take().unwrap().await?;
+                .await;
+            let _ = write.close().await;
         }
-        self.write = None;
-        self.read_handle = None;
-        Ok(())
+        if let Some(handle) = self.read_handle.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
     }
 
-    pub async fn get_channel(
-        &self,
-    ) -> tokio::sync::mpsc::UnboundedReceiver<Message> {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        self.sending_channels.write().await.push(tx);
-        rx
+    pub async fn shutdown(&mut self) {
+        self.disconnect_ws().await;
+        self.sending_channels.write().await.clear();
     }
 }
 
@@ -106,8 +103,7 @@ async fn subscribe_to_notifications(
         .send(tokio_tungstenite::tungstenite::Message::Text(
             "{\"protocol\":\"messagepack\",\"version\":1}\x1e".into(),
         ))
-        .await
-        .unwrap();
+        .await?;
 
     let read_future = async move {
         let sending_channels = &sending_channels;
@@ -116,9 +112,8 @@ async fn subscribe_to_notifications(
                 Ok(message) => {
                     if let Some(message) = parse_message(message) {
                         let sending_channels = sending_channels.read().await;
-                        let sending_channels = sending_channels.as_slice();
-                        for channel in sending_channels {
-                            channel.send(message).unwrap();
+                        for channel in sending_channels.as_slice() {
+                            let _ = channel.send(message);
                         }
                     }
                 }

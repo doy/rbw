@@ -1,19 +1,21 @@
 use crate::prelude::*;
 
 pub async fn register(
+    config: &crate::config::Config,
     email: &str,
     apikey: crate::locked::ApiKey,
 ) -> Result<()> {
-    let (client, config) = api_client_async().await?;
+    let client = api_client_for(config);
 
     client
-        .register(email, &crate::config::device_id(&config).await?, &apikey)
+        .register(email, &crate::config::device_id(config).await?, &apikey)
         .await?;
 
     Ok(())
 }
 
 pub async fn login(
+    config: &crate::config::Config,
     email: &str,
     password: crate::locked::Password,
     two_factor_token: Option<&str>,
@@ -27,7 +29,7 @@ pub async fn login(
     Option<u32>,
     String,
 )> {
-    let (client, config) = api_client_async().await?;
+    let client = api_client_for(config);
     let (kdf, iterations, memory, parallelism) =
         client.prelogin(email).await?;
 
@@ -43,7 +45,7 @@ pub async fn login(
         .login(
             email,
             config.sso_id.as_deref(),
-            &crate::config::device_id(&config).await?,
+            &crate::config::device_id(config).await?,
             &identity.master_password_hash,
             two_factor_token,
             two_factor_provider,
@@ -61,20 +63,22 @@ pub async fn login(
     ))
 }
 
-pub async fn webauthn_login_assertion_options()
--> Result<crate::api::WebAuthnLoginAssertionOptionsRes> {
-    let (client, _) = api_client_async().await?;
+pub async fn webauthn_login_assertion_options(
+    config: &crate::config::Config,
+) -> Result<crate::api::WebAuthnLoginAssertionOptionsRes> {
+    let client = api_client_for(config);
     client.webauthn_login_assertion_options().await
 }
 
 pub async fn login_webauthn(
+    config: &crate::config::Config,
     token: &str,
     device_response: &str,
 ) -> Result<crate::api::WebAuthnLoginRes> {
-    let (client, config) = api_client_async().await?;
+    let client = api_client_for(config);
     client
         .login_webauthn(
-            &crate::config::device_id(&config).await?,
+            &crate::config::device_id(config).await?,
             token,
             device_response,
         )
@@ -82,14 +86,15 @@ pub async fn login_webauthn(
 }
 
 pub async fn send_two_factor_email(
+    config: &crate::config::Config,
     email: &str,
     sso_email_2fa_session_token: &str,
 ) -> Result<()> {
-    let (client, config) = api_client_async().await?;
+    let client = api_client_for(config);
     client
         .send_email_login(
             email,
-            &crate::config::device_id(&config).await?,
+            &crate::config::device_id(config).await?,
             sso_email_2fa_session_token,
         )
         .await
@@ -223,6 +228,7 @@ pub fn decrypt_user_key_with_prf(
 }
 
 pub async fn sync(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
 ) -> Result<(
@@ -235,17 +241,20 @@ pub async fn sync(
     ),
 )> {
     with_exchange_refresh_token_async(
+        config,
         access_token,
         refresh_token,
         |access_token| {
+            let config = config.clone();
             let access_token = access_token.to_string();
-            Box::pin(async move { sync_once(&access_token).await })
+            Box::pin(async move { sync_once(&config, &access_token).await })
         },
     )
     .await
 }
 
 async fn sync_once(
+    config: &crate::config::Config,
     access_token: &str,
 ) -> Result<(
     String,
@@ -253,11 +262,12 @@ async fn sync_once(
     std::collections::HashMap<String, String>,
     Vec<crate::db::Entry>,
 )> {
-    let (client, _) = api_client_async().await?;
+    let client = api_client_for(config);
     client.sync(access_token).await
 }
 
 pub fn add(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
     name: &str,
@@ -265,24 +275,31 @@ pub fn add(
     notes: Option<&str>,
     folder_id: Option<&str>,
 ) -> Result<(Option<String>, ())> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        add_once(access_token, name, data, notes, folder_id)
-    })
+    with_exchange_refresh_token(
+        config,
+        access_token,
+        refresh_token,
+        |access_token| {
+            add_once(config, access_token, name, data, notes, folder_id)
+        },
+    )
 }
 
 fn add_once(
+    config: &crate::config::Config,
     access_token: &str,
     name: &str,
     data: &crate::db::EntryData,
     notes: Option<&str>,
     folder_id: Option<&str>,
 ) -> Result<()> {
-    let (client, _) = api_client()?;
+    let client = api_client_for(config);
     client.add(access_token, name, data, notes, folder_id)?;
     Ok(())
 }
 
 pub fn edit(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
     id: &str,
@@ -294,22 +311,29 @@ pub fn edit(
     folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
 ) -> Result<(Option<String>, ())> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        edit_once(
-            access_token,
-            id,
-            org_id,
-            name,
-            data,
-            fields,
-            notes,
-            folder_uuid,
-            history,
-        )
-    })
+    with_exchange_refresh_token(
+        config,
+        access_token,
+        refresh_token,
+        |access_token| {
+            edit_once(
+                config,
+                access_token,
+                id,
+                org_id,
+                name,
+                data,
+                fields,
+                notes,
+                folder_uuid,
+                history,
+            )
+        },
+    )
 }
 
 fn edit_once(
+    config: &crate::config::Config,
     access_token: &str,
     id: &str,
     org_id: Option<&str>,
@@ -320,7 +344,7 @@ fn edit_once(
     folder_uuid: Option<&str>,
     history: &[crate::db::HistoryEntry],
 ) -> Result<()> {
-    let (client, _) = api_client()?;
+    let client = api_client_for(config);
     client.edit(
         access_token,
         id,
@@ -336,51 +360,75 @@ fn edit_once(
 }
 
 pub fn remove(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
     id: &str,
 ) -> Result<(Option<String>, ())> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        remove_once(access_token, id)
-    })
+    with_exchange_refresh_token(
+        config,
+        access_token,
+        refresh_token,
+        |access_token| remove_once(config, access_token, id),
+    )
 }
 
-fn remove_once(access_token: &str, id: &str) -> Result<()> {
-    let (client, _) = api_client()?;
+fn remove_once(
+    config: &crate::config::Config,
+    access_token: &str,
+    id: &str,
+) -> Result<()> {
+    let client = api_client_for(config);
     client.remove(access_token, id)?;
     Ok(())
 }
 
 pub fn list_folders(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
 ) -> Result<(Option<String>, Vec<(String, String)>)> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        list_folders_once(access_token)
-    })
+    with_exchange_refresh_token(
+        config,
+        access_token,
+        refresh_token,
+        |access_token| list_folders_once(config, access_token),
+    )
 }
 
-fn list_folders_once(access_token: &str) -> Result<Vec<(String, String)>> {
-    let (client, _) = api_client()?;
+fn list_folders_once(
+    config: &crate::config::Config,
+    access_token: &str,
+) -> Result<Vec<(String, String)>> {
+    let client = api_client_for(config);
     client.folders(access_token)
 }
 
 pub fn create_folder(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
     name: &str,
 ) -> Result<(Option<String>, String)> {
-    with_exchange_refresh_token(access_token, refresh_token, |access_token| {
-        create_folder_once(access_token, name)
-    })
+    with_exchange_refresh_token(
+        config,
+        access_token,
+        refresh_token,
+        |access_token| create_folder_once(config, access_token, name),
+    )
 }
 
-fn create_folder_once(access_token: &str, name: &str) -> Result<String> {
-    let (client, _) = api_client()?;
+fn create_folder_once(
+    config: &crate::config::Config,
+    access_token: &str,
+    name: &str,
+) -> Result<String> {
+    let client = api_client_for(config);
     client.create_folder(access_token, name)
 }
 
 fn with_exchange_refresh_token<F, T>(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
     f: F,
@@ -391,7 +439,7 @@ where
     match f(access_token) {
         Ok(t) => Ok((None, t)),
         Err(Error::RequestUnauthorized) => {
-            let access_token = exchange_refresh_token(refresh_token)?;
+            let access_token = exchange_refresh_token(config, refresh_token)?;
             let t = f(&access_token)?;
             Ok((Some(access_token), t))
         }
@@ -400,6 +448,7 @@ where
 }
 
 async fn with_exchange_refresh_token_async<F, T>(
+    config: &crate::config::Config,
     access_token: &str,
     refresh_token: &str,
     f: F,
@@ -417,7 +466,7 @@ where
         Ok(t) => Ok((None, t)),
         Err(Error::RequestUnauthorized) => {
             let access_token =
-                exchange_refresh_token_async(refresh_token).await?;
+                exchange_refresh_token_async(config, refresh_token).await?;
             let t = f(&access_token).await?;
             Ok((Some(access_token), t))
         }
@@ -425,37 +474,29 @@ where
     }
 }
 
-fn exchange_refresh_token(refresh_token: &str) -> Result<String> {
-    let (client, _) = api_client()?;
+fn exchange_refresh_token(
+    config: &crate::config::Config,
+    refresh_token: &str,
+) -> Result<String> {
+    let client = api_client_for(config);
     client.exchange_refresh_token(refresh_token)
 }
 
-async fn exchange_refresh_token_async(refresh_token: &str) -> Result<String> {
-    let (client, _) = api_client()?;
+async fn exchange_refresh_token_async(
+    config: &crate::config::Config,
+    refresh_token: &str,
+) -> Result<String> {
+    let client = api_client_for(config);
     client.exchange_refresh_token_async(refresh_token).await
 }
 
-fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
-    let config = crate::config::Config::load()?;
-    let client = crate::api::Client::new(
+fn api_client_for(config: &crate::config::Config) -> crate::api::Client {
+    crate::api::Client::new(
         &config.base_url(),
         &config.identity_url(),
         &config.ui_url(),
         config.client_cert_path(),
-    );
-    Ok((client, config))
-}
-
-async fn api_client_async()
--> Result<(crate::api::Client, crate::config::Config)> {
-    let config = crate::config::Config::load_async().await?;
-    let client = crate::api::Client::new(
-        &config.base_url(),
-        &config.identity_url(),
-        &config.ui_url(),
-        config.client_cert_path(),
-    );
-    Ok((client, config))
+    )
 }
 
 #[test]

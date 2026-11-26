@@ -2,37 +2,54 @@ use std::{io::Read as _, os::unix::ffi::OsStringExt as _};
 
 use anyhow::Context as _;
 
-pub fn register() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Register)
+pub fn register(account: Option<&str>) -> anyhow::Result<()> {
+    simple_action(account, rbw::protocol::Action::Register)
 }
 
-pub fn login() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Login)
+pub fn login(account: Option<&str>) -> anyhow::Result<()> {
+    simple_action(account, rbw::protocol::Action::Login)
 }
 
-pub fn login_passkey() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::LoginPasskey)
+pub fn login_passkey(account: Option<&str>) -> anyhow::Result<()> {
+    simple_action(account, rbw::protocol::Action::LoginPasskey)
 }
 
-pub fn yubikey_enroll(label: Option<&str>) -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::YubikeyEnroll {
-        label: label.map(std::string::ToString::to_string),
-    })
+pub fn yubikey_enroll(
+    account: Option<&str>,
+    label: Option<&str>,
+) -> anyhow::Result<()> {
+    simple_action(
+        account,
+        rbw::protocol::Action::YubikeyEnroll {
+            label: label.map(std::string::ToString::to_string),
+        },
+    )
 }
 
-pub fn delete_touchid_key() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::DeleteTouchIdKey)
+pub fn delete_touchid_key(
+    account: Option<&str>,
+    server: Option<&str>,
+    email: Option<&str>,
+) -> anyhow::Result<()> {
+    simple_action(
+        account,
+        rbw::protocol::Action::DeleteTouchIdKey {
+            server: server.map(std::string::ToString::to_string),
+            email: email.map(std::string::ToString::to_string),
+        },
+    )
 }
 
-pub fn unlock() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Unlock)
+pub fn unlock(account: Option<&str>) -> anyhow::Result<()> {
+    simple_action(account, rbw::protocol::Action::Unlock)
 }
 
-pub fn unlocked() -> anyhow::Result<()> {
+pub fn unlocked(account: Option<&str>) -> anyhow::Result<()> {
     match crate::sock::Sock::connect() {
         Ok(mut sock) => {
-            sock.send(&rbw::protocol::Request::new(
+            sock.send(&rbw::protocol::Request::new_for_account(
                 get_environment(),
+                account.map(std::string::ToString::to_string),
                 rbw::protocol::Action::CheckLock,
             ))?;
 
@@ -58,12 +75,92 @@ pub fn unlocked() -> anyhow::Result<()> {
     }
 }
 
-pub fn sync() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Sync)
+pub fn sync(account: Option<&str>) -> anyhow::Result<()> {
+    simple_action(account, rbw::protocol::Action::Sync)
 }
 
-pub fn lock() -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::Lock)
+pub fn lock(account: Option<&str>) -> anyhow::Result<()> {
+    simple_action(account, rbw::protocol::Action::Lock)
+}
+
+pub fn lock_all() -> anyhow::Result<()> {
+    match crate::sock::Sock::connect() {
+        Ok(mut sock) => {
+            sock.send(&rbw::protocol::Request::new(
+                get_environment(),
+                rbw::protocol::Action::LockAll,
+            ))?;
+
+            let res = recv_final(&mut sock)?;
+            match res {
+                rbw::protocol::Response::Ack => Ok(()),
+                rbw::protocol::Response::Error { error } => {
+                    Err(anyhow::anyhow!("{error}"))
+                }
+                _ => Err(anyhow::anyhow!("unexpected message: {res:?}")),
+            }
+        }
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(e.into()),
+        },
+    }
+}
+
+pub fn account_states() -> anyhow::Result<Vec<rbw::config::AccountKey>> {
+    match crate::sock::Sock::connect() {
+        Ok(mut sock) => {
+            sock.send(&rbw::protocol::Request::new(
+                get_environment(),
+                rbw::protocol::Action::AccountStates,
+            ))?;
+
+            let res = recv_final(&mut sock)?;
+            match res {
+                rbw::protocol::Response::AccountStates { unlocked } => {
+                    Ok(unlocked)
+                }
+                rbw::protocol::Response::Error { error } => {
+                    Err(anyhow::anyhow!("{error}"))
+                }
+                _ => Err(anyhow::anyhow!("unexpected message: {res:?}")),
+            }
+        }
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            _ => Err(e.into()),
+        },
+    }
+}
+
+pub fn evict_account(server: &str, email: &str) -> anyhow::Result<()> {
+    match crate::sock::Sock::connect() {
+        Ok(mut sock) => {
+            sock.send(&rbw::protocol::Request::new(
+                get_environment(),
+                rbw::protocol::Action::EvictAccount {
+                    server: server.to_string(),
+                    email: email.to_string(),
+                },
+            ))?;
+
+            let res = recv_final(&mut sock)?;
+            match res {
+                rbw::protocol::Response::Ack => Ok(()),
+                rbw::protocol::Response::Error { error } => {
+                    Err(anyhow::anyhow!("{error}"))
+                }
+                _ => Err(anyhow::anyhow!("unexpected message: {res:?}")),
+            }
+        }
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(e.into()),
+        },
+    }
 }
 
 pub fn quit() -> anyhow::Result<()> {
@@ -95,13 +192,15 @@ pub fn quit() -> anyhow::Result<()> {
 }
 
 pub fn decrypt(
+    account: Option<&str>,
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
-    sock.send(&rbw::protocol::Request::new(
+    sock.send(&rbw::protocol::Request::new_for_account(
         get_environment(),
+        account.map(std::string::ToString::to_string),
         rbw::protocol::Action::Decrypt {
             cipherstring: cipherstring.to_string(),
             entry_key: entry_key.map(std::string::ToString::to_string),
@@ -120,12 +219,14 @@ pub fn decrypt(
 }
 
 pub fn encrypt(
+    account: Option<&str>,
     plaintext: &str,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let mut sock = connect()?;
-    sock.send(&rbw::protocol::Request::new(
+    sock.send(&rbw::protocol::Request::new_for_account(
         get_environment(),
+        account.map(std::string::ToString::to_string),
         rbw::protocol::Action::Encrypt {
             plaintext: plaintext.to_string(),
             org_id: org_id.map(std::string::ToString::to_string),
@@ -143,9 +244,12 @@ pub fn encrypt(
 }
 
 pub fn clipboard_store(text: &str) -> anyhow::Result<()> {
-    simple_action(rbw::protocol::Action::ClipboardStore {
-        text: text.to_string(),
-    })
+    simple_action(
+        None,
+        rbw::protocol::Action::ClipboardStore {
+            text: text.to_string(),
+        },
+    )
 }
 
 pub fn version() -> anyhow::Result<u32> {
@@ -165,10 +269,17 @@ pub fn version() -> anyhow::Result<u32> {
     }
 }
 
-fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
+fn simple_action(
+    account: Option<&str>,
+    action: rbw::protocol::Action,
+) -> anyhow::Result<()> {
     let mut sock = connect()?;
 
-    sock.send(&rbw::protocol::Request::new(get_environment(), action))?;
+    sock.send(&rbw::protocol::Request::new_for_account(
+        get_environment(),
+        account.map(std::string::ToString::to_string),
+        action,
+    ))?;
 
     let res = recv_final(&mut sock)?;
     match res {

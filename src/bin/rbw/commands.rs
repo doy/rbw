@@ -8,6 +8,8 @@ const TOTP_DEFAULT_STEP: u64 = 30;
 
 const MISSING_CONFIG_HELP: &str = "Before using rbw, you must configure the email address you would like to \
     use to log in to the server by running:\n\n    \
+        rbw account add\n\n\
+    or:\n\n    \
         rbw config set email <email>\n\n\
     Additionally, if you are using a self-hosted installation, you should \
     run:\n\n    \
@@ -1222,8 +1224,595 @@ const HELP_NOTES: &str = r"
 # Lines with leading # will be ignored.
 ";
 
-pub fn config_show() -> anyhow::Result<()> {
-    let config = rbw::config::Config::load()?;
+#[derive(Copy, Clone)]
+pub struct AccountAddOpts<'a> {
+    pub name: Option<&'a str>,
+    pub email: Option<&'a str>,
+    pub server: Option<&'a str>,
+    pub identity_url: Option<&'a str>,
+    pub ui_url: Option<&'a str>,
+    pub notifications_url: Option<&'a str>,
+    pub sso_id: Option<&'a str>,
+    pub client_cert_path: Option<&'a std::path::Path>,
+    pub no_switch: bool,
+    pub login: bool,
+    pub no_login: bool,
+    pub passkey: bool,
+}
+
+struct AccountContext {
+    name: Option<String>,
+    config: rbw::config::Config,
+}
+
+impl AccountContext {
+    fn load(account: Option<&str>) -> anyhow::Result<Self> {
+        let (name, config) = rbw::config::Config::resolve_account(account)
+            .map_err(|e| {
+                if matches!(
+                    e,
+                    rbw::error::Error::LoadConfig { .. }
+                        | rbw::error::Error::ConfigMissingEmail
+                        | rbw::error::Error::NoAccountsConfigured
+                ) {
+                    log::error!("{MISSING_CONFIG_HELP}");
+                }
+                anyhow::Error::new(e)
+            })?;
+        if config.email.is_none() {
+            log::error!("{MISSING_CONFIG_HELP}");
+            return Err(anyhow::Error::new(
+                rbw::error::Error::ConfigMissingEmail,
+            ));
+        }
+        Ok(Self { name, config })
+    }
+
+    fn account_ref(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AccountStatus {
+    Unlocked,
+    Locked,
+    LoggedOut,
+}
+
+impl AccountStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Unlocked => "unlocked",
+            Self::Locked => "locked",
+            Self::LoggedOut => "logged out",
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct AccountListRow {
+    name: String,
+    email: Option<String>,
+    server: String,
+    base_url: Option<String>,
+    active: bool,
+    status: AccountStatus,
+}
+
+fn unlocked_account_set() -> std::collections::HashSet<rbw::config::AccountKey>
+{
+    crate::actions::account_states()
+        .unwrap_or_default()
+        .into_iter()
+        .collect()
+}
+
+fn account_status(
+    config: &rbw::config::Config,
+    unlocked: &std::collections::HashSet<rbw::config::AccountKey>,
+) -> AccountStatus {
+    let Some(key) = config.account_key() else {
+        return AccountStatus::LoggedOut;
+    };
+    if unlocked.contains(&key) {
+        return AccountStatus::Unlocked;
+    }
+    match rbw::db::Db::load(&key.server, &key.email) {
+        Ok(db) if !db.needs_login() => AccountStatus::Locked,
+        _ => AccountStatus::LoggedOut,
+    }
+}
+
+fn build_account_select_items(
+    entries: &[rbw::config::AccountEntry],
+    unlocked: &std::collections::HashSet<rbw::config::AccountKey>,
+) -> Vec<crate::prompt::SelectItem> {
+    let name_w = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
+    let email_w = entries
+        .iter()
+        .map(|e| e.config.email.as_deref().unwrap_or("<no email>").len())
+        .max()
+        .unwrap_or(0);
+    let server_w = entries
+        .iter()
+        .map(|e| e.config.server_display_name().len())
+        .max()
+        .unwrap_or(0);
+
+    entries
+        .iter()
+        .map(|entry| {
+            let marker = if entry.active { '*' } else { ' ' };
+            let email = entry.config.email.as_deref().unwrap_or("<no email>");
+            let server = entry.config.server_display_name();
+            let status = account_status(&entry.config, unlocked);
+            let badge = if entry.active {
+                format!("active, {}", status.label())
+            } else {
+                status.label().to_string()
+            };
+            crate::prompt::SelectItem {
+                label: format!(
+                    "{marker} {:<name_w$}  {:<email_w$}  {:<server_w$}  [{badge}]",
+                    entry.name, email, server
+                ),
+                highlight: entry.active || status == AccountStatus::Unlocked,
+            }
+        })
+        .collect()
+}
+
+pub fn account_add(opts: AccountAddOpts<'_>) -> anyhow::Result<()> {
+    let mut cf = rbw::config::ConfigFile::load()
+        .unwrap_or_else(|_| rbw::config::ConfigFile::new());
+
+    let interactive = opts.email.is_none();
+    if interactive && !crate::prompt::is_interactive() {
+        anyhow::bail!(
+            "--email is required when adding an account non-interactively"
+        );
+    }
+
+    let base_url = if let Some(server) = opts.server {
+        rbw::config::normalize_server_input(server)
+    } else if interactive {
+        let server_choices = [
+            crate::prompt::SelectItem {
+                label: "bitwarden.com (Official US cloud)".to_string(),
+                highlight: false,
+            },
+            crate::prompt::SelectItem {
+                label: "bitwarden.eu (Official EU cloud)".to_string(),
+                highlight: false,
+            },
+            crate::prompt::SelectItem {
+                label: "Self-hosted / custom server".to_string(),
+                highlight: false,
+            },
+        ];
+        let Some(choice) =
+            crate::prompt::select("Select vault server", &server_choices, 0)?
+        else {
+            eprintln!("Cancelled.");
+            return Ok(());
+        };
+        match choice {
+            0 => None,
+            1 => Some("https://api.bitwarden.eu".to_string()),
+            _ => {
+                let Some(custom) = crate::prompt::input(
+                    "Server URL (e.g. https://vault.example.com)",
+                    None,
+                )?
+                else {
+                    eprintln!("Cancelled.");
+                    return Ok(());
+                };
+                if custom.trim().is_empty() {
+                    anyhow::bail!("server URL cannot be empty");
+                }
+                rbw::config::normalize_server_input(&custom)
+            }
+        }
+    } else {
+        None
+    };
+
+    let email = if let Some(email) = opts.email {
+        let trimmed = email.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("email address cannot be empty");
+        }
+        trimmed.to_string()
+    } else {
+        let Some(input_email) = crate::prompt::input("Email address", None)?
+        else {
+            eprintln!("Cancelled.");
+            return Ok(());
+        };
+        let trimmed = input_email.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("email address cannot be empty");
+        }
+        trimmed.to_string()
+    };
+
+    let name = if let Some(name) = opts.name {
+        Some(name.to_string())
+    } else if interactive {
+        let mut preview = cf.clone();
+        preview.migrate_legacy_if_needed();
+        let suggested =
+            preview.suggest_account_name(&email, base_url.as_deref());
+        let Some(chosen) =
+            crate::prompt::input("Account name", Some(&suggested))?
+        else {
+            eprintln!("Cancelled.");
+            return Ok(());
+        };
+        Some(chosen)
+    } else {
+        None
+    };
+
+    let should_login = if opts.login || opts.passkey {
+        true
+    } else if opts.no_login {
+        false
+    } else if interactive {
+        crate::prompt::confirm("Log in now?", true)?
+    } else {
+        false
+    };
+
+    let account_cfg = rbw::config::AccountConfig {
+        email: Some(email.clone()),
+        sso_id: opts.sso_id.map(str::to_string),
+        base_url: base_url.clone(),
+        identity_url: opts.identity_url.map(str::to_string),
+        ui_url: opts.ui_url.map(str::to_string),
+        notifications_url: opts.notifications_url.map(str::to_string),
+        client_cert_path: opts
+            .client_cert_path
+            .map(std::path::Path::to_path_buf),
+        ..rbw::config::AccountConfig::default()
+    };
+
+    let final_name =
+        cf.add_account(name.as_deref(), account_cfg, !opts.no_switch)?;
+    cf.save()?;
+
+    let server_display =
+        rbw::config::server_display_name_from_base_url(base_url.as_deref());
+    let active_suffix = if cf.effective_active_account_name().as_deref()
+        == Some(&final_name)
+    {
+        " (active)"
+    } else {
+        ""
+    };
+    println!(
+        "Added account '{final_name}' ({email} @ {server_display}){active_suffix}"
+    );
+
+    if should_login {
+        login(Some(&final_name), opts.passkey, false)?;
+    }
+
+    Ok(())
+}
+
+pub fn account_switch(
+    selector: Option<&str>,
+    email: Option<&str>,
+    server: Option<&str>,
+) -> anyhow::Result<()> {
+    let mut cf = rbw::config::ConfigFile::load().map_err(|e| {
+        if matches!(e, rbw::error::Error::LoadConfig { .. }) {
+            anyhow::anyhow!(
+                "no accounts configured; run `rbw account add` first"
+            )
+        } else {
+            anyhow::Error::new(e)
+        }
+    })?;
+
+    let entries = cf.entries();
+    if entries.is_empty() {
+        anyhow::bail!("no accounts configured; run `rbw account add` first");
+    }
+
+    let unlocked = unlocked_account_set();
+    let chosen = if selector.is_none() && email.is_none() && server.is_none()
+    {
+        if !crate::prompt::is_interactive() {
+            anyhow::bail!(
+                "specify an account to switch to, or run interactively in a terminal"
+            );
+        }
+        let items = build_account_select_items(&entries, &unlocked);
+        let initial = entries.iter().position(|e| e.active).unwrap_or(0);
+        let Some(idx) = crate::prompt::select(
+            "Select an account to switch to",
+            &items,
+            initial,
+        )?
+        else {
+            eprintln!("Cancelled.");
+            return Ok(());
+        };
+        entries[idx].clone()
+    } else {
+        let matches = cf.find_by_filters(selector, email, server);
+        match matches.as_slice() {
+            [] => {
+                let target =
+                    selector.or(email).or(server).unwrap_or("<unspecified>");
+                return Err(anyhow::Error::new(
+                    rbw::error::Error::AccountNotFound {
+                        account: target.to_string(),
+                    },
+                ));
+            }
+            [only] => only.clone(),
+            many => {
+                if crate::prompt::is_interactive() {
+                    let items = build_account_select_items(many, &unlocked);
+                    let initial =
+                        many.iter().position(|e| e.active).unwrap_or(0);
+                    let Some(idx) = crate::prompt::select(
+                        "Multiple accounts matched; select one",
+                        &items,
+                        initial,
+                    )?
+                    else {
+                        eprintln!("Cancelled.");
+                        return Ok(());
+                    };
+                    many[idx].clone()
+                } else {
+                    let label = selector
+                        .or(email)
+                        .or(server)
+                        .unwrap_or("<unspecified>");
+                    return Err(anyhow::Error::new(
+                        rbw::error::Error::AccountAmbiguous {
+                            selector: label.to_string(),
+                            matches: rbw::config::format_account_matches(
+                                many,
+                            ),
+                        },
+                    ));
+                }
+            }
+        }
+    };
+
+    let changed = cf.switch_account(&chosen.name)?;
+    cf.save()?;
+
+    let email_str = chosen.config.email.as_deref().unwrap_or("<no email>");
+    let server_str = chosen.config.server_display_name();
+    let status = account_status(&chosen.config, &unlocked).label();
+    if changed {
+        println!(
+            "Switched active account to '{}' ({email_str} @ {server_str}) [{status}]",
+            chosen.name
+        );
+    } else {
+        println!(
+            "Already using account '{}' ({email_str} @ {server_str}) [{status}]",
+            chosen.name
+        );
+    }
+
+    Ok(())
+}
+
+pub fn account_list(raw: bool) -> anyhow::Result<()> {
+    let cf = match rbw::config::ConfigFile::load() {
+        Ok(cf) => cf,
+        Err(rbw::error::Error::LoadConfig { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            rbw::config::ConfigFile::new()
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let entries = cf.entries();
+    let unlocked = unlocked_account_set();
+
+    if raw {
+        let rows: Vec<AccountListRow> = entries
+            .iter()
+            .map(|entry| AccountListRow {
+                name: entry.name.clone(),
+                email: entry.config.email.clone(),
+                server: entry.config.server_display_name(),
+                base_url: entry.config.base_url.clone(),
+                active: entry.active,
+                status: account_status(&entry.config, &unlocked),
+            })
+            .collect();
+        serde_json::to_writer_pretty(std::io::stdout(), &rows)
+            .context("failed to write account list to stdout")?;
+        println!();
+        return Ok(());
+    }
+
+    if entries.is_empty() {
+        println!(
+            "No accounts configured. Run 'rbw account add' or 'rbw config set email <email>'."
+        );
+        return Ok(());
+    }
+
+    let name_w = entries.iter().map(|e| e.name.len()).max().unwrap_or(0);
+    let email_w = entries
+        .iter()
+        .map(|e| e.config.email.as_deref().unwrap_or("<no email>").len())
+        .max()
+        .unwrap_or(0);
+    let server_w = entries
+        .iter()
+        .map(|e| e.config.server_display_name().len())
+        .max()
+        .unwrap_or(0);
+
+    for entry in &entries {
+        let marker = if entry.active { '*' } else { ' ' };
+        let email = entry.config.email.as_deref().unwrap_or("<no email>");
+        let server = entry.config.server_display_name();
+        let status = account_status(&entry.config, &unlocked);
+        let state = if entry.active {
+            format!("active, {}", status.label())
+        } else {
+            status.label().to_string()
+        };
+        println!(
+            "{marker} {:<name_w$}  {:<email_w$}  {:<server_w$}  {state}",
+            entry.name, email, server
+        );
+    }
+
+    Ok(())
+}
+
+pub fn account_current(account: Option<&str>) -> anyhow::Result<()> {
+    let cf = rbw::config::ConfigFile::load()?;
+    let (resolved_name, _) = cf.resolve_config(account)?;
+    let name = resolved_name
+        .or_else(|| cf.effective_active_account_name())
+        .ok_or(rbw::error::Error::NoAccountsConfigured)?;
+    println!("{name}");
+    Ok(())
+}
+
+pub fn account_remove(
+    selector: Option<&str>,
+    keep_data: bool,
+) -> anyhow::Result<()> {
+    let mut cf = rbw::config::ConfigFile::load()?;
+    let entries = cf.entries();
+    if entries.is_empty() {
+        anyhow::bail!("no accounts configured");
+    }
+
+    let unlocked = unlocked_account_set();
+    let target = if let Some(sel) = selector {
+        let matches = cf.resolve_matches(sel);
+        match matches.as_slice() {
+            [] => {
+                return Err(anyhow::Error::new(
+                    rbw::error::Error::AccountNotFound {
+                        account: sel.to_string(),
+                    },
+                ));
+            }
+            [only] => only.clone(),
+            many => {
+                return Err(anyhow::Error::new(
+                    rbw::error::Error::AccountAmbiguous {
+                        selector: sel.to_string(),
+                        matches: rbw::config::format_account_matches(many),
+                    },
+                ));
+            }
+        }
+    } else {
+        if !crate::prompt::is_interactive() {
+            anyhow::bail!(
+                "specify an account to remove, or run interactively in a terminal"
+            );
+        }
+        let items = build_account_select_items(&entries, &unlocked);
+        let initial = entries.iter().position(|e| e.active).unwrap_or(0);
+        let Some(idx) = crate::prompt::select(
+            "Select an account to remove",
+            &items,
+            initial,
+        )?
+        else {
+            eprintln!("Cancelled.");
+            return Ok(());
+        };
+        entries[idx].clone()
+    };
+
+    if !keep_data {
+        delete_touchid_key(&target.config, Some(&target.name));
+    }
+    evict_account_if_running(&target.config);
+    if !keep_data {
+        delete_yubikey_keys(&target.config);
+        let _ = remove_db(&target.config);
+    }
+
+    let (removed_config, next_active) = cf.remove_account(&target.name)?;
+    cf.save()?;
+
+    let email = removed_config.email.as_deref().unwrap_or("<no email>");
+    let server = removed_config.server_display_name();
+    println!("Removed account '{}' ({email} @ {server})", target.name);
+    if target.active {
+        if let Some(next) = next_active {
+            println!("Active account is now '{next}'");
+        } else {
+            println!("No active account remaining.");
+        }
+    }
+
+    Ok(())
+}
+
+pub fn account_rename(old: &str, new: &str) -> anyhow::Result<()> {
+    let mut cf = rbw::config::ConfigFile::load()?;
+    let matches = cf.resolve_matches(old);
+    let resolved_old = match matches.as_slice() {
+        [] => {
+            return Err(anyhow::Error::new(
+                rbw::error::Error::AccountNotFound {
+                    account: old.to_string(),
+                },
+            ));
+        }
+        [only] => only.name.clone(),
+        many => {
+            return Err(anyhow::Error::new(
+                rbw::error::Error::AccountAmbiguous {
+                    selector: old.to_string(),
+                    matches: rbw::config::format_account_matches(many),
+                },
+            ));
+        }
+    };
+
+    cf.rename_account(&resolved_old, new)?;
+    cf.save()?;
+    println!("Renamed account '{resolved_old}' to '{new}'");
+
+    Ok(())
+}
+
+pub fn config_show(
+    account: Option<&str>,
+    global: bool,
+) -> anyhow::Result<()> {
+    if global {
+        let cf = rbw::config::ConfigFile::load()?;
+        serde_json::to_writer_pretty(
+            std::io::stdout(),
+            &cf.global_defaults(),
+        )
+        .context("failed to write config to stdout")?;
+        println!();
+        return Ok(());
+    }
+
+    let config = rbw::config::Config::load_account(account)?;
     serde_json::to_writer_pretty(std::io::stdout(), &config)
         .context("failed to write config to stdout")?;
     println!();
@@ -1231,21 +1820,274 @@ pub fn config_show() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
-    let mut config = rbw::config::Config::load()
-        .unwrap_or_else(|_| rbw::config::Config::new());
+pub fn config_set(
+    account: Option<&str>,
+    global: bool,
+    key: &str,
+    value: &str,
+) -> anyhow::Result<()> {
+    let mut cf = rbw::config::ConfigFile::load()
+        .unwrap_or_else(|_| rbw::config::ConfigFile::new());
+
+    if global {
+        match key {
+            "email" | "sso_id" | "base_url" | "identity_url" | "ui_url"
+            | "notifications_url" | "client_cert_path" => {
+                anyhow::bail!(
+                    "'{key}' is an account-specific setting and cannot be set with --global"
+                );
+            }
+            "lock_timeout" => {
+                let timeout = value
+                    .parse()
+                    .context("failed to parse value for lock_timeout")?;
+                if timeout == 0 {
+                    log::error!("lock_timeout must be greater than 0");
+                } else {
+                    cf.lock_timeout = timeout;
+                }
+            }
+            "sync_interval" => {
+                let interval = value
+                    .parse()
+                    .context("failed to parse value for sync_interval")?;
+                cf.sync_interval = interval;
+            }
+            "pinentry" => cf.pinentry = value.to_string(),
+            "touchid" => {
+                #[cfg(target_os = "macos")]
+                {
+                    let enabled: bool = value
+                        .parse()
+                        .context("failed to parse value for touchid")?;
+                    cf.touchid = enabled;
+                    if !enabled {
+                        for entry in cf.entries() {
+                            let overrides_true = cf
+                                .accounts
+                                .get(&entry.name)
+                                .is_some_and(|a| a.touchid == Some(true));
+                            if !overrides_true {
+                                delete_touchid_key(
+                                    &entry.config,
+                                    Some(&entry.name),
+                                );
+                            }
+                        }
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = value;
+                    return Err(anyhow::anyhow!(
+                        "touchid is only supported on macOS"
+                    ));
+                }
+            }
+            "yubikey" => {
+                let enabled: bool = value
+                    .parse()
+                    .context("failed to parse value for yubikey")?;
+                cf.yubikey = enabled;
+                if !enabled {
+                    for entry in cf.entries() {
+                        let overrides_true = cf
+                            .accounts
+                            .get(&entry.name)
+                            .is_some_and(|a| a.yubikey == Some(true));
+                        if !overrides_true {
+                            delete_yubikey_keys(&entry.config);
+                        }
+                    }
+                }
+            }
+            "yubikey_uv" => {
+                let enabled: bool = value
+                    .parse()
+                    .context("failed to parse value for yubikey_uv")?;
+                cf.yubikey_uv = enabled;
+            }
+            "passkey_login" => {
+                let enabled: bool = value
+                    .parse()
+                    .context("failed to parse value for passkey_login")?;
+                cf.passkey_login = enabled;
+            }
+            _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
+        }
+        cf.save()?;
+        return Ok(());
+    }
+
+    if cf.is_multi_account() {
+        let (target_name, old_config) = cf.resolve_config(account)?;
+        let target_name =
+            target_name.ok_or(rbw::error::Error::NoAccountsConfigured)?;
+        let mut identity_changed = false;
+
+        let new_email_check = if key == "email" {
+            Some(value.to_string())
+        } else {
+            old_config.email.clone()
+        };
+        let new_base_url_check = if key == "base_url" {
+            Some(value.to_string())
+        } else {
+            old_config.base_url.clone()
+        };
+        if matches!(key, "email" | "base_url") {
+            cf.check_duplicate_identity(
+                Some(&target_name),
+                new_base_url_check.as_deref(),
+                new_email_check.as_deref(),
+            )?;
+        }
+
+        let acct = cf.accounts.get_mut(&target_name).unwrap();
+        match key {
+            "email" => {
+                acct.email = Some(value.to_string());
+                identity_changed = true;
+            }
+            "sso_id" => {
+                acct.sso_id = Some(value.to_string());
+                identity_changed = true;
+            }
+            "base_url" => {
+                acct.base_url = Some(value.to_string());
+                identity_changed = true;
+            }
+            "identity_url" => {
+                acct.identity_url = Some(value.to_string());
+                identity_changed = true;
+            }
+            "ui_url" => {
+                acct.ui_url = Some(value.to_string());
+                identity_changed = true;
+            }
+            "notifications_url" => {
+                acct.notifications_url = Some(value.to_string());
+                identity_changed = true;
+            }
+            "client_cert_path" => {
+                acct.client_cert_path =
+                    Some(std::path::PathBuf::from(value.to_string()));
+                identity_changed = true;
+            }
+            "lock_timeout" => {
+                let timeout = value
+                    .parse()
+                    .context("failed to parse value for lock_timeout")?;
+                if timeout == 0 {
+                    log::error!("lock_timeout must be greater than 0");
+                } else {
+                    acct.lock_timeout = Some(timeout);
+                }
+            }
+            "sync_interval" => {
+                let interval = value
+                    .parse()
+                    .context("failed to parse value for sync_interval")?;
+                acct.sync_interval = Some(interval);
+            }
+            "pinentry" => acct.pinentry = Some(value.to_string()),
+            "touchid" => {
+                #[cfg(target_os = "macos")]
+                {
+                    let enabled: bool = value
+                        .parse()
+                        .context("failed to parse value for touchid")?;
+                    acct.touchid = Some(enabled);
+                    if !enabled {
+                        delete_touchid_key(&old_config, Some(&target_name));
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = value;
+                    return Err(anyhow::anyhow!(
+                        "touchid is only supported on macOS"
+                    ));
+                }
+            }
+            "yubikey" => {
+                let enabled: bool = value
+                    .parse()
+                    .context("failed to parse value for yubikey")?;
+                acct.yubikey = Some(enabled);
+                if !enabled {
+                    delete_yubikey_keys(&old_config);
+                }
+            }
+            "yubikey_uv" => {
+                let enabled: bool = value
+                    .parse()
+                    .context("failed to parse value for yubikey_uv")?;
+                if old_config.yubikey_uv != enabled {
+                    acct.yubikey_uv = Some(enabled);
+                    if let Some(email) = &old_config.email
+                        && rbw::yubikey::has_keys(
+                            &old_config.server_name(),
+                            email,
+                        )
+                    {
+                        eprintln!(
+                            "Note: existing enrolled security keys keep their original UV mode; run `rbw yubikey clear` and re-enroll to apply the new setting."
+                        );
+                    }
+                }
+            }
+            "passkey_login" => {
+                let enabled: bool = value
+                    .parse()
+                    .context("failed to parse value for passkey_login")?;
+                acct.passkey_login = Some(enabled);
+            }
+            _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
+        }
+
+        cf.save()?;
+        if identity_changed {
+            evict_account_if_running(&old_config);
+        }
+        return Ok(());
+    }
+
+    // Legacy single-account mode
+    if let Some(sel) = account {
+        let _ = cf.resolve_config(Some(sel))?;
+    }
+    let (_, old_config) = cf.resolve_config(None)?;
+    let mut identity_changed = false;
     match key {
-        "email" => config.email = Some(value.to_string()),
-        "sso_id" => config.sso_id = Some(value.to_string()),
-        "base_url" => config.base_url = Some(value.to_string()),
-        "identity_url" => config.identity_url = Some(value.to_string()),
-        "ui_url" => config.ui_url = Some(value.to_string()),
+        "email" => {
+            cf.email = Some(value.to_string());
+            identity_changed = true;
+        }
+        "sso_id" => {
+            cf.sso_id = Some(value.to_string());
+            identity_changed = true;
+        }
+        "base_url" => {
+            cf.base_url = Some(value.to_string());
+            identity_changed = true;
+        }
+        "identity_url" => {
+            cf.identity_url = Some(value.to_string());
+            identity_changed = true;
+        }
+        "ui_url" => {
+            cf.ui_url = Some(value.to_string());
+            identity_changed = true;
+        }
         "notifications_url" => {
-            config.notifications_url = Some(value.to_string());
+            cf.notifications_url = Some(value.to_string());
+            identity_changed = true;
         }
         "client_cert_path" => {
-            config.client_cert_path =
+            cf.client_cert_path =
                 Some(std::path::PathBuf::from(value.to_string()));
+            identity_changed = true;
         }
         "lock_timeout" => {
             let timeout = value
@@ -1254,25 +2096,25 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             if timeout == 0 {
                 log::error!("lock_timeout must be greater than 0");
             } else {
-                config.lock_timeout = timeout;
+                cf.lock_timeout = timeout;
             }
         }
         "sync_interval" => {
             let interval = value
                 .parse()
                 .context("failed to parse value for sync_interval")?;
-            config.sync_interval = interval;
+            cf.sync_interval = interval;
         }
-        "pinentry" => config.pinentry = value.to_string(),
+        "pinentry" => cf.pinentry = value.to_string(),
         "touchid" => {
             #[cfg(target_os = "macos")]
             {
                 let enabled: bool = value
                     .parse()
                     .context("failed to parse value for touchid")?;
-                config.touchid = enabled;
+                cf.touchid = enabled;
                 if !enabled {
-                    delete_touchid_key(&config);
+                    delete_touchid_key(&old_config, None);
                 }
             }
             #[cfg(not(target_os = "macos"))]
@@ -1286,19 +2128,22 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
         "yubikey" => {
             let enabled: bool =
                 value.parse().context("failed to parse value for yubikey")?;
-            config.yubikey = enabled;
+            cf.yubikey = enabled;
             if !enabled {
-                delete_yubikey_keys(&config);
+                delete_yubikey_keys(&old_config);
             }
         }
         "yubikey_uv" => {
             let enabled: bool = value
                 .parse()
                 .context("failed to parse value for yubikey_uv")?;
-            if config.yubikey_uv != enabled {
-                config.yubikey_uv = enabled;
-                if let Some(email) = &config.email
-                    && rbw::yubikey::has_keys(&config.server_name(), email)
+            if cf.yubikey_uv != enabled {
+                cf.yubikey_uv = enabled;
+                if let Some(email) = &old_config.email
+                    && rbw::yubikey::has_keys(
+                        &old_config.server_name(),
+                        email,
+                    )
                 {
                     eprintln!(
                         "Note: existing enrolled security keys keep their original UV mode; run `rbw yubikey clear` and re-enroll to apply the new setting."
@@ -1310,42 +2155,216 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
             let enabled: bool = value
                 .parse()
                 .context("failed to parse value for passkey_login")?;
-            config.passkey_login = enabled;
+            cf.passkey_login = enabled;
         }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
-    config.save()?;
+    cf.save()?;
 
-    // drop in-memory keys, since they will be different if the email or url
-    // changed. not using lock() because we don't want to require the agent to
-    // be running (since this may be the user running `rbw config set
-    // base_url` as the first operation), and stop_agent() already handles the
-    // agent not running case gracefully.
-    stop_agent()?;
+    if identity_changed {
+        evict_account_if_running(&old_config);
+    }
 
     Ok(())
 }
 
-pub fn config_unset(key: &str) -> anyhow::Result<()> {
-    let mut config = rbw::config::Config::load()
-        .unwrap_or_else(|_| rbw::config::Config::new());
-    match key {
-        "email" => config.email = None,
-        "sso_id" => config.sso_id = None,
-        "base_url" => config.base_url = None,
-        "identity_url" => config.identity_url = None,
-        "ui_url" => config.ui_url = None,
-        "notifications_url" => config.notifications_url = None,
-        "client_cert_path" => config.client_cert_path = None,
-        "lock_timeout" => {
-            config.lock_timeout = rbw::config::default_lock_timeout();
+pub fn config_unset(
+    account: Option<&str>,
+    global: bool,
+    key: &str,
+) -> anyhow::Result<()> {
+    let mut cf = rbw::config::ConfigFile::load()
+        .unwrap_or_else(|_| rbw::config::ConfigFile::new());
+
+    if global {
+        match key {
+            "email" | "sso_id" | "base_url" | "identity_url" | "ui_url"
+            | "notifications_url" | "client_cert_path" => {
+                anyhow::bail!(
+                    "'{key}' is an account-specific setting and cannot be unset with --global"
+                );
+            }
+            "lock_timeout" => {
+                cf.lock_timeout = rbw::config::default_lock_timeout();
+            }
+            "sync_interval" => {
+                cf.sync_interval = rbw::config::default_sync_interval();
+            }
+            "pinentry" => cf.pinentry = rbw::config::default_pinentry(),
+            "touchid" => {
+                #[cfg(target_os = "macos")]
+                {
+                    cf.touchid = false;
+                    for entry in cf.entries() {
+                        let overrides_true = cf
+                            .accounts
+                            .get(&entry.name)
+                            .is_some_and(|a| a.touchid == Some(true));
+                        if !overrides_true {
+                            delete_touchid_key(
+                                &entry.config,
+                                Some(&entry.name),
+                            );
+                        }
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    return Err(anyhow::anyhow!(
+                        "touchid is only supported on macOS"
+                    ));
+                }
+            }
+            "yubikey" => {
+                cf.yubikey = false;
+                for entry in cf.entries() {
+                    let overrides_true = cf
+                        .accounts
+                        .get(&entry.name)
+                        .is_some_and(|a| a.yubikey == Some(true));
+                    if !overrides_true {
+                        delete_yubikey_keys(&entry.config);
+                    }
+                }
+            }
+            "yubikey_uv" => cf.yubikey_uv = false,
+            "passkey_login" => cf.passkey_login = false,
+            _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
         }
-        "pinentry" => config.pinentry = rbw::config::default_pinentry(),
+        cf.save()?;
+        return Ok(());
+    }
+
+    if cf.is_multi_account() {
+        let (target_name, old_config) = cf.resolve_config(account)?;
+        let target_name =
+            target_name.ok_or(rbw::error::Error::NoAccountsConfigured)?;
+        let mut identity_changed = false;
+
+        if key == "base_url" {
+            cf.check_duplicate_identity(
+                Some(&target_name),
+                None,
+                old_config.email.as_deref(),
+            )?;
+        }
+
+        let global_touchid = cf.touchid;
+        let global_yubikey = cf.yubikey;
+        let acct = cf.accounts.get_mut(&target_name).unwrap();
+        match key {
+            "email" => {
+                acct.email = None;
+                identity_changed = true;
+            }
+            "sso_id" => {
+                acct.sso_id = None;
+                identity_changed = true;
+            }
+            "base_url" => {
+                acct.base_url = None;
+                identity_changed = true;
+            }
+            "identity_url" => {
+                acct.identity_url = None;
+                identity_changed = true;
+            }
+            "ui_url" => {
+                acct.ui_url = None;
+                identity_changed = true;
+            }
+            "notifications_url" => {
+                acct.notifications_url = None;
+                identity_changed = true;
+            }
+            "client_cert_path" => {
+                acct.client_cert_path = None;
+                identity_changed = true;
+            }
+            "lock_timeout" => acct.lock_timeout = None,
+            "sync_interval" => acct.sync_interval = None,
+            "pinentry" => acct.pinentry = None,
+            "touchid" => {
+                #[cfg(target_os = "macos")]
+                {
+                    acct.touchid = None;
+                    if !global_touchid {
+                        delete_touchid_key(&old_config, Some(&target_name));
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = global_touchid;
+                    return Err(anyhow::anyhow!(
+                        "touchid is only supported on macOS"
+                    ));
+                }
+            }
+            "yubikey" => {
+                acct.yubikey = None;
+                if !global_yubikey {
+                    delete_yubikey_keys(&old_config);
+                }
+            }
+            "yubikey_uv" => acct.yubikey_uv = None,
+            "passkey_login" => acct.passkey_login = None,
+            _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
+        }
+
+        cf.save()?;
+        if identity_changed {
+            evict_account_if_running(&old_config);
+        }
+        return Ok(());
+    }
+
+    // Legacy single-account mode
+    if let Some(sel) = account {
+        let _ = cf.resolve_config(Some(sel))?;
+    }
+    let (_, old_config) = cf.resolve_config(None)?;
+    let mut identity_changed = false;
+    match key {
+        "email" => {
+            cf.email = None;
+            identity_changed = true;
+        }
+        "sso_id" => {
+            cf.sso_id = None;
+            identity_changed = true;
+        }
+        "base_url" => {
+            cf.base_url = None;
+            identity_changed = true;
+        }
+        "identity_url" => {
+            cf.identity_url = None;
+            identity_changed = true;
+        }
+        "ui_url" => {
+            cf.ui_url = None;
+            identity_changed = true;
+        }
+        "notifications_url" => {
+            cf.notifications_url = None;
+            identity_changed = true;
+        }
+        "client_cert_path" => {
+            cf.client_cert_path = None;
+            identity_changed = true;
+        }
+        "lock_timeout" => {
+            cf.lock_timeout = rbw::config::default_lock_timeout();
+        }
+        "sync_interval" => {
+            cf.sync_interval = rbw::config::default_sync_interval();
+        }
+        "pinentry" => cf.pinentry = rbw::config::default_pinentry(),
         "touchid" => {
             #[cfg(target_os = "macos")]
             {
-                config.touchid = false;
-                delete_touchid_key(&config);
+                cf.touchid = false;
+                delete_touchid_key(&old_config, None);
             }
             #[cfg(not(target_os = "macos"))]
             {
@@ -1355,74 +2374,77 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
             }
         }
         "yubikey" => {
-            config.yubikey = false;
-            delete_yubikey_keys(&config);
+            cf.yubikey = false;
+            delete_yubikey_keys(&old_config);
         }
         "yubikey_uv" => {
-            config.yubikey_uv = false;
+            cf.yubikey_uv = false;
         }
         "passkey_login" => {
-            config.passkey_login = false;
+            cf.passkey_login = false;
         }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
-    config.save()?;
+    cf.save()?;
 
-    // drop in-memory keys, since they will be different if the email or url
-    // changed. not using lock() because we don't want to require the agent to
-    // be running (since this may be the user running `rbw config set
-    // base_url` as the first operation), and stop_agent() already handles the
-    // agent not running case gracefully.
-    stop_agent()?;
+    if identity_changed {
+        evict_account_if_running(&old_config);
+    }
 
     Ok(())
 }
 
 fn clipboard_store(val: &str) -> anyhow::Result<()> {
-    ensure_agent()?;
+    ensure_agent_running()?;
     crate::actions::clipboard_store(val)?;
 
     Ok(())
 }
 
-pub fn register() -> anyhow::Result<()> {
-    ensure_agent()?;
-    crate::actions::register()?;
+pub fn register(account: Option<&str>) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    ensure_agent_running()?;
+    crate::actions::register(ctx.account_ref())?;
 
     Ok(())
 }
 
-pub fn login(passkey: bool, password: bool) -> anyhow::Result<()> {
-    ensure_agent()?;
+pub fn login(
+    account: Option<&str>,
+    passkey: bool,
+    password: bool,
+) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    ensure_agent_running()?;
     if passkey {
-        crate::actions::login_passkey()?;
+        crate::actions::login_passkey(ctx.account_ref())?;
     } else if password {
-        crate::actions::login()?;
+        crate::actions::login(ctx.account_ref())?;
     } else {
-        login_default()?;
+        login_default(&ctx)?;
     }
 
     Ok(())
 }
 
-fn login_default() -> anyhow::Result<()> {
-    let use_passkey =
-        rbw::config::Config::load().is_ok_and(|c| c.passkey_login);
-    if use_passkey {
-        crate::actions::login_passkey()?;
+fn login_default(ctx: &AccountContext) -> anyhow::Result<()> {
+    if ctx.config.passkey_login {
+        crate::actions::login_passkey(ctx.account_ref())?;
     } else {
-        crate::actions::login()?;
+        crate::actions::login(ctx.account_ref())?;
     }
     Ok(())
 }
 
-pub fn yubikey_enroll(label: Option<&str>) -> anyhow::Result<()> {
-    ensure_agent()?;
-    login_default()?;
-    crate::actions::yubikey_enroll(label)?;
-    if let Ok(config) = rbw::config::Config::load()
-        && !config.yubikey
-    {
+pub fn yubikey_enroll(
+    account: Option<&str>,
+    label: Option<&str>,
+) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    ensure_agent_running()?;
+    login_default(&ctx)?;
+    crate::actions::yubikey_enroll(ctx.account_ref(), label)?;
+    if !ctx.config.yubikey {
         eprintln!(
             "Hint: enable local YubiKey unlock with `rbw config set yubikey true`"
         );
@@ -1431,13 +2453,13 @@ pub fn yubikey_enroll(label: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn yubikey_list() -> anyhow::Result<()> {
-    check_config()?;
-    let config = rbw::config::Config::load()?;
-    let Some(email) = &config.email else {
+pub fn yubikey_list(account: Option<&str>) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    let Some(email) = &ctx.config.email else {
         anyhow::bail!("email address not set");
     };
-    let Some(store) = rbw::yubikey::load_store(&config.server_name(), email)?
+    let Some(store) =
+        rbw::yubikey::load_store(&ctx.config.server_name(), email)?
     else {
         println!("No security keys enrolled.");
         return Ok(());
@@ -1456,54 +2478,67 @@ pub fn yubikey_list() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn yubikey_remove(selector: &str) -> anyhow::Result<()> {
-    check_config()?;
-    let config = rbw::config::Config::load()?;
-    let Some(email) = &config.email else {
+pub fn yubikey_remove(
+    account: Option<&str>,
+    selector: &str,
+) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    let Some(email) = &ctx.config.email else {
         anyhow::bail!("email address not set");
     };
-    if !rbw::yubikey::remove_key(&config.server_name(), email, selector)? {
+    if !rbw::yubikey::remove_key(&ctx.config.server_name(), email, selector)?
+    {
         anyhow::bail!("no enrolled security key matching '{selector}'");
     }
     Ok(())
 }
 
-pub fn yubikey_clear() -> anyhow::Result<()> {
-    check_config()?;
-    let config = rbw::config::Config::load()?;
-    let Some(email) = &config.email else {
+pub fn yubikey_clear(account: Option<&str>) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    let Some(email) = &ctx.config.email else {
         anyhow::bail!("email address not set");
     };
-    rbw::yubikey::delete_keys(&config.server_name(), email)?;
+    rbw::yubikey::delete_keys(&ctx.config.server_name(), email)?;
     Ok(())
 }
 
-pub fn unlock() -> anyhow::Result<()> {
-    ensure_agent()?;
-    login_default()?;
-    crate::actions::unlock()?;
+pub fn unlock(account: Option<&str>) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)
+}
+
+fn unlock_ctx(ctx: &AccountContext) -> anyhow::Result<()> {
+    ensure_agent_running()?;
+    login_default(ctx)?;
+    crate::actions::unlock(ctx.account_ref())?;
 
     Ok(())
 }
 
-pub fn unlocked() -> anyhow::Result<()> {
+pub fn unlocked(account: Option<&str>) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
     // not ensure_agent, because we don't want `rbw unlocked` to start the
     // agent if it's not running
     let _ = check_agent_version();
-    crate::actions::unlocked()?;
+    crate::actions::unlocked(ctx.account_ref())?;
 
     Ok(())
 }
 
-pub fn sync() -> anyhow::Result<()> {
-    ensure_agent()?;
-    login_default()?;
-    crate::actions::sync()?;
+pub fn sync(account: Option<&str>) -> anyhow::Result<()> {
+    let ctx = AccountContext::load(account)?;
+    ensure_agent_running()?;
+    login_default(&ctx)?;
+    crate::actions::sync(ctx.account_ref())?;
 
     Ok(())
 }
 
-pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
+pub fn list(
+    account: Option<&str>,
+    fields: &[String],
+    raw: bool,
+) -> anyhow::Result<()> {
     let fields: Vec<ListField> = if raw {
         ListField::all()
     } else {
@@ -1513,13 +2548,14 @@ pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
             .collect::<anyhow::Result<_>>()?
     };
 
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let db = load_db()?;
+    let db = load_db(&ctx.config)?;
     let mut entries: Vec<DecryptedListCipher> = db
         .entries
         .iter()
-        .map(|entry| decrypt_list_cipher(entry, &fields))
+        .map(|entry| decrypt_list_cipher(ctx.account_ref(), entry, &fields))
         .collect::<anyhow::Result<_>>()?;
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
@@ -1530,6 +2566,7 @@ pub fn list(fields: &[String], raw: bool) -> anyhow::Result<()> {
 
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn get(
+    account: Option<&str>,
     needle: Needle,
     user: Option<&str>,
     folder: Option<&str>,
@@ -1540,9 +2577,10 @@ pub fn get(
     ignore_case: bool,
     list_fields: bool,
 ) -> anyhow::Result<()> {
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let db = load_db()?;
+    let db = load_db(&ctx.config)?;
 
     let desc = format!(
         "{}{}",
@@ -1551,7 +2589,7 @@ pub fn get(
     );
 
     let (_, decrypted) =
-        find_entry(&db, needle, user, folder, ignore_case)
+        find_entry(ctx.account_ref(), &db, needle, user, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
     if list_fields {
         decrypted.display_fields_list();
@@ -1627,6 +2665,7 @@ fn print_entry_list(
 }
 
 pub fn search(
+    account: Option<&str>,
     term: &str,
     fields: &[String],
     folder: Option<&str>,
@@ -1641,14 +2680,15 @@ pub fn search(
             .collect::<anyhow::Result<_>>()?
     };
 
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let db = load_db()?;
+    let db = load_db(&ctx.config)?;
 
     let mut entries: Vec<DecryptedListCipher> = db
         .entries
         .iter()
-        .map(decrypt_search_cipher)
+        .map(|entry| decrypt_search_cipher(ctx.account_ref(), entry))
         .filter(|entry| {
             entry
                 .as_ref()
@@ -1664,15 +2704,17 @@ pub fn search(
 }
 
 pub fn code(
+    account: Option<&str>,
     needle: Needle,
     user: Option<&str>,
     folder: Option<&str>,
     clipboard: bool,
     ignore_case: bool,
 ) -> anyhow::Result<()> {
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let db = load_db()?;
+    let db = load_db(&ctx.config)?;
 
     let desc = format!(
         "{}{}",
@@ -1681,7 +2723,7 @@ pub fn code(
     );
 
     let (_, decrypted) =
-        find_entry(&db, needle, user, folder, ignore_case)
+        find_entry(ctx.account_ref(), &db, needle, user, folder, ignore_case)
             .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     if let DecryptedData::Login { totp, .. } = decrypted.data {
@@ -1700,39 +2742,49 @@ pub fn code(
 }
 
 pub fn add(
+    account: Option<&str>,
     name: &str,
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
     folder: Option<&str>,
 ) -> anyhow::Result<()> {
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let mut db = load_db()?;
+    let mut db = load_db(&ctx.config)?;
     // unwrap is safe here because the call to unlock above is guaranteed to
     // populate these or error
     let mut access_token = db.access_token.as_ref().unwrap().clone();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
-    let name = crate::actions::encrypt(name, None)?;
+    let name = crate::actions::encrypt(ctx.account_ref(), name, None)?;
 
     let username = username
-        .map(|username| crate::actions::encrypt(username, None))
+        .map(|username| {
+            crate::actions::encrypt(ctx.account_ref(), username, None)
+        })
         .transpose()?;
 
     let contents = rbw::edit::edit("", HELP_PW)?;
 
     let (password, notes) = parse_editor(&contents);
     let password = password
-        .map(|password| crate::actions::encrypt(&password, None))
+        .map(|password| {
+            crate::actions::encrypt(ctx.account_ref(), &password, None)
+        })
         .transpose()?;
     let notes = notes
-        .map(|notes| crate::actions::encrypt(&notes, None))
+        .map(|notes| crate::actions::encrypt(ctx.account_ref(), &notes, None))
         .transpose()?;
     let uris: Vec<_> = uris
         .iter()
         .map(|uri| {
             Ok(rbw::db::Uri {
-                uri: crate::actions::encrypt(&uri.0, None)?,
+                uri: crate::actions::encrypt(
+                    ctx.account_ref(),
+                    &uri.0,
+                    None,
+                )?,
                 match_type: uri.1,
             })
         })
@@ -1740,19 +2792,30 @@ pub fn add(
 
     let mut folder_id = None;
     if let Some(folder_name) = folder {
-        let (new_access_token, folders) =
-            rbw::actions::list_folders(&access_token, refresh_token)?;
+        let (new_access_token, folders) = rbw::actions::list_folders(
+            &ctx.config,
+            &access_token,
+            refresh_token,
+        )?;
         if let Some(new_access_token) = new_access_token {
             access_token.clone_from(&new_access_token);
             db.access_token = Some(new_access_token);
-            save_db(&db)?;
+            save_db(&ctx.config, &db)?;
         }
 
         let folders: Vec<(String, String)> = folders
             .iter()
             .cloned()
             .map(|(id, name)| {
-                Ok((id, crate::actions::decrypt(&name, None, None)?))
+                Ok((
+                    id,
+                    crate::actions::decrypt(
+                        ctx.account_ref(),
+                        &name,
+                        None,
+                        None,
+                    )?,
+                ))
             })
             .collect::<anyhow::Result<_>>()?;
 
@@ -1763,20 +2826,26 @@ pub fn add(
         }
         if folder_id.is_none() {
             let (new_access_token, id) = rbw::actions::create_folder(
+                &ctx.config,
                 &access_token,
                 refresh_token,
-                &crate::actions::encrypt(folder_name, None)?,
+                &crate::actions::encrypt(
+                    ctx.account_ref(),
+                    folder_name,
+                    None,
+                )?,
             )?;
             if let Some(new_access_token) = new_access_token {
                 access_token.clone_from(&new_access_token);
                 db.access_token = Some(new_access_token);
-                save_db(&db)?;
+                save_db(&ctx.config, &db)?;
             }
             folder_id = Some(id);
         }
     }
 
     if let (Some(access_token), ()) = rbw::actions::add(
+        &ctx.config,
         &access_token,
         refresh_token,
         &name,
@@ -1790,15 +2859,16 @@ pub fn add(
         folder_id.as_deref(),
     )? {
         db.access_token = Some(access_token);
-        save_db(&db)?;
+        save_db(&ctx.config, &db)?;
     }
 
-    crate::actions::sync()?;
+    crate::actions::sync(ctx.account_ref())?;
 
     Ok(())
 }
 
 pub fn generate(
+    account: Option<&str>,
     name: Option<&str>,
     username: Option<&str>,
     uris: &[(String, Option<rbw::api::UriMatchType>)],
@@ -1810,24 +2880,32 @@ pub fn generate(
     println!("{password}");
 
     if let Some(name) = name {
-        unlock()?;
+        let ctx = AccountContext::load(account)?;
+        unlock_ctx(&ctx)?;
 
-        let mut db = load_db()?;
+        let mut db = load_db(&ctx.config)?;
         // unwrap is safe here because the call to unlock above is guaranteed
         // to populate these or error
         let mut access_token = db.access_token.as_ref().unwrap().clone();
         let refresh_token = db.refresh_token.as_ref().unwrap();
 
-        let name = crate::actions::encrypt(name, None)?;
+        let name = crate::actions::encrypt(ctx.account_ref(), name, None)?;
         let username = username
-            .map(|username| crate::actions::encrypt(username, None))
+            .map(|username| {
+                crate::actions::encrypt(ctx.account_ref(), username, None)
+            })
             .transpose()?;
-        let password = crate::actions::encrypt(&password, None)?;
+        let password =
+            crate::actions::encrypt(ctx.account_ref(), &password, None)?;
         let uris: Vec<_> = uris
             .iter()
             .map(|uri| {
                 Ok(rbw::db::Uri {
-                    uri: crate::actions::encrypt(&uri.0, None)?,
+                    uri: crate::actions::encrypt(
+                        ctx.account_ref(),
+                        &uri.0,
+                        None,
+                    )?,
                     match_type: uri.1,
                 })
             })
@@ -1835,19 +2913,30 @@ pub fn generate(
 
         let mut folder_id = None;
         if let Some(folder_name) = folder {
-            let (new_access_token, folders) =
-                rbw::actions::list_folders(&access_token, refresh_token)?;
+            let (new_access_token, folders) = rbw::actions::list_folders(
+                &ctx.config,
+                &access_token,
+                refresh_token,
+            )?;
             if let Some(new_access_token) = new_access_token {
                 access_token.clone_from(&new_access_token);
                 db.access_token = Some(new_access_token);
-                save_db(&db)?;
+                save_db(&ctx.config, &db)?;
             }
 
             let folders: Vec<(String, String)> = folders
                 .iter()
                 .cloned()
                 .map(|(id, name)| {
-                    Ok((id, crate::actions::decrypt(&name, None, None)?))
+                    Ok((
+                        id,
+                        crate::actions::decrypt(
+                            ctx.account_ref(),
+                            &name,
+                            None,
+                            None,
+                        )?,
+                    ))
                 })
                 .collect::<anyhow::Result<_>>()?;
 
@@ -1858,20 +2947,26 @@ pub fn generate(
             }
             if folder_id.is_none() {
                 let (new_access_token, id) = rbw::actions::create_folder(
+                    &ctx.config,
                     &access_token,
                     refresh_token,
-                    &crate::actions::encrypt(folder_name, None)?,
+                    &crate::actions::encrypt(
+                        ctx.account_ref(),
+                        folder_name,
+                        None,
+                    )?,
                 )?;
                 if let Some(new_access_token) = new_access_token {
                     access_token.clone_from(&new_access_token);
                     db.access_token = Some(new_access_token);
-                    save_db(&db)?;
+                    save_db(&ctx.config, &db)?;
                 }
                 folder_id = Some(id);
             }
         }
 
         if let (Some(access_token), ()) = rbw::actions::add(
+            &ctx.config,
             &access_token,
             refresh_token,
             &name,
@@ -1885,24 +2980,26 @@ pub fn generate(
             folder_id.as_deref(),
         )? {
             db.access_token = Some(access_token);
-            save_db(&db)?;
+            save_db(&ctx.config, &db)?;
         }
 
-        crate::actions::sync()?;
+        crate::actions::sync(ctx.account_ref())?;
     }
 
     Ok(())
 }
 
 pub fn edit(
+    account: Option<&str>,
     name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
 ) -> anyhow::Result<()> {
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let mut db = load_db()?;
+    let mut db = load_db(&ctx.config)?;
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
@@ -1912,9 +3009,15 @@ pub fn edit(
         name
     );
 
-    let (entry, decrypted) =
-        find_entry(&db, name, username, folder, ignore_case)
-            .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (entry, decrypted) = find_entry(
+        ctx.account_ref(),
+        &db,
+        name,
+        username,
+        folder,
+        ignore_case,
+    )
+    .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
     let (data, fields, notes, history) = match &decrypted.data {
         DecryptedData::Login { password, .. } => {
@@ -1930,6 +3033,7 @@ pub fn edit(
             let password = password
                 .map(|password| {
                     crate::actions::encrypt(
+                        ctx.account_ref(),
                         &password,
                         entry.org_id.as_deref(),
                     )
@@ -1937,7 +3041,11 @@ pub fn edit(
                 .transpose()?;
             let notes = notes
                 .map(|notes| {
-                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
+                    crate::actions::encrypt(
+                        ctx.account_ref(),
+                        &notes,
+                        entry.org_id.as_deref(),
+                    )
                 })
                 .transpose()?;
             let mut history = entry.history.clone();
@@ -1986,7 +3094,11 @@ pub fn edit(
 
             let notes = notes
                 .map(|notes| {
-                    crate::actions::encrypt(&notes, entry.org_id.as_deref())
+                    crate::actions::encrypt(
+                        ctx.account_ref(),
+                        &notes,
+                        entry.org_id.as_deref(),
+                    )
                 })
                 .transpose()?;
 
@@ -2000,6 +3112,7 @@ pub fn edit(
     };
 
     if let (Some(access_token), ()) = rbw::actions::edit(
+        &ctx.config,
         access_token,
         refresh_token,
         &entry.id,
@@ -2012,22 +3125,24 @@ pub fn edit(
         &history,
     )? {
         db.access_token = Some(access_token);
-        save_db(&db)?;
+        save_db(&ctx.config, &db)?;
     }
 
-    crate::actions::sync()?;
+    crate::actions::sync(ctx.account_ref())?;
     Ok(())
 }
 
 pub fn remove(
+    account: Option<&str>,
     name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
 ) -> anyhow::Result<()> {
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let mut db = load_db()?;
+    let mut db = load_db(&ctx.config)?;
     let access_token = db.access_token.as_ref().unwrap();
     let refresh_token = db.refresh_token.as_ref().unwrap();
 
@@ -2037,30 +3152,42 @@ pub fn remove(
         name
     );
 
-    let (entry, _) = find_entry(&db, name, username, folder, ignore_case)
-        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (entry, _) = find_entry(
+        ctx.account_ref(),
+        &db,
+        name,
+        username,
+        folder,
+        ignore_case,
+    )
+    .with_context(|| format!("couldn't find entry for '{desc}'"))?;
 
-    if let (Some(access_token), ()) =
-        rbw::actions::remove(access_token, refresh_token, &entry.id)?
-    {
+    if let (Some(access_token), ()) = rbw::actions::remove(
+        &ctx.config,
+        access_token,
+        refresh_token,
+        &entry.id,
+    )? {
         db.access_token = Some(access_token);
-        save_db(&db)?;
+        save_db(&ctx.config, &db)?;
     }
 
-    crate::actions::sync()?;
+    crate::actions::sync(ctx.account_ref())?;
 
     Ok(())
 }
 
 pub fn history(
+    account: Option<&str>,
     name: Needle,
     username: Option<&str>,
     folder: Option<&str>,
     ignore_case: bool,
 ) -> anyhow::Result<()> {
-    unlock()?;
+    let ctx = AccountContext::load(account)?;
+    unlock_ctx(&ctx)?;
 
-    let db = load_db()?;
+    let db = load_db(&ctx.config)?;
 
     let desc = format!(
         "{}{}",
@@ -2068,8 +3195,15 @@ pub fn history(
         name
     );
 
-    let (_, decrypted) = find_entry(&db, name, username, folder, ignore_case)
-        .with_context(|| format!("couldn't find entry for '{desc}'"))?;
+    let (_, decrypted) = find_entry(
+        ctx.account_ref(),
+        &db,
+        name,
+        username,
+        folder,
+        ignore_case,
+    )
+    .with_context(|| format!("couldn't find entry for '{desc}'"))?;
     for history in decrypted.history {
         println!("{}: {}", history.last_used_date, history.password);
     }
@@ -2077,30 +3211,42 @@ pub fn history(
     Ok(())
 }
 
-pub fn lock() -> anyhow::Result<()> {
-    ensure_agent()?;
-    crate::actions::lock()?;
+pub fn lock(account: Option<&str>, all: bool) -> anyhow::Result<()> {
+    if all {
+        let _ = check_agent_version();
+        crate::actions::lock_all()?;
+        return Ok(());
+    }
+
+    let ctx = AccountContext::load(account)?;
+    ensure_agent_running()?;
+    crate::actions::lock(ctx.account_ref())?;
 
     Ok(())
 }
 
-pub fn purge() -> anyhow::Result<()> {
-    let config = rbw::config::Config::load().ok();
-    if let Some(config) = &config {
-        delete_touchid_key(config);
-    }
+pub fn purge(account: Option<&str>) -> anyhow::Result<()> {
+    let resolved = rbw::config::Config::resolve_account(account);
+    let (name, config) = match resolved {
+        Ok((name, config)) => (name, config),
+        Err(e) => {
+            if account.is_some() {
+                return Err(e.into());
+            }
+            stop_agent()?;
+            return Err(e.into());
+        }
+    };
 
-    stop_agent()?;
-
-    if let Some(config) = &config {
-        delete_yubikey_keys(config);
-    }
-    remove_db()?;
+    delete_touchid_key(&config, name.as_deref());
+    evict_account_if_running(&config);
+    delete_yubikey_keys(&config);
+    remove_db(&config)?;
 
     Ok(())
 }
 
-fn delete_touchid_key(config: &rbw::config::Config) {
+fn delete_touchid_key(config: &rbw::config::Config, account: Option<&str>) {
     let Some(email) = &config.email else {
         return;
     };
@@ -2113,7 +3259,13 @@ fn delete_touchid_key(config: &rbw::config::Config) {
     // Touch ID keychain items are created by `rbw-agent`, so ask the agent
     // (the owning binary) to delete the item first to avoid macOS Keychain
     // `errSecInvalidOwnerEdit` (-25244) ACL errors.
-    if ensure_agent().is_ok() && crate::actions::delete_touchid_key().is_ok()
+    if ensure_agent_running().is_ok()
+        && crate::actions::delete_touchid_key(
+            account,
+            Some(&server),
+            Some(email),
+        )
+        .is_ok()
     {
         return;
     }
@@ -2132,14 +3284,24 @@ fn delete_yubikey_keys(config: &rbw::config::Config) {
     }
 }
 
+fn evict_account_if_running(config: &rbw::config::Config) {
+    let Some(email) = &config.email else {
+        return;
+    };
+    let server = config.server_name();
+    if let Err(e) = crate::actions::evict_account(&server, email) {
+        log::warn!("failed to evict account from agent: {e}; stopping agent");
+        let _ = stop_agent();
+    }
+}
+
 pub fn stop_agent() -> anyhow::Result<()> {
     crate::actions::quit()?;
 
     Ok(())
 }
 
-fn ensure_agent() -> anyhow::Result<()> {
-    check_config()?;
+fn ensure_agent_running() -> anyhow::Result<()> {
     if matches!(check_agent_version(), Ok(())) {
         return Ok(());
     }
@@ -2166,13 +3328,6 @@ fn run_agent() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn check_config() -> anyhow::Result<()> {
-    rbw::config::Config::validate().map_err(|e| {
-        log::error!("{MISSING_CONFIG_HELP}");
-        anyhow::Error::new(e)
-    })
-}
-
 fn check_agent_version() -> anyhow::Result<()> {
     let client_version = rbw::protocol::VERSION;
     let agent_version = version_or_quit()?;
@@ -2192,6 +3347,7 @@ fn version_or_quit() -> anyhow::Result<u32> {
 }
 
 fn find_entry(
+    account: Option<&str>,
     db: &rbw::db::Db,
     mut needle: Needle,
     username: Option<&str>,
@@ -2201,7 +3357,10 @@ fn find_entry(
     if let Needle::Uuid(uuid, s) = needle {
         for cipher in &db.entries {
             if uuid::Uuid::parse_str(&cipher.id) == Ok(uuid) {
-                return Ok((cipher.clone(), decrypt_cipher(cipher)?));
+                return Ok((
+                    cipher.clone(),
+                    decrypt_cipher(account, cipher)?,
+                ));
             }
         }
         needle = Needle::Name(s);
@@ -2211,13 +3370,13 @@ fn find_entry(
         .entries
         .iter()
         .map(|entry| {
-            decrypt_search_cipher(entry)
+            decrypt_search_cipher(account, entry)
                 .map(|decrypted| (entry.clone(), decrypted))
         })
         .collect::<anyhow::Result<_>>()?;
     let (entry, _) =
         find_entry_raw(&ciphers, &needle, username, folder, ignore_case)?;
-    let decrypted_entry = decrypt_cipher(&entry)?;
+    let decrypted_entry = decrypt_cipher(account, &entry)?;
     Ok((entry, decrypted_entry))
 }
 
@@ -2285,6 +3444,7 @@ fn find_entry_raw(
 }
 
 fn decrypt_field(
+    account: Option<&str>,
     name: Field,
     field: Option<&str>,
     entry_key: Option<&str>,
@@ -2292,7 +3452,9 @@ fn decrypt_field(
 ) -> Option<String> {
     let field = field
         .as_ref()
-        .map(|field| crate::actions::decrypt(field, entry_key, org_id))
+        .map(|field| {
+            crate::actions::decrypt(account, field, entry_key, org_id)
+        })
         .transpose();
     match field {
         Ok(field) => field,
@@ -2304,12 +3466,14 @@ fn decrypt_field(
 }
 
 fn decrypt_list_cipher(
+    account: Option<&str>,
     entry: &rbw::db::Entry,
     fields: &[ListField],
 ) -> anyhow::Result<DecryptedListCipher> {
     let id = entry.id.clone();
     let name = if fields.contains(&ListField::Name) {
         Some(crate::actions::decrypt(
+            account,
             &entry.name,
             entry.key.as_deref(),
             entry.org_id.as_deref(),
@@ -2320,6 +3484,7 @@ fn decrypt_list_cipher(
     let user = if fields.contains(&ListField::User) {
         match &entry.data {
             rbw::db::EntryData::Login { username, .. } => decrypt_field(
+                account,
                 Field::Username,
                 username.as_deref(),
                 entry.key.as_deref(),
@@ -2336,7 +3501,9 @@ fn decrypt_list_cipher(
         entry
             .folder
             .as_ref()
-            .map(|folder| crate::actions::decrypt(folder, None, None))
+            .map(|folder| {
+                crate::actions::decrypt(account, folder, None, None)
+            })
             .transpose()?
     } else {
         None
@@ -2347,6 +3514,7 @@ fn decrypt_list_cipher(
                 uris.iter()
                     .filter_map(|s| {
                         decrypt_field(
+                            account,
                             Field::Uris,
                             Some(&s.uri),
                             entry.key.as_deref(),
@@ -2382,16 +3550,19 @@ fn decrypt_list_cipher(
 }
 
 fn decrypt_search_cipher(
+    account: Option<&str>,
     entry: &rbw::db::Entry,
 ) -> anyhow::Result<DecryptedSearchCipher> {
     let id = entry.id.clone();
     let name = crate::actions::decrypt(
+        account,
         &entry.name,
         entry.key.as_deref(),
         entry.org_id.as_deref(),
     )?;
     let user = match &entry.data {
         rbw::db::EntryData::Login { username, .. } => decrypt_field(
+            account,
             Field::Username,
             username.as_deref(),
             entry.key.as_deref(),
@@ -2404,13 +3575,14 @@ fn decrypt_search_cipher(
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None, None))
+        .map(|folder| crate::actions::decrypt(account, folder, None, None))
         .transpose()?;
     let notes = entry
         .notes
         .as_ref()
         .map(|notes| {
             crate::actions::decrypt(
+                account,
                 notes,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2421,6 +3593,7 @@ fn decrypt_search_cipher(
         uris.iter()
             .filter_map(|s| {
                 decrypt_field(
+                    account,
                     Field::Uris,
                     Some(&s.uri),
                     entry.key.as_deref(),
@@ -2444,6 +3617,7 @@ fn decrypt_search_cipher(
         })
         .map(|value| {
             crate::actions::decrypt(
+                account,
                 value,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2478,13 +3652,16 @@ fn decrypt_search_cipher(
     })
 }
 
-fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
+fn decrypt_cipher(
+    account: Option<&str>,
+    entry: &rbw::db::Entry,
+) -> anyhow::Result<DecryptedCipher> {
     // folder name should always be decrypted with the local key because
     // folders are local to a specific user's vault, not the organization
     let folder = entry
         .folder
         .as_ref()
-        .map(|folder| crate::actions::decrypt(folder, None, None))
+        .map(|folder| crate::actions::decrypt(account, folder, None, None))
         .transpose();
     let folder = match folder {
         Ok(folder) => folder,
@@ -2503,6 +3680,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .as_ref()
                     .map(|name| {
                         crate::actions::decrypt(
+                            account,
                             name,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
@@ -2514,6 +3692,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                     .as_ref()
                     .map(|value| {
                         crate::actions::decrypt(
+                            account,
                             value,
                             entry.key.as_deref(),
                             entry.org_id.as_deref(),
@@ -2529,6 +3708,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         .as_ref()
         .map(|notes| {
             crate::actions::decrypt(
+                account,
                 notes,
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
@@ -2549,6 +3729,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             Ok(DecryptedHistoryEntry {
                 last_used_date: history_entry.last_used_date.clone(),
                 password: crate::actions::decrypt(
+                    account,
                     &history_entry.password,
                     entry.key.as_deref(),
                     entry.org_id.as_deref(),
@@ -2565,18 +3746,21 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             uris,
         } => DecryptedData::Login {
             username: decrypt_field(
+                account,
                 Field::Username,
                 username.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             password: decrypt_field(
+                account,
                 Field::Password,
                 password.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             totp: decrypt_field(
+                account,
                 Field::Totp,
                 totp.as_deref(),
                 entry.key.as_deref(),
@@ -2586,6 +3770,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
                 .iter()
                 .map(|s| {
                     decrypt_field(
+                        account,
                         Field::Uris,
                         Some(&s.uri),
                         entry.key.as_deref(),
@@ -2607,36 +3792,42 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             code,
         } => DecryptedData::Card {
             cardholder_name: decrypt_field(
+                account,
                 Field::Cardholder,
                 cardholder_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             number: decrypt_field(
+                account,
                 Field::CardNumber,
                 number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             brand: decrypt_field(
+                account,
                 Field::Brand,
                 brand.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             exp_month: decrypt_field(
+                account,
                 Field::ExpMonth,
                 exp_month.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             exp_year: decrypt_field(
+                account,
                 Field::ExpYear,
                 exp_year.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             code: decrypt_field(
+                account,
                 Field::Cvv,
                 code.as_deref(),
                 entry.key.as_deref(),
@@ -2663,102 +3854,119 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             username,
         } => DecryptedData::Identity {
             title: decrypt_field(
+                account,
                 Field::Title,
                 title.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             first_name: decrypt_field(
+                account,
                 Field::FirstName,
                 first_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             middle_name: decrypt_field(
+                account,
                 Field::MiddleName,
                 middle_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             last_name: decrypt_field(
+                account,
                 Field::LastName,
                 last_name.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             address1: decrypt_field(
+                account,
                 Field::Address1,
                 address1.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             address2: decrypt_field(
+                account,
                 Field::Address2,
                 address2.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             address3: decrypt_field(
+                account,
                 Field::Address3,
                 address3.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             city: decrypt_field(
+                account,
                 Field::City,
                 city.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             state: decrypt_field(
+                account,
                 Field::State,
                 state.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             postal_code: decrypt_field(
+                account,
                 Field::PostalCode,
                 postal_code.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             country: decrypt_field(
+                account,
                 Field::Country,
                 country.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             phone: decrypt_field(
+                account,
                 Field::Phone,
                 phone.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             email: decrypt_field(
+                account,
                 Field::Email,
                 email.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             ssn: decrypt_field(
+                account,
                 Field::Ssn,
                 ssn.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             license_number: decrypt_field(
+                account,
                 Field::License,
                 license_number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             passport_number: decrypt_field(
+                account,
                 Field::Passport,
                 passport_number.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             username: decrypt_field(
+                account,
                 Field::Username,
                 username.as_deref(),
                 entry.key.as_deref(),
@@ -2772,18 +3980,21 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
             private_key,
         } => DecryptedData::SshKey {
             public_key: decrypt_field(
+                account,
                 Field::PublicKey,
                 public_key.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             fingerprint: decrypt_field(
+                account,
                 Field::Fingerprint,
                 fingerprint.as_deref(),
                 entry.key.as_deref(),
                 entry.org_id.as_deref(),
             ),
             private_key: decrypt_field(
+                account,
                 Field::PrivateKey,
                 private_key.as_deref(),
                 entry.key.as_deref(),
@@ -2796,6 +4007,7 @@ fn decrypt_cipher(entry: &rbw::db::Entry) -> anyhow::Result<DecryptedCipher> {
         id: entry.id.clone(),
         folder,
         name: crate::actions::decrypt(
+            account,
             &entry.name,
             entry.key.as_deref(),
             entry.org_id.as_deref(),
@@ -2828,8 +4040,7 @@ fn parse_editor(contents: &str) -> (Option<String>, Option<String>) {
     (password, notes)
 }
 
-fn load_db() -> anyhow::Result<rbw::db::Db> {
-    let config = rbw::config::Config::load()?;
+fn load_db(config: &rbw::config::Config) -> anyhow::Result<rbw::db::Db> {
     config.email.as_ref().map_or_else(
         || Err(anyhow::anyhow!("failed to find email address in config")),
         |email| {
@@ -2839,8 +4050,10 @@ fn load_db() -> anyhow::Result<rbw::db::Db> {
     )
 }
 
-fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
-    let config = rbw::config::Config::load()?;
+fn save_db(
+    config: &rbw::config::Config,
+    db: &rbw::db::Db,
+) -> anyhow::Result<()> {
     config.email.as_ref().map_or_else(
         || Err(anyhow::anyhow!("failed to find email address in config")),
         |email| {
@@ -2850,8 +4063,7 @@ fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
     )
 }
 
-fn remove_db() -> anyhow::Result<()> {
-    let config = rbw::config::Config::load()?;
+fn remove_db(config: &rbw::config::Config) -> anyhow::Result<()> {
     config.email.as_ref().map_or_else(
         || Err(anyhow::anyhow!("failed to find email address in config")),
         |email| {

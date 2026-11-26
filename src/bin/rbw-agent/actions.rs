@@ -3,12 +3,16 @@ use sha2::Digest as _;
 
 pub async fn register(
     sock: &mut crate::sock::Sock,
+    account: Option<&str>,
     environment: &rbw::protocol::Environment,
-) -> anyhow::Result<()> {
-    let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
+) -> anyhow::Result<rbw::config::AccountKey> {
+    let (config, key) = load_account_config(account).await?;
+    let db = load_db(&config)
+        .await
+        .unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
-        let url_str = config_base_url().await?;
+        let url_str = config.base_url();
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
         let Some(host) = url.host_str() else {
@@ -17,7 +21,7 @@ pub async fn register(
             ));
         };
 
-        let email = config_email().await?;
+        let email = key.email.clone();
 
         let mut err_msg = None;
         for i in 1_u8..=3 {
@@ -29,9 +33,9 @@ pub async fn register(
                 None
             };
             let client_id = rbw::pinentry::getpin(
-                &config_pinentry().await?,
+                &config.pinentry,
                 "API key client__id",
-                &format!("Log in to {host}"),
+                &format!("Log in to {host} ({email})"),
                 err.as_deref(),
                 environment,
                 false,
@@ -39,9 +43,9 @@ pub async fn register(
             .await
             .context("failed to read client_id from pinentry")?;
             let client_secret = rbw::pinentry::getpin(
-                &config_pinentry().await?,
+                &config.pinentry,
                 "API key client__secret",
-                &format!("Log in to {host}"),
+                &format!("Log in to {host} ({email})"),
                 err.as_deref(),
                 environment,
                 false,
@@ -49,7 +53,9 @@ pub async fn register(
             .await
             .context("failed to read client_secret from pinentry")?;
             let apikey = rbw::locked::ApiKey::new(client_id, client_secret);
-            match rbw::actions::register(&email, apikey.clone()).await {
+            match rbw::actions::register(&config, &email, apikey.clone())
+                .await
+            {
                 Ok(()) => {
                     break;
                 }
@@ -72,18 +78,22 @@ pub async fn register(
 
     respond_ack(sock).await?;
 
-    Ok(())
+    Ok(key)
 }
 
 pub async fn login(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
     environment: &rbw::protocol::Environment,
-) -> anyhow::Result<()> {
-    let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
+) -> anyhow::Result<rbw::config::AccountKey> {
+    let (config, key) = load_account_config(account).await?;
+    let db = load_db(&config)
+        .await
+        .unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
-        let url_str = config_base_url().await?;
+        let url_str = config.base_url();
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
         let Some(host) = url.host_str() else {
@@ -92,7 +102,7 @@ pub async fn login(
             ));
         };
 
-        let email = config_email().await?;
+        let email = key.email.clone();
 
         let mut err_msg = None;
         'attempts: for i in 1_u8..=3 {
@@ -104,17 +114,23 @@ pub async fn login(
                 None
             };
             let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
+                &config.pinentry,
                 "Master Password",
-                &format!("Log in to {host}"),
+                &format!("Log in to {host} ({email})"),
                 err.as_deref(),
                 environment,
                 true,
             )
             .await
             .context("failed to read password from pinentry")?;
-            match rbw::actions::login(&email, password.clone(), None, None)
-                .await
+            match rbw::actions::login(
+                &config,
+                &email,
+                password.clone(),
+                None,
+                None,
+            )
+            .await
             {
                 Ok((
                     access_token,
@@ -127,6 +143,8 @@ pub async fn login(
                 )) => {
                     login_success(
                         Some(sock),
+                        &config,
+                        &key,
                         environment,
                         state.clone(),
                         access_token,
@@ -184,6 +202,7 @@ pub async fn login(
                                 protected_key,
                             ) = two_factor_webauthn(
                                 sock,
+                                &config,
                                 environment,
                                 &email,
                                 password.clone(),
@@ -192,6 +211,8 @@ pub async fn login(
                             .await?;
                             login_success(
                                 Some(sock),
+                                &config,
+                                &key,
                                 environment,
                                 state.clone(),
                                 access_token,
@@ -218,6 +239,7 @@ pub async fn login(
                                     sso_email_2fa_session_token
                             {
                                 rbw::actions::send_two_factor_email(
+                                    &config,
                                     &email,
                                     &sso_email_2fa_session_token,
                                 )
@@ -232,6 +254,7 @@ pub async fn login(
                                 parallelism,
                                 protected_key,
                             ) = two_factor(
+                                &config,
                                 environment,
                                 &email,
                                 password.clone(),
@@ -240,6 +263,8 @@ pub async fn login(
                             .await?;
                             login_success(
                                 Some(sock),
+                                &config,
+                                &key,
                                 environment,
                                 state.clone(),
                                 access_token,
@@ -280,15 +305,19 @@ pub async fn login(
 
     respond_ack(sock).await?;
 
-    Ok(())
+    Ok(key)
 }
 
 pub async fn login_passkey(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
     environment: &rbw::protocol::Environment,
-) -> anyhow::Result<()> {
-    let mut db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
+) -> anyhow::Result<rbw::config::AccountKey> {
+    let (config, key) = load_account_config(account).await?;
+    let mut db = load_db(&config)
+        .await
+        .unwrap_or_else(|_| rbw::db::Db::new());
 
     if db.needs_login() {
         if !rbw::fido2::is_supported() {
@@ -296,17 +325,15 @@ pub async fn login_passkey(
                 .context("failed to log in with passkey");
         }
 
-        let config = rbw::config::Config::load_async().await?;
-        let email = config.email.clone().ok_or_else(|| {
-            anyhow::anyhow!("failed to find email address in config")
-        })?;
+        let email = key.email.clone();
         let ui_url = config.ui_url();
         let origin = rbw::fido2::webauthn_origin_from_ui_url(&ui_url)
             .context("failed to derive WebAuthn origin from ui_url")?;
 
-        let options_res = rbw::actions::webauthn_login_assertion_options()
-            .await
-            .context("failed to fetch passkey login options")?;
+        let options_res =
+            rbw::actions::webauthn_login_assertion_options(&config)
+                .await
+                .context("failed to fetch passkey login options")?;
         let rp_id = match options_res.options.rp_id {
             Some(rp_id) if !rp_id.is_empty() => rp_id,
             _ => rbw::fido2::rp_id_from_ui_url(&ui_url)
@@ -359,6 +386,7 @@ pub async fn login_passkey(
         .context("failed to authenticate with passkey")?;
 
         let login_res = rbw::actions::login_webauthn(
+            &config,
             &options_res.token,
             &assertion.payload_json,
         )
@@ -379,8 +407,8 @@ pub async fn login_passkey(
         if login_res.kdf_parallelism.is_some() {
             db.parallelism = login_res.kdf_parallelism;
         }
-        if let Some(key) = login_res.key {
-            db.protected_key = Some(key);
+        if let Some(key_str) = login_res.key {
+            db.protected_key = Some(key_str);
         }
         if let Some(ref prf_opt) = login_res.webauthn_prf_option {
             db.webauthn_prf = Some(rbw::db::WebAuthnPrfData {
@@ -393,10 +421,10 @@ pub async fn login_passkey(
                 encrypted_user_key: prf_opt.encrypted_user_key.clone(),
             });
         }
-        save_db(&db).await?;
+        save_db(&config, &db).await?;
 
-        sync(None, state.clone()).await?;
-        let db = load_db().await?;
+        sync_for_config(None, state.clone(), &config, &key).await?;
+        let db = load_db(&config).await?;
 
         if let (Some(prf_output), Some(prf_opt)) =
             (assertion.prf_output, login_res.webauthn_prf_option)
@@ -418,24 +446,26 @@ pub async fn login_passkey(
                 &db.protected_org_keys,
             )
             .context("failed to unlock database")?;
-            unlock_success(state, keys, org_keys).await?;
+            unlock_success(state, &config, &key, keys, org_keys).await?;
         } else {
             send_status(
                 Some(sock),
                 "Passkey logged in without vault encryption PRF; unlocking vault...",
             )
             .await;
-            unlock_state(Some(sock), state, environment).await?;
+            unlock_state(Some(sock), state, &config, &key, environment)
+                .await?;
         }
     }
 
     respond_ack(sock).await?;
 
-    Ok(())
+    Ok(key)
 }
 
 async fn two_factor_webauthn(
     sock: &mut crate::sock::Sock,
+    config: &rbw::config::Config,
     environment: &rbw::protocol::Environment,
     email: &str,
     password: rbw::locked::Password,
@@ -449,7 +479,6 @@ async fn two_factor_webauthn(
     Option<u32>,
     String,
 )> {
-    let config = rbw::config::Config::load_async().await?;
     let ui_url = config.ui_url();
     let origin = rbw::fido2::webauthn_origin_from_ui_url(&ui_url)
         .context("failed to derive WebAuthn origin from ui_url")?;
@@ -473,7 +502,7 @@ async fn two_factor_webauthn(
     let allow_credentials_for_op = allow_credentials.clone();
     let token_json = run_fido2_with_pin_retry(
         Some(sock),
-        &config,
+        config,
         environment,
         Some(&rp_id),
         &allow_credentials,
@@ -511,6 +540,7 @@ async fn two_factor_webauthn(
     .context("failed to complete WebAuthn 2FA")?;
 
     rbw::actions::login(
+        config,
         email,
         password,
         Some(&token_json),
@@ -521,6 +551,7 @@ async fn two_factor_webauthn(
 }
 
 async fn two_factor(
+    config: &rbw::config::Config,
     environment: &rbw::protocol::Environment,
     email: &str,
     password: rbw::locked::Password,
@@ -544,7 +575,7 @@ async fn two_factor(
             None
         };
         let code = rbw::pinentry::getpin(
-            &config_pinentry().await?,
+            &config.pinentry,
             provider.header(),
             provider.message(),
             err.as_deref(),
@@ -556,6 +587,7 @@ async fn two_factor(
         let code = std::str::from_utf8(code.password())
             .context("code was not valid utf8")?;
         match rbw::actions::login(
+            config,
             email,
             password.clone(),
             Some(code),
@@ -614,6 +646,8 @@ async fn two_factor(
 
 async fn login_success(
     sock: Option<&mut crate::sock::Sock>,
+    config: &rbw::config::Config,
+    key: &rbw::config::AccountKey,
     environment: &rbw::protocol::Environment,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     access_token: String,
@@ -634,10 +668,10 @@ async fn login_success(
     db.memory = memory;
     db.parallelism = parallelism;
     db.protected_key = Some(protected_key.clone());
-    save_db(&db).await?;
+    save_db(config, &db).await?;
 
-    sync(None, state.clone()).await?;
-    let db = load_db().await?;
+    sync_for_config(None, state.clone(), config, key).await?;
+    let db = load_db(config).await?;
 
     let Some(protected_private_key) = db.protected_private_key else {
         return Err(anyhow::anyhow!(
@@ -664,26 +698,42 @@ async fn login_success(
 
     match res {
         Ok((keys, org_keys)) => {
-            let mut state = state.lock().await;
-            state.priv_key = Some(keys);
-            state.org_keys = Some(org_keys);
+            unlock_success(state, config, key, keys, org_keys).await?;
         }
         Err(e) => return Err(e).context("failed to unlock database"),
     }
 
-    store_touchid_key_if_enabled(&email, identity.keys.clone()).await;
-    enroll_yubikey_if_enabled(sock, environment, &email, identity.keys).await;
+    store_touchid_key_if_enabled(config, &email, identity.keys.clone()).await;
+    enroll_yubikey_if_enabled(
+        sock,
+        config,
+        environment,
+        &email,
+        identity.keys,
+    )
+    .await;
 
     Ok(())
 }
 
 pub async fn delete_touchid_key(
     sock: &mut crate::sock::Sock,
+    account: Option<&str>,
+    server: Option<&str>,
+    email: Option<&str>,
 ) -> anyhow::Result<()> {
-    let config = rbw::config::Config::load_async().await?;
-    if let Some(email) = config.email.clone() {
+    let target = if let (Some(server), Some(email)) = (server, email) {
+        Some((server.to_string(), email.to_string()))
+    } else {
+        let config = rbw::config::Config::load_account_async(account).await?;
+        config
+            .email
+            .as_ref()
+            .map(|email| (config.server_name(), email.clone()))
+    };
+
+    if let Some((server, email)) = target {
         let profile = rbw::dirs::profile();
-        let server = config.server_name();
         tokio::task::spawn_blocking(move || {
             rbw::touchid::delete_key(&profile, &server, &email)
         })
@@ -696,16 +746,10 @@ pub async fn delete_touchid_key(
 }
 
 async fn store_touchid_key_if_enabled(
+    config: &rbw::config::Config,
     email: &str,
     master_keys: rbw::locked::Keys,
 ) {
-    let config = match rbw::config::Config::load_async().await {
-        Ok(config) => config,
-        Err(e) => {
-            log::warn!("failed to load config for touch id storage: {e}");
-            return;
-        }
-    };
     if !config.touchid {
         return;
     }
@@ -730,6 +774,7 @@ async fn store_touchid_key_if_enabled(
 
 async fn enroll_yubikey_if_enabled(
     mut sock: Option<&mut crate::sock::Sock>,
+    config: &rbw::config::Config,
     environment: &rbw::protocol::Environment,
     email: &str,
     master_keys: rbw::locked::Keys,
@@ -737,13 +782,6 @@ async fn enroll_yubikey_if_enabled(
     if !rbw::fido2::is_supported() {
         return;
     }
-    let config = match rbw::config::Config::load_async().await {
-        Ok(config) => config,
-        Err(e) => {
-            log::warn!("failed to load config for YubiKey enrollment: {e}");
-            return;
-        }
-    };
     if !config.yubikey {
         return;
     }
@@ -770,7 +808,7 @@ async fn enroll_yubikey_if_enabled(
 
     let res = run_fido2_with_pin_retry(
         sock.as_deref_mut(),
-        &config,
+        config,
         environment,
         None,
         &[],
@@ -822,21 +860,18 @@ async fn enroll_yubikey_if_enabled(
 pub async fn yubikey_enroll(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
     environment: &rbw::protocol::Environment,
     label: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<rbw::config::AccountKey> {
     if !rbw::fido2::is_supported() {
         return Err(rbw::fido2::unsupported_error())
             .context("failed to enroll security key");
     }
 
-    let config = rbw::config::Config::load_async().await?;
-    let db = load_db().await?;
-    let Some(email) = config.email.clone() else {
-        return Err(anyhow::anyhow!(
-            "failed to find email address in config"
-        ));
-    };
+    let (config, key) = load_account_config(account).await?;
+    let db = load_db(&config).await?;
+    let email = key.email.clone();
     let Some(kdf) = db.kdf else {
         return Err(anyhow::anyhow!("failed to find kdf type in db"));
     };
@@ -869,7 +904,7 @@ pub async fn yubikey_enroll(
             "Master Password",
             &format!(
                 "Confirm master password to enroll a security key for '{}'",
-                rbw::dirs::profile()
+                prompt_account_label(&config)
             ),
             err.as_deref(),
             environment,
@@ -893,7 +928,8 @@ pub async fn yubikey_enroll(
             &db.protected_org_keys,
         ) {
             Ok((keys, org_keys)) => {
-                unlock_success(state.clone(), keys, org_keys).await?;
+                unlock_success(state.clone(), &config, &key, keys, org_keys)
+                    .await?;
                 verified_master_keys = Some(identity.keys);
                 break;
             }
@@ -978,17 +1014,18 @@ pub async fn yubikey_enroll(
     send_status(Some(sock), &msg).await;
     respond_ack(sock).await?;
 
-    Ok(())
+    Ok(key)
 }
 
 async fn unlock_state(
     mut sock: Option<&mut crate::sock::Sock>,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    config: &rbw::config::Config,
+    key: &rbw::config::AccountKey,
     environment: &rbw::protocol::Environment,
 ) -> anyhow::Result<()> {
-    if state.lock().await.needs_unlock() {
-        let config = rbw::config::Config::load_async().await?;
-        let db = load_db().await?;
+    if state.lock().await.needs_unlock(key) {
+        let db = load_db(config).await?;
 
         let Some(protected_private_key) = db.protected_private_key else {
             return Err(anyhow::anyhow!(
@@ -996,11 +1033,7 @@ async fn unlock_state(
             ));
         };
 
-        let Some(email) = config.email.clone() else {
-            return Err(anyhow::anyhow!(
-                "failed to find email address in config"
-            ));
-        };
+        let email = key.email.clone();
 
         // 1. Bitwarden Passkey PRF unlock (if logged in via passkey with PRF
         //    and a matching FIDO2 key is plugged in)
@@ -1025,7 +1058,7 @@ async fn unlock_state(
                 let cred_eval = cred_id.clone();
                 let prf_res = run_fido2_with_pin_retry(
                     sock.as_deref_mut(),
-                    &config,
+                    config,
                     environment,
                     Some(&prf.rp_id),
                     std::slice::from_ref(&cred_id),
@@ -1073,7 +1106,10 @@ async fn unlock_state(
                                         &db.protected_org_keys,
                                     )
                                     .context("failed to unlock database")?;
-                                unlock_success(state, keys, org_keys).await?;
+                                unlock_success(
+                                    state, config, key, keys, org_keys,
+                                )
+                                .await?;
                                 return Ok(());
                             }
                             Err(e) => {
@@ -1142,7 +1178,7 @@ async fn unlock_state(
                     );
                     let yk_res = run_fido2_with_pin_retry(
                         sock.as_deref_mut(),
-                        &config,
+                        config,
                         environment,
                         Some(&store.rp_id),
                         std::slice::from_ref(&cred_id),
@@ -1182,8 +1218,10 @@ async fn unlock_state(
                                 &db.protected_org_keys,
                             ) {
                                 Ok((keys, org_keys)) => {
-                                    unlock_success(state, keys, org_keys)
-                                        .await?;
+                                    unlock_success(
+                                        state, config, key, keys, org_keys,
+                                    )
+                                    .await?;
                                     return Ok(());
                                 }
                                 Err(
@@ -1230,7 +1268,10 @@ async fn unlock_state(
             let profile = rbw::dirs::profile();
             let server = config.server_name();
             let email_for_touchid = email.clone();
-            let reason = format!("unlock the local database for '{profile}'");
+            let reason = format!(
+                "unlock the local database for '{}'",
+                prompt_account_label(config)
+            );
             let outcome = tokio::task::spawn_blocking(move || {
                 rbw::touchid::unlock(
                     &profile,
@@ -1251,7 +1292,10 @@ async fn unlock_state(
                         &db.protected_org_keys,
                     ) {
                         Ok((keys, org_keys)) => {
-                            unlock_success(state, keys, org_keys).await?;
+                            unlock_success(
+                                state, config, key, keys, org_keys,
+                            )
+                            .await?;
                             return Ok(());
                         }
                         Err(rbw::error::Error::IncorrectPassword {
@@ -1313,7 +1357,7 @@ async fn unlock_state(
                 "Master Password",
                 &format!(
                     "Unlock the local database for '{}'",
-                    rbw::dirs::profile()
+                    prompt_account_label(config)
                 ),
                 err.as_deref(),
                 environment,
@@ -1337,14 +1381,17 @@ async fn unlock_state(
                 &db.protected_org_keys,
             ) {
                 Ok((keys, org_keys)) => {
-                    unlock_success(state, keys, org_keys).await?;
+                    unlock_success(state, config, key, keys, org_keys)
+                        .await?;
                     store_touchid_key_if_enabled(
+                        config,
                         &email,
                         identity.keys.clone(),
                     )
                     .await;
                     enroll_yubikey_if_enabled(
                         sock.as_deref_mut(),
+                        config,
                         environment,
                         &email,
                         identity.keys,
@@ -1372,31 +1419,80 @@ async fn unlock_state(
 pub async fn unlock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
     environment: &rbw::protocol::Environment,
-) -> anyhow::Result<()> {
-    unlock_state(Some(sock), state, environment).await?;
+) -> anyhow::Result<rbw::config::AccountKey> {
+    let (config, key) = load_account_config(account).await?;
+    unlock_state(Some(sock), state, &config, &key, environment).await?;
 
     respond_ack(sock).await?;
 
-    Ok(())
+    Ok(key)
 }
 
 async fn unlock_success(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    config: &rbw::config::Config,
+    key: &rbw::config::AccountKey,
     keys: rbw::locked::Keys,
     org_keys: std::collections::HashMap<String, rbw::locked::Keys>,
 ) -> anyhow::Result<()> {
     let mut state = state.lock().await;
-    state.priv_key = Some(keys);
-    state.org_keys = Some(org_keys);
+    let acct = state.ensure_account(key, config);
+    acct.priv_key = Some(keys);
+    acct.org_keys = Some(org_keys);
     Ok(())
 }
 
 pub async fn lock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
 ) -> anyhow::Result<()> {
-    state.lock().await.clear();
+    let (_, key) = load_account_config(account).await?;
+    state.lock().await.clear_account(&key);
+
+    respond_ack(sock).await?;
+
+    Ok(())
+}
+
+pub async fn lock_all(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+) -> anyhow::Result<()> {
+    state.lock().await.clear_all();
+
+    respond_ack(sock).await?;
+
+    Ok(())
+}
+
+pub async fn account_states(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+) -> anyhow::Result<()> {
+    let unlocked = state.lock().await.unlocked_accounts();
+    sock.send(&rbw::protocol::Response::AccountStates { unlocked })
+        .await?;
+
+    Ok(())
+}
+
+pub async fn evict_account(
+    sock: &mut crate::sock::Sock,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    server: &str,
+    email: &str,
+) -> anyhow::Result<()> {
+    let key = rbw::config::AccountKey {
+        server: server.to_string(),
+        email: email.to_string(),
+    };
+    let evicted = state.lock().await.evict_account(&key);
+    if let Some(acct) = evicted {
+        acct.shutdown().await;
+    }
 
     respond_ack(sock).await?;
 
@@ -1406,8 +1502,10 @@ pub async fn lock(
 pub async fn check_lock(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
 ) -> anyhow::Result<()> {
-    if state.lock().await.needs_unlock() {
+    let (_, key) = load_account_config(account).await?;
+    if state.lock().await.needs_unlock(&key) {
         return Err(anyhow::anyhow!("agent is locked"));
     }
 
@@ -1419,8 +1517,19 @@ pub async fn check_lock(
 pub async fn sync(
     sock: Option<&mut crate::sock::Sock>,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
 ) -> anyhow::Result<()> {
-    let mut db = load_db().await?;
+    let (config, key) = load_account_config(account).await?;
+    sync_for_config(sock, state, &config, &key).await
+}
+
+pub async fn sync_for_config(
+    sock: Option<&mut crate::sock::Sock>,
+    state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    config: &rbw::config::Config,
+    key: &rbw::config::AccountKey,
+) -> anyhow::Result<()> {
+    let mut db = load_db(config).await?;
 
     let access_token = if let Some(access_token) = &db.access_token {
         access_token.clone()
@@ -1435,10 +1544,14 @@ pub async fn sync(
     let (
         access_token,
         (protected_key, protected_private_key, protected_org_keys, entries),
-    ) = rbw::actions::sync(&access_token, &refresh_token)
+    ) = rbw::actions::sync(config, &access_token, &refresh_token)
         .await
         .context("failed to sync database from server")?;
-    state.lock().await.set_master_password_reprompt(&entries);
+    state
+        .lock()
+        .await
+        .ensure_account(key, config)
+        .set_master_password_reprompt(&entries);
     if let Some(access_token) = access_token {
         db.access_token = Some(access_token);
     }
@@ -1446,9 +1559,11 @@ pub async fn sync(
     db.protected_private_key = Some(protected_private_key);
     db.protected_org_keys = protected_org_keys;
     db.entries = entries;
-    save_db(&db).await?;
+    save_db(config, &db).await?;
 
-    if let Err(e) = subscribe_to_notifications(state.clone()).await {
+    if let Err(e) =
+        subscribe_to_notifications(state.clone(), config, key).await
+    {
         eprintln!("failed to subscribe to notifications: {e}");
     }
 
@@ -1461,17 +1576,29 @@ pub async fn sync(
 
 async fn decrypt_cipher(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    config: &rbw::config::Config,
+    key: &rbw::config::AccountKey,
     environment: &rbw::protocol::Environment,
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let mut state = state.lock().await;
-    if !state.master_password_reprompt_initialized() {
-        let db = load_db().await?;
-        state.set_master_password_reprompt(&db.entries);
+    let initialized = state.account(key).is_some_and(
+        crate::state::AccountState::master_password_reprompt_initialized,
+    );
+    if !initialized {
+        let db = load_db(config).await?;
+        state
+            .ensure_account(key, config)
+            .set_master_password_reprompt(&db.entries);
     }
-    let Some(keys) = state.key(org_id) else {
+    let Some(acct) = state.account(key) else {
+        return Err(anyhow::anyhow!(
+            "failed to find decryption keys in in-memory state"
+        ));
+    };
+    let Some(keys) = acct.key(org_id) else {
         return Err(anyhow::anyhow!(
             "failed to find decryption keys in in-memory state"
         ));
@@ -1492,11 +1619,11 @@ async fn decrypt_cipher(
     let mut sha256 = sha2::Sha256::new();
     sha256.update(cipherstring);
     let master_password_reprompt: [u8; 32] = sha256.finalize().into();
-    if state
+    if acct
         .master_password_reprompt
         .contains(&master_password_reprompt)
     {
-        let db = load_db().await?;
+        let db = load_db(config).await?;
 
         let Some(kdf) = db.kdf else {
             return Err(anyhow::anyhow!("failed to find kdf type in db"));
@@ -1522,7 +1649,7 @@ async fn decrypt_cipher(
             ));
         };
 
-        let email = config_email().await?;
+        let email = &key.email;
 
         let mut err_msg = None;
         for i in 1_u8..=3 {
@@ -1534,7 +1661,7 @@ async fn decrypt_cipher(
                 None
             };
             let password = rbw::pinentry::getpin(
-                &config_pinentry().await?,
+                &config.pinentry,
                 "Master Password",
                 "Accessing this entry requires the master password",
                 err.as_deref(),
@@ -1544,7 +1671,7 @@ async fn decrypt_cipher(
             .await
             .context("failed to read password from pinentry")?;
             match rbw::actions::unlock(
-                &email,
+                email,
                 &password,
                 kdf,
                 iterations,
@@ -1586,27 +1713,39 @@ async fn decrypt_cipher(
 pub async fn decrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
     environment: &rbw::protocol::Environment,
     cipherstring: &str,
     entry_key: Option<&str>,
     org_id: Option<&str>,
-) -> anyhow::Result<()> {
-    let plaintext =
-        decrypt_cipher(state, environment, cipherstring, entry_key, org_id)
-            .await?;
+) -> anyhow::Result<rbw::config::AccountKey> {
+    let (config, key) = load_account_config(account).await?;
+    let plaintext = decrypt_cipher(
+        state,
+        &config,
+        &key,
+        environment,
+        cipherstring,
+        entry_key,
+        org_id,
+    )
+    .await?;
     respond_decrypt(sock, plaintext).await?;
 
-    Ok(())
+    Ok(key)
 }
 
 pub async fn encrypt(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    account: Option<&str>,
     plaintext: &str,
     org_id: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<rbw::config::AccountKey> {
+    let (_, key) = load_account_config(account).await?;
     let state = state.lock().await;
-    let Some(keys) = state.key(org_id) else {
+    let Some(keys) = state.account(&key).and_then(|acct| acct.key(org_id))
+    else {
         return Err(anyhow::anyhow!(
             "failed to find encryption keys in in-memory state"
         ));
@@ -1619,7 +1758,7 @@ pub async fn encrypt(
 
     respond_encrypt(sock, cipherstring.to_string()).await?;
 
-    Ok(())
+    Ok(key)
 }
 
 #[cfg(feature = "clipboard")]
@@ -1842,16 +1981,32 @@ async fn respond_encrypt(
     Ok(())
 }
 
-async fn config_email() -> anyhow::Result<String> {
-    let config = rbw::config::Config::load_async().await?;
-    config.email.map_or_else(
-        || Err(anyhow::anyhow!("failed to find email address in config")),
-        Ok,
-    )
+async fn load_account_config(
+    account: Option<&str>,
+) -> anyhow::Result<(rbw::config::Config, rbw::config::AccountKey)> {
+    let config = rbw::config::Config::load_account_async(account).await?;
+    let Some(key) = config.account_key() else {
+        return Err(anyhow::anyhow!(
+            "failed to find email address in config"
+        ));
+    };
+    Ok((config, key))
 }
 
-async fn load_db() -> anyhow::Result<rbw::db::Db> {
-    let config = rbw::config::Config::load_async().await?;
+fn prompt_account_label(config: &rbw::config::Config) -> String {
+    let email = config.email.as_deref().unwrap_or("<unknown>");
+    let server = config.server_display_name();
+    let profile = rbw::dirs::profile();
+    if profile == "rbw" {
+        format!("{email} ({server})")
+    } else {
+        format!("{email} ({server}, {profile})")
+    }
+}
+
+async fn load_db(
+    config: &rbw::config::Config,
+) -> anyhow::Result<rbw::db::Db> {
     if let Some(email) = &config.email {
         rbw::db::Db::load_async(&config.server_name(), email)
             .await
@@ -1861,8 +2016,10 @@ async fn load_db() -> anyhow::Result<rbw::db::Db> {
     }
 }
 
-async fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
-    let config = rbw::config::Config::load_async().await?;
+async fn save_db(
+    config: &rbw::config::Config,
+    db: &rbw::db::Db,
+) -> anyhow::Result<()> {
     if let Some(email) = &config.email {
         db.save_async(&config.server_name(), email)
             .await
@@ -1872,29 +2029,21 @@ async fn save_db(db: &rbw::db::Db) -> anyhow::Result<()> {
     }
 }
 
-async fn config_base_url() -> anyhow::Result<String> {
-    let config = rbw::config::Config::load_async().await?;
-    Ok(config.base_url())
-}
-
-async fn config_pinentry() -> anyhow::Result<String> {
-    let config = rbw::config::Config::load_async().await?;
-    Ok(config.pinentry)
-}
-
 pub async fn subscribe_to_notifications(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
+    config: &rbw::config::Config,
+    key: &rbw::config::AccountKey,
 ) -> anyhow::Result<()> {
-    if state.lock().await.notifications_handler.is_connected() {
+    if state
+        .lock()
+        .await
+        .account(key)
+        .is_some_and(|acct| acct.notifications_handler.is_connected())
+    {
         return Ok(());
     }
 
-    let config = rbw::config::Config::load_async()
-        .await
-        .context("Config is missing")?;
-    let email = config.email.clone().context("Config is missing email")?;
-    let db = rbw::db::Db::load_async(config.server_name().as_str(), &email)
-        .await?;
+    let db = load_db(config).await?;
     let access_token =
         db.access_token.context("Error getting access token")?;
 
@@ -1907,6 +2056,7 @@ pub async fn subscribe_to_notifications(
 
     let mut state = state.lock().await;
     state
+        .ensure_account(key, config)
         .notifications_handler
         .connect(websocket_url)
         .await
@@ -1917,14 +2067,21 @@ pub async fn subscribe_to_notifications(
 pub async fn get_ssh_public_keys(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<Vec<String>> {
+    let (config, key) = load_account_config(None).await?;
     let environment = {
-        let state = state.lock().await;
-        state.set_timeout();
+        let mut state = state.lock().await;
+        if let Some(acct) = state.account_mut(&key) {
+            acct.update_timeouts(&config);
+            acct.set_timeout();
+        }
         state.last_environment().clone()
     };
-    unlock_state(None, state.clone(), &environment).await?;
+    unlock_state(None, state.clone(), &config, &key, &environment).await?;
+    if let Some(acct) = state.lock().await.account(&key) {
+        acct.set_timeout();
+    }
 
-    let db = load_db().await?;
+    let db = load_db(&config).await?;
     let mut pubkeys = Vec::new();
 
     for entry in db.entries {
@@ -1935,6 +2092,8 @@ pub async fn get_ssh_public_keys(
         {
             let plaintext = decrypt_cipher(
                 state.clone(),
+                &config,
+                &key,
                 &environment,
                 encrypted,
                 entry.key.as_deref(),
@@ -1953,16 +2112,23 @@ pub async fn find_ssh_private_key(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     request_public_key: ssh_agent_lib::ssh_key::PublicKey,
 ) -> anyhow::Result<ssh_agent_lib::ssh_key::PrivateKey> {
+    let (config, key) = load_account_config(None).await?;
     let environment = {
-        let state = state.lock().await;
-        state.set_timeout();
+        let mut state = state.lock().await;
+        if let Some(acct) = state.account_mut(&key) {
+            acct.update_timeouts(&config);
+            acct.set_timeout();
+        }
         state.last_environment().clone()
     };
-    unlock_state(None, state.clone(), &environment).await?;
+    unlock_state(None, state.clone(), &config, &key, &environment).await?;
+    if let Some(acct) = state.lock().await.account(&key) {
+        acct.set_timeout();
+    }
 
     let request_bytes = request_public_key.to_bytes();
 
-    let db = load_db().await?;
+    let db = load_db(&config).await?;
 
     for entry in db.entries {
         if let rbw::db::EntryData::SshKey {
@@ -1976,6 +2142,8 @@ pub async fn find_ssh_private_key(
             };
             let public_key_plaintext = decrypt_cipher(
                 state.clone(),
+                &config,
+                &key,
                 &environment,
                 public_key_enc,
                 entry.key.as_deref(),
@@ -1997,6 +2165,8 @@ pub async fn find_ssh_private_key(
 
                 let private_key_plaintext = decrypt_cipher(
                     state.clone(),
+                    &config,
+                    &key,
                     &environment,
                     private_key_enc,
                     entry.key.as_deref(),

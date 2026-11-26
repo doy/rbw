@@ -5,6 +5,7 @@ use clap::{CommandFactory as _, Parser as _};
 
 mod actions;
 mod commands;
+mod prompt;
 mod sock;
 
 #[derive(Debug, clap::Args)]
@@ -21,7 +22,41 @@ struct FindArgs {
 
 #[derive(Debug, clap::Parser)]
 #[command(version, about = "Unofficial Bitwarden CLI")]
+struct Cli {
+    #[arg(
+        short = 'a',
+        long = "account",
+        global = true,
+        help = "Account name, email, or server to use for this command [env: RBW_ACCOUNT]"
+    )]
+    account: Option<String>,
+
+    #[command(subcommand)]
+    command: Opt,
+}
+
+#[derive(Debug, clap::Subcommand)]
 enum Opt {
+    #[command(about = "Manage multiple Bitwarden / Vaultwarden accounts")]
+    Account {
+        #[command(subcommand)]
+        action: AccountAction,
+    },
+
+    #[command(about = "Switch the active Bitwarden account")]
+    Switch {
+        #[arg(help = "Account name, email, server, or email@server")]
+        account: Option<String>,
+        #[arg(short = 'e', long, help = "Filter by account email address")]
+        email: Option<String>,
+        #[arg(
+            short = 's',
+            long,
+            help = "Filter by vault server host or URL"
+        )]
+        server: Option<String>,
+    },
+
     #[command(about = "Get or set configuration options")]
     Config {
         #[command(subcommand)]
@@ -84,7 +119,7 @@ enum Opt {
             use_value_delimiter = true
         )]
         fields: Vec<String>,
-        #[structopt(long, help = "Display output as JSON")]
+        #[arg(long, help = "Display output as JSON")]
         raw: bool,
     },
 
@@ -96,12 +131,12 @@ enum Opt {
         field: Option<String>,
         #[arg(long, help = "Display the notes in addition to the password")]
         full: bool,
-        #[structopt(long, help = "Display output as JSON")]
+        #[arg(long, help = "Display output as JSON")]
         raw: bool,
         #[cfg(feature = "clipboard")]
-        #[structopt(short, long, help = "Copy result to clipboard")]
+        #[arg(short, long, help = "Copy result to clipboard")]
         clipboard: bool,
-        #[structopt(short, long, help = "List fields in this entry")]
+        #[arg(short, long, help = "List fields in this entry")]
         list_fields: bool,
     },
 
@@ -120,7 +155,7 @@ enum Opt {
         fields: Vec<String>,
         #[arg(long, help = "Folder name to search in")]
         folder: Option<String>,
-        #[structopt(long, help = "Display output as JSON")]
+        #[arg(long, help = "Display output as JSON")]
         raw: bool,
     },
 
@@ -132,7 +167,7 @@ enum Opt {
         #[command(flatten)]
         find_args: FindArgs,
         #[cfg(feature = "clipboard")]
-        #[structopt(long, help = "Copy result to clipboard")]
+        #[arg(long, help = "Copy result to clipboard")]
         clipboard: bool,
     },
 
@@ -243,7 +278,10 @@ enum Opt {
     },
 
     #[command(about = "Lock the password database")]
-    Lock,
+    Lock {
+        #[arg(long, help = "Lock all configured accounts")]
+        all: bool,
+    },
 
     #[command(about = "Remove the local copy of the password database")]
     Purge,
@@ -261,6 +299,10 @@ enum Opt {
 impl Opt {
     fn subcommand_name(&self) -> String {
         match self {
+            Self::Account { action } => {
+                format!("account {}", action.subcommand_name())
+            }
+            Self::Switch { .. } => "switch".to_string(),
             Self::Config { config } => {
                 format!("config {}", config.subcommand_name())
             }
@@ -281,7 +323,7 @@ impl Opt {
             Self::Edit { .. } => "edit".to_string(),
             Self::Remove { .. } => "remove".to_string(),
             Self::History { .. } => "history".to_string(),
-            Self::Lock => "lock".to_string(),
+            Self::Lock { .. } => "lock".to_string(),
             Self::Purge => "purge".to_string(),
             Self::StopAgent => "stop-agent".to_string(),
             Self::GenCompletions { .. } => "gen-completions".to_string(),
@@ -300,12 +342,124 @@ enum CompletionShell {
     Fig,
 }
 
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, clap::Subcommand)]
+enum AccountAction {
+    #[command(about = "Add a new Bitwarden / Vaultwarden account")]
+    Add {
+        #[arg(help = "Short name/alias for this account")]
+        name: Option<String>,
+        #[arg(long, help = "Account email address")]
+        email: Option<String>,
+        #[arg(
+            long,
+            visible_alias = "base-url",
+            help = "Vault server (bitwarden.com, bitwarden.eu, or custom URL)"
+        )]
+        server: Option<String>,
+        #[arg(long, help = "Custom identity server URL")]
+        identity_url: Option<String>,
+        #[arg(long, help = "Custom UI URL")]
+        ui_url: Option<String>,
+        #[arg(long, help = "Custom notifications server URL")]
+        notifications_url: Option<String>,
+        #[arg(long, help = "SSO organization ID")]
+        sso_id: Option<String>,
+        #[arg(long, help = "Path to client TLS certificate")]
+        client_cert_path: Option<std::path::PathBuf>,
+        #[arg(
+            long,
+            help = "Do not switch to the new account after adding it"
+        )]
+        no_switch: bool,
+        #[arg(
+            long,
+            conflicts_with = "no_login",
+            help = "Log in immediately after adding the account"
+        )]
+        login: bool,
+        #[arg(
+            long,
+            conflicts_with = "login",
+            help = "Do not prompt to log in after adding the account"
+        )]
+        no_login: bool,
+        #[arg(
+            long,
+            conflicts_with = "no_login",
+            help = "Log in using a FIDO2 passkey after adding the account"
+        )]
+        passkey: bool,
+    },
+    #[command(about = "Switch the active Bitwarden account")]
+    Switch {
+        #[arg(help = "Account name, email, server, or email@server")]
+        account: Option<String>,
+        #[arg(short = 'e', long, help = "Filter by account email address")]
+        email: Option<String>,
+        #[arg(
+            short = 's',
+            long,
+            help = "Filter by vault server host or URL"
+        )]
+        server: Option<String>,
+    },
+    #[command(
+        about = "List configured accounts and their lock status",
+        visible_aliases = ["ls", "status"]
+    )]
+    List {
+        #[arg(long, help = "Display output as JSON")]
+        raw: bool,
+    },
+    #[command(about = "Print the active account name")]
+    Current,
+    #[command(about = "Remove a configured account", visible_alias = "rm")]
+    Remove {
+        #[arg(help = "Account name, email, server, or email@server")]
+        account: Option<String>,
+        #[arg(
+            long,
+            help = "Keep local cached database, Touch ID, and YubiKey keys"
+        )]
+        keep_data: bool,
+    },
+    #[command(about = "Rename an account alias")]
+    Rename {
+        #[arg(help = "Current account name or selector")]
+        old: String,
+        #[arg(help = "New account name")]
+        new: String,
+    },
+}
+
+impl AccountAction {
+    fn subcommand_name(&self) -> String {
+        match self {
+            Self::Add { .. } => "add",
+            Self::Switch { .. } => "switch",
+            Self::List { .. } => "list",
+            Self::Current => "current",
+            Self::Remove { .. } => "remove",
+            Self::Rename { .. } => "rename",
+        }
+        .to_string()
+    }
+}
+
+#[derive(Debug, clap::Subcommand)]
 enum Config {
     #[command(about = "Show the values of all configuration settings")]
-    Show,
+    Show {
+        #[arg(long, help = "Show global default settings")]
+        global: bool,
+    },
     #[command(about = "Set a configuration option")]
     Set {
+        #[arg(
+            long,
+            help = "Set a global default instead of an account-specific override"
+        )]
+        global: bool,
         #[arg(help = "Configuration key to set")]
         key: String,
         #[arg(help = "Value to set the configuration option to")]
@@ -313,6 +467,11 @@ enum Config {
     },
     #[command(about = "Reset a configuration option to its default")]
     Unset {
+        #[arg(
+            long,
+            help = "Reset a global default instead of an account-specific override"
+        )]
+        global: bool,
         #[arg(help = "Configuration key to unset")]
         key: String,
     },
@@ -321,7 +480,7 @@ enum Config {
 impl Config {
     fn subcommand_name(&self) -> String {
         match self {
-            Self::Show => "show",
+            Self::Show { .. } => "show",
             Self::Set { .. } => "set",
             Self::Unset { .. } => "unset",
         }
@@ -329,7 +488,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, clap::Subcommand)]
 enum YubikeyAction {
     #[command(
         about = "Enroll a connected FIDO2 security key for local vault unlock"
@@ -364,7 +523,13 @@ impl YubikeyAction {
 }
 
 fn main() {
-    let opt = Opt::parse();
+    let cli = Cli::parse();
+    let env_account = std::env::var("RBW_ACCOUNT").ok();
+    let account = cli
+        .account
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| env_account.as_deref().filter(|s| !s.is_empty()));
 
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info"),
@@ -381,29 +546,91 @@ fn main() {
     })
     .init();
 
-    let subcommand_name = opt.subcommand_name();
-    let res = match opt {
-        Opt::Config { config } => match config {
-            Config::Show => commands::config_show(),
-            Config::Set { key, value } => commands::config_set(&key, &value),
-            Config::Unset { key } => commands::config_unset(&key),
+    let subcommand_name = cli.command.subcommand_name();
+    let res = match cli.command {
+        Opt::Account { action } => match action {
+            AccountAction::Add {
+                name,
+                email,
+                server,
+                identity_url,
+                ui_url,
+                notifications_url,
+                sso_id,
+                client_cert_path,
+                no_switch,
+                login,
+                no_login,
+                passkey,
+            } => commands::account_add(commands::AccountAddOpts {
+                name: name.as_deref(),
+                email: email.as_deref(),
+                server: server.as_deref(),
+                identity_url: identity_url.as_deref(),
+                ui_url: ui_url.as_deref(),
+                notifications_url: notifications_url.as_deref(),
+                sso_id: sso_id.as_deref(),
+                client_cert_path: client_cert_path.as_deref(),
+                no_switch,
+                login,
+                no_login,
+                passkey,
+            }),
+            AccountAction::Switch {
+                account: target,
+                email,
+                server,
+            } => commands::account_switch(
+                target.as_deref(),
+                email.as_deref(),
+                server.as_deref(),
+            ),
+            AccountAction::List { raw } => commands::account_list(raw),
+            AccountAction::Current => commands::account_current(account),
+            AccountAction::Remove {
+                account: target,
+                keep_data,
+            } => commands::account_remove(target.as_deref(), keep_data),
+            AccountAction::Rename { old, new } => {
+                commands::account_rename(&old, &new)
+            }
         },
-        Opt::Register => commands::register(),
+        Opt::Switch {
+            account: target,
+            email,
+            server,
+        } => commands::account_switch(
+            target.as_deref(),
+            email.as_deref(),
+            server.as_deref(),
+        ),
+        Opt::Config { config } => match config {
+            Config::Show { global } => commands::config_show(account, global),
+            Config::Set { global, key, value } => {
+                commands::config_set(account, global, &key, &value)
+            }
+            Config::Unset { global, key } => {
+                commands::config_unset(account, global, &key)
+            }
+        },
+        Opt::Register => commands::register(account),
         Opt::Login { passkey, password } => {
-            commands::login(passkey, password)
+            commands::login(account, passkey, password)
         }
         Opt::Yubikey { action } => match action {
             YubikeyAction::Enroll { label } => {
-                commands::yubikey_enroll(label.as_deref())
+                commands::yubikey_enroll(account, label.as_deref())
             }
-            YubikeyAction::List => commands::yubikey_list(),
-            YubikeyAction::Remove { key } => commands::yubikey_remove(&key),
-            YubikeyAction::Clear => commands::yubikey_clear(),
+            YubikeyAction::List => commands::yubikey_list(account),
+            YubikeyAction::Remove { key } => {
+                commands::yubikey_remove(account, &key)
+            }
+            YubikeyAction::Clear => commands::yubikey_clear(account),
         },
-        Opt::Unlock => commands::unlock(),
-        Opt::Unlocked => commands::unlocked(),
-        Opt::Sync => commands::sync(),
-        Opt::List { fields, raw } => commands::list(&fields, raw),
+        Opt::Unlock => commands::unlock(account),
+        Opt::Unlocked => commands::unlocked(account),
+        Opt::Sync => commands::sync(account),
+        Opt::List { fields, raw } => commands::list(account, &fields, raw),
         Opt::Get {
             find_args,
             field,
@@ -413,6 +640,7 @@ fn main() {
             clipboard,
             list_fields,
         } => commands::get(
+            account,
             find_args.needle.clone(),
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
@@ -431,12 +659,15 @@ fn main() {
             fields,
             folder,
             raw,
-        } => commands::search(&term, &fields, folder.as_deref(), raw),
+        } => {
+            commands::search(account, &term, &fields, folder.as_deref(), raw)
+        }
         Opt::Code {
             find_args,
             #[cfg(feature = "clipboard")]
             clipboard,
         } => commands::code(
+            account,
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
@@ -452,6 +683,7 @@ fn main() {
             uri,
             folder,
         } => commands::add(
+            account,
             &name,
             user.as_deref(),
             &uri.iter()
@@ -484,6 +716,7 @@ fn main() {
                 rbw::pwgen::Type::AllChars
             };
             commands::generate(
+                account,
                 name.as_deref(),
                 user.as_deref(),
                 &uri.iter()
@@ -497,32 +730,35 @@ fn main() {
             )
         }
         Opt::Edit { find_args } => commands::edit(
+            account,
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             find_args.ignorecase,
         ),
         Opt::Remove { find_args } => commands::remove(
+            account,
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             find_args.ignorecase,
         ),
         Opt::History { find_args } => commands::history(
+            account,
             find_args.needle,
             find_args.user.as_deref(),
             find_args.folder.as_deref(),
             find_args.ignorecase,
         ),
-        Opt::Lock => commands::lock(),
-        Opt::Purge => commands::purge(),
+        Opt::Lock { all } => commands::lock(account, all),
+        Opt::Purge => commands::purge(account),
         Opt::StopAgent => commands::stop_agent(),
         Opt::GenCompletions { shell } => {
             match shell {
                 CompletionShell::Bash => {
                     clap_complete::generate(
                         clap_complete::Shell::Bash,
-                        &mut Opt::command(),
+                        &mut Cli::command(),
                         "rbw",
                         &mut std::io::stdout(),
                     );
@@ -531,7 +767,7 @@ fn main() {
                 CompletionShell::Fish => {
                     clap_complete::generate(
                         clap_complete::Shell::Fish,
-                        &mut Opt::command(),
+                        &mut Cli::command(),
                         "rbw",
                         &mut std::io::stdout(),
                     );
@@ -540,7 +776,7 @@ fn main() {
                 CompletionShell::Zsh => {
                     clap_complete::generate(
                         clap_complete::Shell::Zsh,
-                        &mut Opt::command(),
+                        &mut Cli::command(),
                         "rbw",
                         &mut std::io::stdout(),
                     );
@@ -549,7 +785,7 @@ fn main() {
                 CompletionShell::Powershell => {
                     clap_complete::generate(
                         clap_complete::Shell::PowerShell,
-                        &mut Opt::command(),
+                        &mut Cli::command(),
                         "rbw",
                         &mut std::io::stdout(),
                     );
@@ -557,7 +793,7 @@ fn main() {
                 CompletionShell::Elvish => {
                     clap_complete::generate(
                         clap_complete::Shell::Elvish,
-                        &mut Opt::command(),
+                        &mut Cli::command(),
                         "rbw",
                         &mut std::io::stdout(),
                     );
@@ -565,7 +801,7 @@ fn main() {
                 CompletionShell::Nushell => {
                     clap_complete::generate(
                         clap_complete_nushell::Nushell,
-                        &mut Opt::command(),
+                        &mut Cli::command(),
                         "rbw",
                         &mut std::io::stdout(),
                     );
@@ -573,7 +809,7 @@ fn main() {
                 CompletionShell::Fig => {
                     clap_complete::generate(
                         clap_complete_fig::Fig,
-                        &mut Opt::command(),
+                        &mut Cli::command(),
                         "rbw",
                         &mut std::io::stdout(),
                     );
@@ -587,5 +823,90 @@ fn main() {
     if let Err(e) = res {
         eprintln!("{e:#}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_global_account_and_account_subcommands() {
+        let cli = Cli::try_parse_from(["rbw", "-a", "work", "ls"]).unwrap();
+        assert_eq!(cli.account.as_deref(), Some("work"));
+        assert!(matches!(cli.command, Opt::List { .. }));
+
+        let cli =
+            Cli::try_parse_from(["rbw", "get", "github", "--account", "bw"])
+                .unwrap();
+        assert_eq!(cli.account.as_deref(), Some("bw"));
+        assert!(matches!(cli.command, Opt::Get { .. }));
+
+        let cli = Cli::try_parse_from(["rbw", "switch", "nullbyte"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Opt::Switch {
+                account: Some(ref a),
+                email: None,
+                server: None,
+            } if a == "nullbyte"
+        ));
+
+        let cli = Cli::try_parse_from(["rbw", "account", "status", "--raw"])
+            .unwrap();
+        assert!(matches!(
+            cli.command,
+            Opt::Account {
+                action: AccountAction::List { raw: true }
+            }
+        ));
+
+        let cli = Cli::try_parse_from([
+            "rbw",
+            "account",
+            "add",
+            "work",
+            "--email",
+            "user@example.com",
+            "--server",
+            "https://vault.example.com",
+            "--no-switch",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Opt::Account {
+                action: AccountAction::Add {
+                    name: Some(ref n),
+                    email: Some(ref e),
+                    server: Some(ref s),
+                    no_switch: true,
+                    ..
+                }
+            } if n == "work" && e == "user@example.com" && s == "https://vault.example.com"
+        ));
+
+        let cli = Cli::try_parse_from(["rbw", "lock", "--all"]).unwrap();
+        assert!(matches!(cli.command, Opt::Lock { all: true }));
+
+        let cli = Cli::try_parse_from([
+            "rbw",
+            "config",
+            "set",
+            "--global",
+            "lock_timeout",
+            "1800",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Opt::Config {
+                config: Config::Set {
+                    global: true,
+                    ref key,
+                    ref value,
+                }
+            } if key == "lock_timeout" && value == "1800"
+        ));
     }
 }

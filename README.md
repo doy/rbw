@@ -122,13 +122,57 @@ configuration options:
   command with `rbw login --passkey` or `rbw login --password`. Defaults to
   `false`.
 
+### Multiple Accounts & Vault Servers
+
+`rbw` supports managing and switching between multiple Bitwarden / Vaultwarden
+accounts (including the same email address across different vault servers)
+within a single `rbw-agent` daemon:
+
+```sh
+# Interactive wizard to add an account (supports bitwarden.com, bitwarden.eu, or self-hosted URLs)
+rbw account add
+
+# Or add non-interactively
+rbw account add nullbyte --email user@example.com --server https://vault.example.com
+rbw account add personal --email user@example.com --server bitwarden.com --login
+
+# List configured accounts and their live lock state (aliases: ls, status)
+rbw account list
+
+# Switch active account interactively (arrow-key picker) or directly
+rbw switch
+rbw switch personal
+rbw account switch --email user@example.com --server bitwarden.com
+
+# Run a single command against another account without changing the active account
+rbw -a nullbyte ls
+RBW_ACCOUNT=personal rbw get github
+
+# Lock only the active account, or lock every account at once
+rbw lock
+rbw lock --all
+
+# Rename or remove an account (use --keep-data to retain local DB/Touch ID/YubiKey keys)
+rbw account rename personal bw
+rbw account remove bw
+```
+
+Switching accounts keeps previously unlocked accounts unlocked in `rbw-agent`
+memory until their individual `lock_timeout` expires or `rbw lock` /
+`rbw lock --all` is run. Per-account configuration overrides can be set with
+`rbw config set` (and global defaults with `rbw config set --global`). The
+built-in SSH agent dynamically serves SSH keys for the currently active account.
+
+Existing single-account `config.json` files continue to work unchanged and are
+migrated automatically when you add another account.
+
 ### Profiles
 
-`rbw` supports different configuration profiles, which can be switched
-between by using the `RBW_PROFILE` environment variable. Setting it to a name
-(for example, `RBW_PROFILE=work` or `RBW_PROFILE=personal`) can be used to
-switch between several different vaults - each will use its own separate
-configuration, local vault, and agent.
+`rbw` also supports completely isolated configuration profiles via the
+`RBW_PROFILE` environment variable. Setting it to a name (for example,
+`RBW_PROFILE=work` or `RBW_PROFILE=personal`) gives that profile its own
+separate configuration file, local cache, data directory, runtime sockets, and
+background `rbw-agent` process.
 
 ## Usage
 
