@@ -292,11 +292,8 @@ pub async fn login_passkey(
 
     if db.needs_login() {
         if !rbw::fido2::is_supported() {
-            return Err(rbw::error::Error::Fido2Unsupported {
-                message: "rbw was compiled without the `fido2` feature"
-                    .to_string(),
-            })
-            .context("failed to log in with passkey");
+            return Err(rbw::fido2::unsupported_error())
+                .context("failed to log in with passkey");
         }
 
         let config = rbw::config::Config::load_async().await?;
@@ -829,11 +826,8 @@ pub async fn yubikey_enroll(
     label: Option<&str>,
 ) -> anyhow::Result<()> {
     if !rbw::fido2::is_supported() {
-        return Err(rbw::error::Error::Fido2Unsupported {
-            message: "rbw was compiled without the `fido2` feature"
-                .to_string(),
-        })
-        .context("failed to enroll security key");
+        return Err(rbw::fido2::unsupported_error())
+            .context("failed to enroll security key");
     }
 
     let config = rbw::config::Config::load_async().await?;

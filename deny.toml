@@ -57,6 +57,11 @@ skip = [
     # petgraph 0.8 (via arboard -> wl-clipboard-rs -> tree_magic_mini)
     # depends on hashbrown 0.15 while indexmap uses hashbrown 0.17
     { name = "hashbrown", version = "0.15.5" },
+    # ctap-hid-fido2 -> x509-parser / pad depend on older versions than
+    # arboard, icu_*, and textwrap
+    { name = "nom", version = "7.1.3" },
+    { name = "synstructure", version = "0.13.2" },
+    { name = "unicode-width", version = "0.1.14" },
 ]
 
 [licenses]

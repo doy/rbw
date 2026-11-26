@@ -4,7 +4,20 @@ use sha2::Digest as _;
 use zeroize::Zeroize as _;
 
 pub const fn is_supported() -> bool {
-    cfg!(feature = "fido2")
+    cfg!(all(
+        feature = "fido2",
+        not(target_env = "musl"),
+        not(target_os = "android")
+    ))
+}
+
+pub fn unsupported_error() -> Error {
+    let message = if cfg!(feature = "fido2") {
+        "native FIDO2 HID is not supported on this target".to_string()
+    } else {
+        "rbw was compiled without the `fido2` feature".to_string()
+    };
+    Error::Fido2Unsupported { message }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -241,7 +254,11 @@ impl Drop for HmacSecretResult {
     }
 }
 
-#[cfg(feature = "fido2")]
+#[cfg(all(
+    feature = "fido2",
+    not(target_env = "musl"),
+    not(target_os = "android")
+))]
 mod transport {
     use crate::prelude::*;
 
@@ -1141,20 +1158,21 @@ mod transport {
     }
 }
 
-#[cfg(not(feature = "fido2"))]
+#[cfg(not(all(
+    feature = "fido2",
+    not(target_env = "musl"),
+    not(target_os = "android")
+)))]
 mod transport {
     use crate::prelude::*;
 
     use super::{
         CreatedHmacCredential, DeviceInfo, HmacSecretResult,
-        PasskeyAssertionResult, UvPolicy,
+        PasskeyAssertionResult, UvPolicy, unsupported_error,
     };
 
     fn unsupported() -> Error {
-        Error::Fido2Unsupported {
-            message: "rbw was compiled without the `fido2` feature"
-                .to_string(),
-        }
+        unsupported_error()
     }
 
     pub fn has_connected_device() -> bool {
@@ -1458,7 +1476,11 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "fido2")]
+    #[cfg(all(
+        feature = "fido2",
+        not(target_env = "musl"),
+        not(target_os = "android")
+    ))]
     #[test]
     fn test_hid_worker_uses_single_persistent_thread() {
         let caller_id = std::thread::current().id();
