@@ -6,8 +6,7 @@ use anyhow::Context as _;
 // code lasts for before a new one must be generated
 const TOTP_DEFAULT_STEP: u64 = 30;
 
-const MISSING_CONFIG_HELP: &str =
-    "Before using rbw, you must configure the email address you would like to \
+const MISSING_CONFIG_HELP: &str = "Before using rbw, you must configure the email address you would like to \
     use to log in to the server by running:\n\n    \
         rbw config set email <email>\n\n\
     Additionally, if you are using a self-hosted installation, you should \
@@ -39,10 +38,10 @@ pub fn parse_needle(arg: &str) -> Result<Needle, std::convert::Infallible> {
     if let Ok(uuid) = uuid::Uuid::parse_str(arg) {
         return Ok(Needle::Uuid(uuid, arg.to_string()));
     }
-    if let Ok(url) = url::Url::parse(arg) {
-        if url.is_special() {
-            return Ok(Needle::Uri(url));
-        }
+    if let Ok(url) = url::Url::parse(arg)
+        && url.is_special()
+    {
+        return Ok(Needle::Uri(url));
     }
 
     Ok(Needle::Name(arg.to_string()))
@@ -296,10 +295,10 @@ impl DecryptedSearchCipher {
     }
 
     fn search_match(&self, term: &str, folder: Option<&str>) -> bool {
-        if let Some(folder) = folder {
-            if self.folder.as_deref() != Some(folder) {
-                return false;
-            }
+        if let Some(folder) = folder
+            && self.folder.as_deref() != Some(folder)
+        {
+            return false;
         }
 
         let mut fields = vec![self.name.clone()];
@@ -452,14 +451,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if let Some(name) = &f.name {
-                            if name.to_lowercase().as_str().contains(field) {
-                                val_display_or_store(
-                                    clipboard,
-                                    f.value.as_deref().unwrap_or(""),
-                                );
-                                break;
-                            }
+                        if let Some(name) = &f.name
+                            && name.to_lowercase().as_str().contains(field)
+                        {
+                            val_display_or_store(
+                                clipboard,
+                                f.value.as_deref().unwrap_or(""),
+                            );
+                            break;
                         }
                     }
                 }
@@ -515,14 +514,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if let Some(name) = &f.name {
-                            if name.to_lowercase().as_str().contains(field) {
-                                val_display_or_store(
-                                    clipboard,
-                                    f.value.as_deref().unwrap_or(""),
-                                );
-                                break;
-                            }
+                        if let Some(name) = &f.name
+                            && name.to_lowercase().as_str().contains(field)
+                        {
+                            val_display_or_store(
+                                clipboard,
+                                f.value.as_deref().unwrap_or(""),
+                            );
+                            break;
                         }
                     }
                 }
@@ -618,14 +617,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if let Some(name) = &f.name {
-                            if name.to_lowercase().as_str().contains(field) {
-                                val_display_or_store(
-                                    clipboard,
-                                    f.value.as_deref().unwrap_or(""),
-                                );
-                                break;
-                            }
+                        if let Some(name) = &f.name
+                            && name.to_lowercase().as_str().contains(field)
+                        {
+                            val_display_or_store(
+                                clipboard,
+                                f.value.as_deref().unwrap_or(""),
+                            );
+                            break;
                         }
                     }
                 }
@@ -636,14 +635,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if let Some(name) = &f.name {
-                            if name.to_lowercase().as_str().contains(field) {
-                                val_display_or_store(
-                                    clipboard,
-                                    f.value.as_deref().unwrap_or(""),
-                                );
-                                break;
-                            }
+                        if let Some(name) = &f.name
+                            && name.to_lowercase().as_str().contains(field)
+                        {
+                            val_display_or_store(
+                                clipboard,
+                                f.value.as_deref().unwrap_or(""),
+                            );
+                            break;
                         }
                     }
                 }
@@ -673,14 +672,14 @@ impl DecryptedCipher {
                 }
                 _ => {
                     for f in &self.fields {
-                        if let Some(name) = &f.name {
-                            if name.to_lowercase().as_str().contains(field) {
-                                val_display_or_store(
-                                    clipboard,
-                                    f.value.as_deref().unwrap_or(""),
-                                );
-                                break;
-                            }
+                        if let Some(name) = &f.name
+                            && name.to_lowercase().as_str().contains(field)
+                        {
+                            val_display_or_store(
+                                clipboard,
+                                f.value.as_deref().unwrap_or(""),
+                            );
+                            break;
                         }
                     }
                 }
@@ -1118,16 +1117,14 @@ fn matches_url(
             let Some(given_host_port) = host_port(given_url) else {
                 return false;
             };
-            if let Ok(self_url) = url::Url::parse(url) {
-                if let Some(self_host_port) = host_port(&self_url) {
-                    if self_url.scheme() == given_url.scheme()
-                        && (self_host_port == given_host_port
-                            || given_host_port
-                                .ends_with(&format!(".{self_host_port}")))
-                    {
-                        return true;
-                    }
-                }
+            if let Ok(self_url) = url::Url::parse(url)
+                && let Some(self_host_port) = host_port(&self_url)
+                && self_url.scheme() == given_url.scheme()
+                && (self_host_port == given_host_port
+                    || given_host_port
+                        .ends_with(&format!(".{self_host_port}")))
+            {
+                return true;
             }
             url == given_host_port
                 || given_host_port.ends_with(&format!(".{url}"))
@@ -1136,14 +1133,12 @@ fn matches_url(
             let Some(given_host_port) = host_port(given_url) else {
                 return false;
             };
-            if let Ok(self_url) = url::Url::parse(url) {
-                if let Some(self_host_port) = host_port(&self_url) {
-                    if self_url.scheme() == given_url.scheme()
-                        && self_host_port == given_host_port
-                    {
-                        return true;
-                    }
-                }
+            if let Ok(self_url) = url::Url::parse(url)
+                && let Some(self_host_port) = host_port(&self_url)
+                && self_url.scheme() == given_url.scheme()
+                && self_host_port == given_host_port
+            {
+                return true;
             }
             url == given_host_port
         }
@@ -1539,8 +1534,7 @@ pub fn search(
         .filter(|entry| {
             entry
                 .as_ref()
-                .map(|entry| entry.search_match(term, folder))
-                .unwrap_or(true)
+                .map_or(true, |entry| entry.search_match(term, folder))
         })
         .map(|entry| entry.map(std::convert::Into::into))
         .collect::<Result<_, anyhow::Error>>()?;
@@ -1984,14 +1978,14 @@ pub fn purge() -> anyhow::Result<()> {
 }
 
 fn delete_touchid_key(config: &rbw::config::Config) {
-    if let Some(email) = &config.email {
-        if let Err(e) = rbw::touchid::delete_key(
+    if let Some(email) = &config.email
+        && let Err(e) = rbw::touchid::delete_key(
             &rbw::dirs::profile(),
             &config.server_name(),
             email,
-        ) {
-            log::warn!("failed to delete touch id key from keychain: {e}");
-        }
+        )
+    {
+        log::warn!("failed to delete touch id key from keychain: {e}");
     }
 }
 
@@ -2019,14 +2013,11 @@ fn run_agent() -> anyhow::Result<()> {
     let status = std::process::Command::new(agent_path)
         .status()
         .context("failed to run rbw-agent")?;
-    if !status.success() {
-        if let Some(code) = status.code() {
-            if code != 23 {
-                return Err(anyhow::anyhow!(
-                    "failed to run rbw-agent: {status}"
-                ));
-            }
-        }
+    if !status.success()
+        && let Some(code) = status.code()
+        && code != 23
+    {
+        return Err(anyhow::anyhow!("failed to run rbw-agent: {status}"));
     }
 
     Ok(())
@@ -2730,7 +2721,7 @@ fn remove_db() -> anyhow::Result<()> {
 struct TotpParams {
     secret: Vec<u8>,
     algorithm: String,
-    digits: usize,
+    digits: u8,
     period: u64,
 }
 
@@ -2774,7 +2765,7 @@ fn parse_totp_secret(secret: &str) -> anyhow::Result<TotpParams> {
                 );
                 let digits = match query.get("digits") {
                     Some(dig) => dig
-                        .parse::<usize>()
+                        .parse::<u8>()
                         .map_err(|_| anyhow::anyhow!("digits parameter in totp url must be a valid integer."))?,
                     None => 6,
                 };
@@ -2835,19 +2826,21 @@ fn generate_totp(secret: &str) -> anyhow::Result<String> {
     let alg = totp_params.algorithm.as_str();
 
     match alg {
-        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::TOTP::new_unchecked(
-            generate_totp_algorithm_type(alg)?,
-            totp_params.digits,
-            1, // the library docs say this should be a 1
-            totp_params.period,
-            totp_params.secret,
-        )
-        .generate_current()?),
-        "STEAM" => Ok(totp_rs::TOTP::new_steam(totp_params.secret)
-            .generate_current()?),
-        _ => Err(anyhow::anyhow!(format!(
-            "{alg} is not a valid totp algorithm"
-        ))),
+        "SHA1" | "SHA256" | "SHA512" => Ok(totp_rs::Builder::new()
+            .with_algorithm(generate_totp_algorithm_type(alg)?)
+            .with_digits(totp_params.digits)
+            .with_skew(1)
+            .with_step_duration(totp_params.period)
+            .with_secret(totp_params.secret)
+            .build_noncompliant()
+            .generate_current()
+            .to_string()),
+        "STEAM" => Ok(totp_rs::Builder::new_steam()
+            .with_secret(totp_params.secret)
+            .build_noncompliant()
+            .generate_current()
+            .to_string()),
+        _ => Err(anyhow::anyhow!("{alg} is not a valid totp algorithm")),
     }
 }
 
@@ -4095,6 +4088,23 @@ mod test {
         let decoded = decode_totp_secret("NBSW Y3DP EB3W 64TM MQQQ").unwrap();
         let want = b"hello world!".to_vec();
         assert!(decoded == want, "strips spaces");
+    }
+
+    #[test]
+    fn test_generate_totp() {
+        let sha1_code = generate_totp("JBSWY3DPEHPK3PXP").unwrap();
+        assert_eq!(sha1_code.len(), 6);
+        assert!(sha1_code.chars().all(|c| c.is_ascii_digit()));
+
+        let sha256_code = generate_totp(
+            "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&algorithm=SHA256&digits=8&period=30",
+        )
+        .unwrap();
+        assert_eq!(sha256_code.len(), 8);
+        assert!(sha256_code.chars().all(|c| c.is_ascii_digit()));
+
+        let steam_code = generate_totp("steam://JBSWY3DPEHPK3PXP").unwrap();
+        assert_eq!(steam_code.len(), 5);
     }
 
     #[track_caller]

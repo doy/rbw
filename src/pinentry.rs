@@ -191,16 +191,15 @@ fn percent_decode(buf: &mut [u8]) -> usize {
     while read_idx < len {
         let mut c = buf[read_idx];
 
-        if c == b'%' && read_idx + 2 < len {
-            if let Some(h) = char::from(buf[read_idx + 1]).to_digit(16) {
-                if let Some(l) = char::from(buf[read_idx + 2]).to_digit(16) {
-                    // h and l were parsed from a single hex digit, so they
-                    // must be in the range 0-15, so these unwraps are safe
-                    c = u8::try_from(h).unwrap() * 0x10
-                        + u8::try_from(l).unwrap();
-                    read_idx += 2;
-                }
-            }
+        if c == b'%'
+            && read_idx + 2 < len
+            && let Some(h) = char::from(buf[read_idx + 1]).to_digit(16)
+            && let Some(l) = char::from(buf[read_idx + 2]).to_digit(16)
+        {
+            // h and l were parsed from a single hex digit, so they
+            // must be in the range 0-15, so these unwraps are safe
+            c = u8::try_from(h).unwrap() * 0x10 + u8::try_from(l).unwrap();
+            read_idx += 2;
         }
 
         buf[write_idx] = c;

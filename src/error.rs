@@ -22,7 +22,7 @@ pub enum Error {
     CreateSSOCallbackServer { err: std::io::Error },
 
     #[error("failed to decrypt")]
-    Decrypt { source: block_padding::UnpadError },
+    Decrypt { source: block_padding::Error },
 
     #[error("failed to find free port in {range}")]
     FailedToFindFreePort { range: String },
@@ -169,7 +169,9 @@ pub enum Error {
     #[error("error waiting for pinentry to exit")]
     PinentryWait { source: tokio::io::Error },
 
-    #[error("This device has not yet been registered with the Bitwarden server. Run `rbw register` first, and then try again.")]
+    #[error(
+        "This device has not yet been registered with the Bitwarden server. Run `rbw register` first, and then try again."
+    )]
     RegistrationRequired,
 
     #[error("failed to remove db at {}", .file.display())]
@@ -226,7 +228,9 @@ pub enum Error {
     #[error("error spawning pinentry")]
     Spawn { source: tokio::io::Error },
 
-    #[error("cipherstring type {ty} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again.")]
+    #[error(
+        "cipherstring type {ty} too old\n\nPlease rotate your account encryption key (https://bitwarden.com/help/article/account-encryption-key/) and try again."
+    )]
     TooOldCipherStringType { ty: String },
 
     #[error("two factor required")]

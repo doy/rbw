@@ -64,7 +64,7 @@ pub async fn register(
                 }
                 Err(e) => {
                     return Err(e)
-                        .context("failed to log in to bitwarden instance")
+                        .context("failed to log in to bitwarden instance");
                 }
             }
         }
@@ -155,16 +155,14 @@ pub async fn login(
                         if providers.contains(&provider) {
                             if provider
                                 == rbw::api::TwoFactorProviderType::Email
-                            {
-                                if let Some(sso_email_2fa_session_token) =
+                                && let Some(sso_email_2fa_session_token) =
                                     sso_email_2fa_session_token
-                                {
-                                    rbw::actions::send_two_factor_email(
-                                        &email,
-                                        &sso_email_2fa_session_token,
-                                    )
-                                    .await?;
-                                }
+                            {
+                                rbw::actions::send_two_factor_email(
+                                    &email,
+                                    &sso_email_2fa_session_token,
+                                )
+                                .await?;
                             }
                             let (
                                 access_token,
@@ -213,7 +211,7 @@ pub async fn login(
                 }
                 Err(e) => {
                     return Err(e)
-                        .context("failed to log in to bitwarden instance")
+                        .context("failed to log in to bitwarden instance");
                 }
             }
         }
@@ -284,7 +282,7 @@ async fn two_factor(
                     memory,
                     parallelism,
                     protected_key,
-                ))
+                ));
             }
             Err(rbw::error::Error::IncorrectPassword { message }) => {
                 if i == 3 {
@@ -308,7 +306,7 @@ async fn two_factor(
             }
             Err(e) => {
                 return Err(e)
-                    .context("failed to log in to bitwarden instance")
+                    .context("failed to log in to bitwarden instance");
             }
         }
     }

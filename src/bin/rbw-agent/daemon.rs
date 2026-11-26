@@ -76,9 +76,8 @@ pub fn daemonize(no_daemonize: bool) -> anyhow::Result<Option<StartupAck>> {
                 // return a special exit code to allow the cli to detect
                 // this case and not error out
                 std::process::exit(23);
-            } else {
-                panic!("failed to daemonize: {e}");
             }
+            panic!("failed to daemonize: {e}");
         }
     }
 

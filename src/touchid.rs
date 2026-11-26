@@ -25,7 +25,7 @@ mod platform {
     use objc2_local_authentication::{LAContext, LAError, LAPolicy};
     use zeroize::Zeroize as _;
 
-    use super::{keychain_account, keychain_service, AuthOutcome};
+    use super::{AuthOutcome, keychain_account, keychain_service};
 
     const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 
@@ -152,10 +152,10 @@ mod platform {
                     } else {
                         Err(LAError::AuthenticationFailed.0)
                     };
-                    if let Ok(mut guard) = tx.lock() {
-                        if let Some(sender) = guard.take() {
-                            let _ = sender.send(res);
-                        }
+                    if let Ok(mut guard) = tx.lock()
+                        && let Some(sender) = guard.take()
+                    {
+                        let _ = sender.send(res);
                     }
                 },
             );
@@ -313,8 +313,10 @@ fn test_macos_keychain_roundtrip() {
     // Delete and verify idempotency
     delete_key(&profile, server, email).unwrap();
     assert!(!has_key(&profile, server, email));
-    assert!(platform::load_key(&profile, server, email)
-        .unwrap()
-        .is_none());
+    assert!(
+        platform::load_key(&profile, server, email)
+            .unwrap()
+            .is_none()
+    );
     delete_key(&profile, server, email).unwrap();
 }

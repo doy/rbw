@@ -56,7 +56,7 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
                 return Err(Error::InvalidEditor {
                     var: var.to_string(),
                     editor: editor.as_os_str().to_os_string(),
-                })
+                });
             }
         }
         editor_args.push(file.clone().into_os_string());
@@ -78,7 +78,7 @@ pub fn edit(contents: &str, help: &str) -> Result<String> {
             return Err(Error::FailedToFindEditor {
                 editor: cmd.to_owned(),
                 err,
-            })
+            });
         }
     }
 

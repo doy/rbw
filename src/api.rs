@@ -62,10 +62,12 @@ pub enum TwoFactorProviderType {
 impl TwoFactorProviderType {
     pub fn message(&self) -> &str {
         match *self {
-            Self::Authenticator => "Enter the 6 digit verification code from your authenticator app.",
+            Self::Authenticator => {
+                "Enter the 6 digit verification code from your authenticator app."
+            }
             Self::Yubikey => "Insert your Yubikey and push the button.",
             Self::Email => "Enter the PIN you received via email.",
-            _ => "Enter the code."
+            _ => "Enter the code.",
         }
     }
 
@@ -1700,7 +1702,9 @@ fn sso_query_code(
 
     if received_state.split("_identifier=").next().unwrap() != state {
         return Err(Error::FailedToProcessSSOCallback {
-            msg: format!("SSO callback states do not match, sent: {state}, received: {received_state}"),
+            msg: format!(
+                "SSO callback states do not match, sent: {state}, received: {received_state}"
+            ),
         });
     }
 
@@ -1741,20 +1745,18 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         "" => {
             // bitwarden_rs returns an empty error and error_description for
             // this case, for some reason
-            if error_desc.is_none() || error_desc == Some("") {
-                if let Some(error_model) = error_res.error_model.as_ref() {
-                    let message = error_model.message.as_str().to_string();
-                    match message.as_str() {
-                        "Username or password is incorrect. Try again"
-                        | "TOTP code is not a number" => {
+            if (error_desc.is_none() || error_desc == Some(""))
+                && let Some(error_model) = error_res.error_model.as_ref()
+            {
+                let message = error_model.message.as_str().to_string();
+                match message.as_str() {
+                    "Username or password is incorrect. Try again"
+                    | "TOTP code is not a number" => {
+                        return Error::IncorrectPassword { message };
+                    }
+                    s => {
+                        if s.starts_with("Invalid TOTP code! Server time: ") {
                             return Error::IncorrectPassword { message };
-                        }
-                        s => {
-                            if s.starts_with(
-                                "Invalid TOTP code! Server time: ",
-                            ) {
-                                return Error::IncorrectPassword { message };
-                            }
                         }
                     }
                 }

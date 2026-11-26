@@ -96,7 +96,7 @@ impl<'de> serde::Deserialize<'de> for Uri {
                             return Err(serde::de::Error::unknown_field(
                                 key,
                                 &["uri", "match_type"],
-                            ))
+                            ));
                         }
                     }
                 }
@@ -297,10 +297,10 @@ impl Db {
     pub fn remove(server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
         let res = std::fs::remove_file(&file);
-        if let Err(e) = &res {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                return Ok(());
-            }
+        if let Err(e) = &res
+            && e.kind() == std::io::ErrorKind::NotFound
+        {
+            return Ok(());
         }
         res.map_err(|source| Error::RemoveDb { source, file })?;
         Ok(())

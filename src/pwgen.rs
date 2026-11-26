@@ -57,7 +57,7 @@ pub fn pwgen(ty: Type, len: usize) -> String {
     String::from_utf8(pass).unwrap()
 }
 
-fn diceware(rng: &mut impl rand::RngCore, len: usize) -> String {
+fn diceware(rng: &mut impl rand::Rng, len: usize) -> String {
     let mut words = vec![];
     for _ in 0..len {
         // unwrap is safe because choose only returns None for an empty slice

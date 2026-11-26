@@ -122,7 +122,7 @@ pub fn unlock_with_master_keys<S: std::hash::BuildHasher>(
         Err(Error::InvalidMac) => {
             return Err(Error::IncorrectPassword {
                 message: "Password is incorrect. Try again.".to_string(),
-            })
+            });
         }
         Err(e) => return Err(e),
     };
@@ -370,8 +370,8 @@ fn api_client() -> Result<(crate::api::Client, crate::config::Config)> {
     Ok((client, config))
 }
 
-async fn api_client_async(
-) -> Result<(crate::api::Client, crate::config::Config)> {
+async fn api_client_async()
+-> Result<(crate::api::Client, crate::config::Config)> {
     let config = crate::config::Config::load_async().await?;
     let client = crate::api::Client::new(
         &config.base_url(),
