@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (jieniu)
+
+* Persist rotated refresh tokens at every refresh caller, including failed
+  operation retries (adapted from Fredrik Ekre's e1fd97a3, upstream PR #378).
+  Replace database files atomically with private same-directory temporary files,
+  syncing both the file contents and renamed destination directory entry.
+  Failed writes leave the cached vault intact.
+
 ## [1.15.0] - 2025-12-31
 
 ## Added

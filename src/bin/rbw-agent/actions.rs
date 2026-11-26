@@ -521,16 +521,20 @@ pub async fn sync(
     } else {
         return Err(anyhow::anyhow!("failed to find refresh token in db"));
     };
-    let (
-        access_token,
-        (protected_key, protected_private_key, protected_org_keys, entries),
-    ) = rbw::actions::sync(&access_token, &refresh_token)
+    let (tokens, result) = rbw::actions::sync(&access_token, &refresh_token)
         .await
         .context("failed to sync database from server")?;
-    state.lock().await.set_master_password_reprompt(&entries);
-    if let Some(access_token) = access_token {
-        db.access_token = Some(access_token);
+    if let Some(tokens) = tokens {
+        db.access_token = Some(tokens.access_token);
+        if let Some(refresh_token) = tokens.refresh_token {
+            db.refresh_token = Some(refresh_token);
+        }
+        // Persist rotation even when the operation retried with it failed.
+        save_db(&db).await?;
     }
+    let (protected_key, protected_private_key, protected_org_keys, entries) = result
+        .context("failed to sync database from server")?;
+    state.lock().await.set_master_password_reprompt(&entries);
     db.protected_key = Some(protected_key);
     db.protected_private_key = Some(protected_private_key);
     db.protected_org_keys = protected_org_keys;

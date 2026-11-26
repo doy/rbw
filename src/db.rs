@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 use std::io::{Read as _, Write as _};
 
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::AsyncReadExt as _;
 
 #[derive(
     serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq,
@@ -235,65 +235,28 @@ impl Db {
         Ok(slf)
     }
 
-    // XXX need to make this atomic
     pub fn save(&self, server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
-        // unwrap is safe here because Self::filename is explicitly
-        // constructed as a filename in a directory
-        std::fs::create_dir_all(file.parent().unwrap()).map_err(
-            |source| Error::SaveDb {
-                source,
-                file: file.clone(),
-            },
-        )?;
-        let mut fh =
-            std::fs::File::create(&file).map_err(|source| Error::SaveDb {
-                source,
-                file: file.clone(),
-            })?;
-        fh.write_all(
-            serde_json::to_string(self)
-                .map_err(|source| Error::SaveDbJson {
-                    source,
-                    file: file.clone(),
-                })?
-                .as_bytes(),
-        )
-        .map_err(|source| Error::SaveDb { source, file })?;
-        Ok(())
+        let bytes = serde_json::to_vec(self).map_err(|source| {
+            Error::SaveDbJson { source, file: file.clone() }
+        })?;
+        atomic_save(&file, &bytes)
+            .map_err(|source| Error::SaveDb { source, file })
     }
 
-    // XXX need to make this atomic
     pub async fn save_async(&self, server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
-        // unwrap is safe here because Self::filename is explicitly
-        // constructed as a filename in a directory
-        tokio::fs::create_dir_all(file.parent().unwrap())
+        let bytes = serde_json::to_vec(self).map_err(|source| {
+            Error::SaveDbJson { source, file: file.clone() }
+        })?;
+        let destination = file.clone();
+        tokio::task::spawn_blocking(move || atomic_save(&destination, &bytes))
             .await
             .map_err(|source| Error::SaveDbAsync {
-                source,
-                file: file.clone(),
-            })?;
-        let mut fh =
-            tokio::fs::File::create(&file).await.map_err(|source| {
-                Error::SaveDbAsync {
-                    source,
-                    file: file.clone(),
-                }
-            })?;
-        fh.write_all(
-            serde_json::to_string(self)
-                .map_err(|source| Error::SaveDbJson {
-                    source,
-                    file: file.clone(),
-                })?
-                .as_bytes(),
-        )
-        .await
-        .map_err(|source| Error::SaveDbAsync { source, file })?;
-        Ok(())
+                source: std::io::Error::other(source), file: file.clone(),
+            })?
+            .map_err(|source| Error::SaveDbAsync { source, file })
     }
-
     pub fn remove(server: &str, email: &str) -> Result<()> {
         let file = crate::dirs::db_file(server, email);
         let res = std::fs::remove_file(&file);
@@ -312,5 +275,56 @@ impl Db {
             || self.iterations.is_none()
             || self.kdf.is_none()
             || self.protected_key.is_none()
+    }
+}
+
+// A unique, owner-only file on the destination filesystem; neither a failed
+// write nor a failed rename can truncate the previous encrypted vault.
+fn atomic_save(file: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let parent = file.parent().ok_or_else(|| {
+        std::io::Error::other("database path has no parent")
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(file).map_err(|error| error.error)?;
+    // Persist the renamed directory entry, not just the new file's contents.
+    std::fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    #[test]
+    fn replacement_is_complete_private_and_does_not_follow_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("db.json");
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::write(&elsewhere, b"old").unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+        atomic_save(&target, br#"{"refresh_token":"rotated"}"#).unwrap();
+        assert_eq!(std::fs::read(&elsewhere).unwrap(), b"old");
+        assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&target).unwrap()).unwrap();
+        assert_eq!(saved["refresh_token"], "rotated");
+        // Also replace a regular file with a shorter complete snapshot.
+        atomic_save(&target, b"{}").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"{}");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn rename_failure_preserves_destination_and_cleans_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("db.json");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("cached"), b"preserved").unwrap();
+        assert!(atomic_save(&target, b"replacement").is_err());
+        assert_eq!(std::fs::read(target.join("cached")).unwrap(), b"preserved");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }

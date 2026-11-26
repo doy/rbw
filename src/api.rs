@@ -372,6 +372,12 @@ struct ConnectRefreshTokenReq {
 #[derive(serde::Deserialize, Debug)]
 struct ConnectRefreshTokenRes {
     access_token: String,
+    // Bitwarden's own identity server returns long-lived refresh tokens and
+    // does not rotate them, so this is absent there. A Vaultwarden backed by an
+    // external identity provider relays a rotating token, and the previous one
+    // is consumed by the exchange -- reusing it fails every subsequent refresh.
+    #[serde(default)]
+    refresh_token: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -1545,7 +1551,7 @@ impl Client {
     pub fn exchange_refresh_token(
         &self,
         refresh_token: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<String>)> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
             client_id: "cli".to_string(),
@@ -1558,13 +1564,13 @@ impl Client {
             .send()
             .map_err(|source| Error::Reqwest { source })?;
         let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
-        Ok(connect_res.access_token)
+        Ok((connect_res.access_token, connect_res.refresh_token))
     }
 
     pub async fn exchange_refresh_token_async(
         &self,
         refresh_token: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<String>)> {
         let connect_req = ConnectRefreshTokenReq {
             grant_type: "refresh_token".to_string(),
             client_id: "cli".to_string(),
@@ -1579,7 +1585,7 @@ impl Client {
             .map_err(|source| Error::Reqwest { source })?;
         let connect_res: ConnectRefreshTokenRes =
             res.json_with_path().await?;
-        Ok(connect_res.access_token)
+        Ok((connect_res.access_token, connect_res.refresh_token))
     }
 
     fn api_url(&self, path: &str) -> String {
@@ -1765,4 +1771,21 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
 
     log::warn!("unexpected error received during login: {error_res:?}");
     Error::RequestFailed { status: code }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[test]
+    fn refresh_response_accepts_rotating_and_nonrotating_servers() {
+        let rotated: ConnectRefreshTokenRes = serde_json::from_str(
+            r#"{"access_token":"new-access","refresh_token":"new-refresh"}"#,
+        ).unwrap();
+        assert_eq!(rotated.refresh_token.as_deref(), Some("new-refresh"));
+        let stable: ConnectRefreshTokenRes = serde_json::from_str(
+            r#"{"access_token":"new-access"}"#,
+        ).unwrap();
+        assert!(stable.refresh_token.is_none());
+    }
 }
