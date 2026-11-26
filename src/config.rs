@@ -25,6 +25,12 @@ pub struct Config {
         serde(skip_serializing_if = "std::ops::Not::not")
     )]
     pub touchid: bool,
+    #[serde(default)]
+    pub yubikey: bool,
+    #[serde(default)]
+    pub yubikey_uv: bool,
+    #[serde(default)]
+    pub passkey_login: bool,
     // backcompat, no longer generated in new configs
     #[serde(skip_serializing)]
     pub device_id: Option<String>,
@@ -44,6 +50,9 @@ impl Default for Config {
             pinentry: default_pinentry(),
             client_cert_path: None,
             touchid: false,
+            yubikey: false,
+            yubikey_uv: false,
+            passkey_login: false,
             device_id: None,
         }
     }
@@ -260,11 +269,20 @@ fn test_config_touchid_serde() {
     let old_json = r#"{"email":"user@example.com"}"#;
     let config: Config = serde_json::from_str(old_json).unwrap();
     assert!(!config.touchid);
+    assert!(!config.yubikey);
+    assert!(!config.yubikey_uv);
+    assert!(!config.passkey_login);
 
-    let enabled_json = r#"{"email":"user@example.com","touchid":true}"#;
+    let enabled_json = r#"{"email":"user@example.com","touchid":true,"yubikey":true,"yubikey_uv":true,"passkey_login":true}"#;
     let config: Config = serde_json::from_str(enabled_json).unwrap();
     assert!(config.touchid);
+    assert!(config.yubikey);
+    assert!(config.yubikey_uv);
+    assert!(config.passkey_login);
 
     let serialized = serde_json::to_string(&config).unwrap();
     assert!(serialized.contains("\"touchid\":true"));
+    assert!(serialized.contains("\"yubikey\":true"));
+    assert!(serialized.contains("\"yubikey_uv\":true"));
+    assert!(serialized.contains("\"passkey_login\":true"));
 }

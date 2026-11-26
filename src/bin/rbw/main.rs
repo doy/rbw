@@ -40,7 +40,26 @@ enum Opt {
     Register,
 
     #[command(about = "Log in to the Bitwarden server")]
-    Login,
+    Login {
+        #[arg(
+            long,
+            conflicts_with = "password",
+            help = "Log in using a FIDO2 passkey (WebAuthn PRF)"
+        )]
+        passkey: bool,
+        #[arg(
+            long,
+            conflicts_with = "passkey",
+            help = "Log in using master password (overrides passkey_login config)"
+        )]
+        password: bool,
+    },
+
+    #[command(about = "Manage FIDO2 / YubiKey local unlock keys")]
+    Yubikey {
+        #[command(subcommand)]
+        action: YubikeyAction,
+    },
 
     #[command(about = "Unlock the local Bitwarden database")]
     Unlock,
@@ -246,7 +265,10 @@ impl Opt {
                 format!("config {}", config.subcommand_name())
             }
             Self::Register => "register".to_string(),
-            Self::Login => "login".to_string(),
+            Self::Login { .. } => "login".to_string(),
+            Self::Yubikey { action } => {
+                format!("yubikey {}", action.subcommand_name())
+            }
             Self::Unlock => "unlock".to_string(),
             Self::Unlocked => "unlocked".to_string(),
             Self::Sync => "sync".to_string(),
@@ -307,6 +329,38 @@ impl Config {
     }
 }
 
+#[derive(Debug, clap::Parser)]
+enum YubikeyAction {
+    #[command(
+        about = "Enroll a connected FIDO2 security key for local vault unlock"
+    )]
+    Enroll {
+        #[arg(long, help = "Optional label for this security key")]
+        label: Option<String>,
+    },
+    #[command(about = "List enrolled security keys for local vault unlock")]
+    List,
+    #[command(about = "Remove an enrolled security key by label or ID prefix")]
+    Remove {
+        #[arg(help = "Label or credential ID prefix of the key to remove")]
+        key: String,
+    },
+    #[command(about = "Remove all enrolled security keys for this account")]
+    Clear,
+}
+
+impl YubikeyAction {
+    fn subcommand_name(&self) -> String {
+        match self {
+            Self::Enroll { .. } => "enroll",
+            Self::List => "list",
+            Self::Remove { .. } => "remove",
+            Self::Clear => "clear",
+        }
+        .to_string()
+    }
+}
+
 fn main() {
     let opt = Opt::parse();
 
@@ -333,7 +387,15 @@ fn main() {
             Config::Unset { key } => commands::config_unset(&key),
         },
         Opt::Register => commands::register(),
-        Opt::Login => commands::login(),
+        Opt::Login { passkey, password } => commands::login(passkey, password),
+        Opt::Yubikey { action } => match action {
+            YubikeyAction::Enroll { label } => {
+                commands::yubikey_enroll(label.as_deref())
+            }
+            YubikeyAction::List => commands::yubikey_list(),
+            YubikeyAction::Remove { key } => commands::yubikey_remove(&key),
+            YubikeyAction::Clear => commands::yubikey_clear(),
+        },
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
         Opt::Sync => commands::sync(),

@@ -86,6 +86,7 @@ zeroize = "1.9.2"
 arboard = { version = "3.7.0", default-features = false, features = [
     "wayland-data-control",
 ], optional = true }
+ctap-hid-fido2 = { version = "3.6.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
@@ -104,8 +105,9 @@ objc2-local-authentication = { version = "0.3.2", default-features = false, feat
 security-framework = "3.7.0"
 
 [features]
-default = ["clipboard"]
+default = ["clipboard", "fido2"]
 clipboard = ["arboard"]
+fido2 = ["dep:ctap-hid-fido2"]
 
 [lints.clippy]
 cargo = { level = "warn", priority = -1 }

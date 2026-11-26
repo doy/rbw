@@ -10,6 +10,16 @@ pub fn login() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Login)
 }
 
+pub fn login_passkey() -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::LoginPasskey)
+}
+
+pub fn yubikey_enroll(label: Option<&str>) -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::YubikeyEnroll {
+        label: label.map(std::string::ToString::to_string),
+    })
+}
+
 pub fn unlock() -> anyhow::Result<()> {
     simple_action(rbw::protocol::Action::Unlock)
 }
@@ -22,7 +32,7 @@ pub fn unlocked() -> anyhow::Result<()> {
                 rbw::protocol::Action::CheckLock,
             ))?;
 
-            let res = sock.recv()?;
+            let res = recv_final(&mut sock)?;
             match res {
                 rbw::protocol::Response::Ack => Ok(()),
                 rbw::protocol::Response::Error { error } => {
@@ -95,7 +105,7 @@ pub fn decrypt(
         },
     ))?;
 
-    let res = sock.recv()?;
+    let res = recv_final(&mut sock)?;
     match res {
         rbw::protocol::Response::Decrypt { plaintext } => Ok(plaintext),
         rbw::protocol::Response::Error { error } => {
@@ -118,7 +128,7 @@ pub fn encrypt(
         },
     ))?;
 
-    let res = sock.recv()?;
+    let res = recv_final(&mut sock)?;
     match res {
         rbw::protocol::Response::Encrypt { cipherstring } => Ok(cipherstring),
         rbw::protocol::Response::Error { error } => {
@@ -141,7 +151,7 @@ pub fn version() -> anyhow::Result<u32> {
         rbw::protocol::Action::Version,
     ))?;
 
-    let res = sock.recv()?;
+    let res = recv_final(&mut sock)?;
     match res {
         rbw::protocol::Response::Version { version } => Ok(version),
         rbw::protocol::Response::Error { error } => {
@@ -156,13 +166,28 @@ fn simple_action(action: rbw::protocol::Action) -> anyhow::Result<()> {
 
     sock.send(&rbw::protocol::Request::new(get_environment(), action))?;
 
-    let res = sock.recv()?;
+    let res = recv_final(&mut sock)?;
     match res {
         rbw::protocol::Response::Ack => Ok(()),
         rbw::protocol::Response::Error { error } => {
             Err(anyhow::anyhow!("{error}"))
         }
         _ => Err(anyhow::anyhow!("unexpected message: {res:?}")),
+    }
+}
+
+fn recv_final(
+    sock: &mut crate::sock::Sock,
+) -> anyhow::Result<rbw::protocol::Response> {
+    loop {
+        match sock.recv()? {
+            rbw::protocol::Response::Status { message } => {
+                if is_terminal::is_terminal(std::io::stderr()) {
+                    eprintln!("{message}");
+                }
+            }
+            other => return Ok(other),
+        }
     }
 }
 

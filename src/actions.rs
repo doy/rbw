@@ -61,6 +61,26 @@ pub async fn login(
     ))
 }
 
+pub async fn webauthn_login_assertion_options()
+-> Result<crate::api::WebAuthnLoginAssertionOptionsRes> {
+    let (client, _) = api_client_async().await?;
+    client.webauthn_login_assertion_options().await
+}
+
+pub async fn login_webauthn(
+    token: &str,
+    device_response: &str,
+) -> Result<crate::api::WebAuthnLoginRes> {
+    let (client, config) = api_client_async().await?;
+    client
+        .login_webauthn(
+            &crate::config::device_id(&config).await?,
+            token,
+            device_response,
+        )
+        .await
+}
+
 pub async fn send_two_factor_email(
     email: &str,
     sso_email_2fa_session_token: &str,
@@ -118,7 +138,7 @@ pub fn unlock_with_master_keys<S: std::hash::BuildHasher>(
     let protected_key =
         crate::cipherstring::CipherString::new(protected_key)?;
     let key = match protected_key.decrypt_locked_symmetric(master_keys) {
-        Ok(master_keys) => crate::locked::Keys::new(master_keys),
+        Ok(user_key) => crate::locked::Keys::new(user_key),
         Err(Error::InvalidMac) => {
             return Err(Error::IncorrectPassword {
                 message: "Password is incorrect. Try again.".to_string(),
@@ -127,6 +147,17 @@ pub fn unlock_with_master_keys<S: std::hash::BuildHasher>(
         Err(e) => return Err(e),
     };
 
+    unlock_with_user_key(key, protected_private_key, protected_org_keys)
+}
+
+pub fn unlock_with_user_key<S: std::hash::BuildHasher>(
+    key: crate::locked::Keys,
+    protected_private_key: &str,
+    protected_org_keys: &std::collections::HashMap<String, String, S>,
+) -> Result<(
+    crate::locked::Keys,
+    std::collections::HashMap<String, crate::locked::Keys>,
+)> {
     let protected_private_key =
         crate::cipherstring::CipherString::new(protected_private_key)?;
     let private_key = crate::locked::PrivateKey::new(
@@ -144,6 +175,51 @@ pub fn unlock_with_master_keys<S: std::hash::BuildHasher>(
     }
 
     Ok((key, org_keys))
+}
+
+pub fn derive_prf_keys(prf_output: &[u8; 32]) -> Result<crate::locked::Keys> {
+    if prf_output.iter().all(|b| *b == 0) {
+        return Err(Error::Fido2 {
+            message: "authenticator returned an all-zero PRF output"
+                .to_string(),
+        });
+    }
+
+    let mut keys = crate::locked::Vec::new();
+    keys.extend(std::iter::repeat_n(0, crate::locked::KEYS_LEN));
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::from_prk(prf_output)
+        .map_err(|_| Error::HkdfExpand)?;
+    hkdf.expand(b"enc", &mut keys.data_mut()[0..32])
+        .map_err(|_| Error::HkdfExpand)?;
+    hkdf.expand(b"mac", &mut keys.data_mut()[32..64])
+        .map_err(|_| Error::HkdfExpand)?;
+    Ok(crate::locked::Keys::new(keys))
+}
+
+pub fn decrypt_user_key_with_prf(
+    prf_output: &[u8; 32],
+    encrypted_private_key: &str,
+    encrypted_user_key: &str,
+) -> Result<crate::locked::Keys> {
+    let prf_keys = derive_prf_keys(prf_output)?;
+    let encrypted_private_key =
+        crate::cipherstring::CipherString::new(encrypted_private_key)?;
+    let private_key = crate::locked::PrivateKey::new(
+        encrypted_private_key.decrypt_locked_symmetric(&prf_keys)?,
+    );
+
+    let encrypted_user_key =
+        crate::cipherstring::CipherString::new(encrypted_user_key)?;
+    let user_key_vec =
+        encrypted_user_key.decrypt_locked_asymmetric(&private_key)?;
+    crate::locked::Keys::from_bytes(user_key_vec.data()).ok_or_else(|| {
+        Error::Fido2 {
+            message: format!(
+                "decrypted user key has unexpected length ({})",
+                user_key_vec.data().len()
+            ),
+        }
+    })
 }
 
 pub async fn sync(
@@ -426,4 +502,64 @@ fn test_unlock_with_master_keys() {
         &org_keys,
     );
     assert!(matches!(err, Err(Error::IncorrectPassword { .. })));
+}
+
+#[test]
+fn test_decrypt_user_key_with_prf() {
+    use pkcs8::EncodePrivateKey as _;
+
+    // All-zero PRF output must be rejected
+    assert!(derive_prf_keys(&[0_u8; 32]).is_err());
+
+    let prf_output = [0x42_u8; 32];
+    let prf_keys = derive_prf_keys(&prf_output).unwrap();
+
+    let rsa_priv = rsa::PrivateKey::new(&mut rand::rng(), 2048).unwrap();
+    let rsa_pub = rsa_priv.to_public_key();
+    let der = rsa_priv.to_pkcs8_der().unwrap();
+    let encrypted_private_key =
+        crate::cipherstring::CipherString::encrypt_symmetric(
+            &prf_keys,
+            der.as_bytes(),
+        )
+        .unwrap()
+        .to_string();
+
+    let expected_user_key = [0x5b_u8; crate::locked::KEYS_LEN];
+
+    // Type 4 (RSA-OAEP-SHA1)
+    let ct_sha1 = rsa_pub
+        .encrypt(
+            &mut rand::rng(),
+            rsa::Oaep::<sha1::Sha1>::new(),
+            &expected_user_key,
+        )
+        .unwrap();
+    let enc_user_key_sha1 =
+        format!("4.{}", crate::base64::encode(&ct_sha1));
+    let unwrapped_sha1 = decrypt_user_key_with_prf(
+        &prf_output,
+        &encrypted_private_key,
+        &enc_user_key_sha1,
+    )
+    .unwrap();
+    assert_eq!(unwrapped_sha1.as_bytes(), &expected_user_key);
+
+    // Type 3 (RSA-OAEP-SHA256)
+    let ct_sha256 = rsa_pub
+        .encrypt(
+            &mut rand::rng(),
+            rsa::Oaep::<sha2::Sha256>::new(),
+            &expected_user_key,
+        )
+        .unwrap();
+    let enc_user_key_sha256 =
+        format!("3.{}", crate::base64::encode(&ct_sha256));
+    let unwrapped_sha256 = decrypt_user_key_with_prf(
+        &prf_output,
+        &encrypted_private_key,
+        &enc_user_key_sha256,
+    )
+    .unwrap();
+    assert_eq!(unwrapped_sha256.as_bytes(), &expected_user_key);
 }

@@ -127,8 +127,23 @@ async fn handle_request(
             crate::actions::login(sock, state.clone(), &environment).await?;
             true
         }
+        rbw::protocol::Action::LoginPasskey => {
+            crate::actions::login_passkey(sock, state.clone(), &environment)
+                .await?;
+            true
+        }
         rbw::protocol::Action::Unlock => {
             crate::actions::unlock(sock, state.clone(), &environment).await?;
+            true
+        }
+        rbw::protocol::Action::YubikeyEnroll { label } => {
+            crate::actions::yubikey_enroll(
+                sock,
+                state.clone(),
+                &environment,
+                label.as_deref(),
+            )
+            .await?;
             true
         }
         rbw::protocol::Action::CheckLock => {

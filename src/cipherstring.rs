@@ -8,6 +8,14 @@ use pkcs8::DecodePrivateKey as _;
 use rand::Rng as _;
 use zeroize::Zeroize as _;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AsymmetricAlgorithm {
+    // ty: 4 / 6 (RSA_2048_OAEP_SHA1)
+    RsaOaepSha1,
+    // ty: 3 / 5 (RSA_2048_OAEP_SHA256)
+    RsaOaepSha256,
+}
+
 pub enum CipherString {
     Symmetric {
         // ty: 2 (AES_256_CBC_HMAC_SHA256)
@@ -16,7 +24,7 @@ pub enum CipherString {
         mac: Option<Vec<u8>>,
     },
     Asymmetric {
-        // ty: 4 (RSA_2048_OAEP_SHA1)
+        algorithm: AsymmetricAlgorithm,
         ciphertext: Vec<u8>,
     },
 }
@@ -71,6 +79,16 @@ impl CipherString {
                     mac,
                 })
             }
+            3 | 5 => {
+                // RSA_2048_OAEP_SHA256 (3) / RSA_2048_OAEP_SHA256_HMAC_SHA256 (5)
+                let contents = contents.split('|').next().unwrap();
+                let ciphertext = crate::base64::decode(contents)
+                    .map_err(|source| Error::InvalidBase64 { source })?;
+                Ok(Self::Asymmetric {
+                    algorithm: AsymmetricAlgorithm::RsaOaepSha256,
+                    ciphertext,
+                })
+            }
             4 | 6 => {
                 // the only difference between 4 and 6 is the HMAC256
                 // signature appended at the end
@@ -79,7 +97,10 @@ impl CipherString {
                 let contents = contents.split('|').next().unwrap();
                 let ciphertext = crate::base64::decode(contents)
                     .map_err(|source| Error::InvalidBase64 { source })?;
-                Ok(Self::Asymmetric { ciphertext })
+                Ok(Self::Asymmetric {
+                    algorithm: AsymmetricAlgorithm::RsaOaepSha1,
+                    ciphertext,
+                })
             }
             _ => {
                 if ty < 6 {
@@ -181,19 +202,43 @@ impl CipherString {
         }
     }
 
+    pub fn decrypt_locked_symmetric_unpadded(
+        &self,
+        keys: &crate::locked::Keys,
+    ) -> Result<crate::locked::Vec> {
+        let mut res = self.decrypt_locked_symmetric(keys)?;
+        let unpadded_len = pkcs7_unpad(res.data()).ok_or(Error::Padding)?.len();
+        res.data_mut()[unpadded_len..].zeroize();
+        res.truncate(unpadded_len);
+        Ok(res)
+    }
+
     pub fn decrypt_locked_asymmetric(
         &self,
         private_key: &crate::locked::PrivateKey,
     ) -> Result<crate::locked::Vec> {
-        if let Self::Asymmetric { ciphertext } = self {
+        if let Self::Asymmetric {
+            algorithm,
+            ciphertext,
+        } = self
+        {
             let privkey_data = private_key.private_key();
-            let privkey_data =
-                pkcs7_unpad(privkey_data).ok_or(Error::Padding)?;
-            let pkey = rsa::PrivateKey::from_pkcs8_der(privkey_data)
-                .map_err(|source| Error::RsaPkcs8 { source })?;
-            let mut bytes = pkey
-                .decrypt(rsa::Oaep::<sha1::Sha1>::new(), ciphertext)
-                .map_err(|source| Error::Rsa { source })?;
+            let pkey = rsa::PrivateKey::from_pkcs8_der(privkey_data).or_else(
+                |_| {
+                    let unpadded =
+                        pkcs7_unpad(privkey_data).ok_or(Error::Padding)?;
+                    rsa::PrivateKey::from_pkcs8_der(unpadded)
+                        .map_err(|source| Error::RsaPkcs8 { source })
+                },
+            )?;
+            let mut bytes = match algorithm {
+                AsymmetricAlgorithm::RsaOaepSha1 => pkey
+                    .decrypt(rsa::Oaep::<sha1::Sha1>::new(), ciphertext)
+                    .map_err(|source| Error::Rsa { source })?,
+                AsymmetricAlgorithm::RsaOaepSha256 => pkey
+                    .decrypt(rsa::Oaep::<sha2::Sha256>::new(), ciphertext)
+                    .map_err(|source| Error::Rsa { source })?,
+            };
 
             // XXX it'd be great if the rsa crate would let us decrypt
             // into a preallocated buffer directly to avoid the
@@ -252,9 +297,16 @@ impl std::fmt::Display for CipherString {
                     write!(f, "2.{iv}|{ciphertext}")
                 }
             }
-            Self::Asymmetric { ciphertext } => {
+            Self::Asymmetric {
+                algorithm,
+                ciphertext,
+            } => {
                 let ciphertext = crate::base64::encode(ciphertext);
-                write!(f, "4.{ciphertext}")
+                let ty = match algorithm {
+                    AsymmetricAlgorithm::RsaOaepSha256 => 3,
+                    AsymmetricAlgorithm::RsaOaepSha1 => 4,
+                };
+                write!(f, "{ty}.{ciphertext}")
             }
         }
     }
@@ -313,4 +365,79 @@ fn test_pkcs7_unpad() {
         let got = pkcs7_unpad(input);
         assert_eq!(got, expected);
     }
+}
+
+#[test]
+fn test_asymmetric_oaep_sha1_and_sha256() {
+    use pkcs8::EncodePrivateKey as _;
+
+    let rsa_priv = rsa::PrivateKey::new(&mut rand::rng(), 2048).unwrap();
+    let rsa_pub = rsa_priv.to_public_key();
+    let der = rsa_priv.to_pkcs8_der().unwrap();
+    let mut locked_der = crate::locked::Vec::new();
+    locked_der.extend(der.as_bytes().iter().copied());
+    let private_key = crate::locked::PrivateKey::new(locked_der);
+
+    let secret = [0x42_u8; crate::locked::KEYS_LEN];
+
+    let ct_sha1 = rsa_pub
+        .encrypt(&mut rand::rng(), rsa::Oaep::<sha1::Sha1>::new(), &secret)
+        .unwrap();
+    let cs4 = CipherString::new(&format!(
+        "4.{}",
+        crate::base64::encode(&ct_sha1)
+    ))
+    .unwrap();
+    assert_eq!(
+        cs4.decrypt_locked_asymmetric(&private_key).unwrap().data(),
+        &secret
+    );
+    let cs6 = CipherString::new(&format!(
+        "6.{}|AA==",
+        crate::base64::encode(&ct_sha1)
+    ))
+    .unwrap();
+    assert_eq!(
+        cs6.decrypt_locked_asymmetric(&private_key).unwrap().data(),
+        &secret
+    );
+
+    let ct_sha256 = rsa_pub
+        .encrypt(
+            &mut rand::rng(),
+            rsa::Oaep::<sha2::Sha256>::new(),
+            &secret,
+        )
+        .unwrap();
+    let cs3 = CipherString::new(&format!(
+        "3.{}",
+        crate::base64::encode(&ct_sha256)
+    ))
+    .unwrap();
+    assert_eq!(
+        cs3.decrypt_locked_asymmetric(&private_key).unwrap().data(),
+        &secret
+    );
+    assert!(cs3.to_string().starts_with("3."));
+
+    let cs5 = CipherString::new(&format!(
+        "5.{}|AA==",
+        crate::base64::encode(&ct_sha256)
+    ))
+    .unwrap();
+    assert_eq!(
+        cs5.decrypt_locked_asymmetric(&private_key).unwrap().data(),
+        &secret
+    );
+}
+
+#[test]
+fn test_decrypt_locked_symmetric_unpadded() {
+    let keys =
+        crate::locked::Keys::from_bytes(&[0x33_u8; crate::locked::KEYS_LEN])
+            .unwrap();
+    let plaintext = [0x7a_u8; crate::locked::KEYS_LEN];
+    let cs = CipherString::encrypt_symmetric(&keys, &plaintext).unwrap();
+    let decrypted = cs.decrypt_locked_symmetric_unpadded(&keys).unwrap();
+    assert_eq!(decrypted.data(), &plaintext);
 }

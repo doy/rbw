@@ -47,6 +47,13 @@ pub fn db_file(server: &str, email: &str) -> std::path::PathBuf {
     cache_dir().join(format!("{server}:{email}.json"))
 }
 
+pub fn yubikey_file(server: &str, email: &str) -> std::path::PathBuf {
+    let server =
+        percent_encoding::percent_encode(server.as_bytes(), INVALID_PATH)
+            .to_string();
+    data_dir().join(format!("{server}:{email}.yubikey.json"))
+}
+
 pub fn pid_file() -> std::path::PathBuf {
     runtime_dir().join("pidfile")
 }

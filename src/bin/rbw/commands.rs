@@ -1283,6 +1283,36 @@ pub fn config_set(key: &str, value: &str) -> anyhow::Result<()> {
                 ));
             }
         }
+        "yubikey" => {
+            let enabled: bool = value
+                .parse()
+                .context("failed to parse value for yubikey")?;
+            config.yubikey = enabled;
+            if !enabled {
+                delete_yubikey_keys(&config);
+            }
+        }
+        "yubikey_uv" => {
+            let enabled: bool = value
+                .parse()
+                .context("failed to parse value for yubikey_uv")?;
+            if config.yubikey_uv != enabled {
+                config.yubikey_uv = enabled;
+                if let Some(email) = &config.email
+                    && rbw::yubikey::has_keys(&config.server_name(), email)
+                {
+                    eprintln!(
+                        "Note: existing enrolled security keys keep their original UV mode; run `rbw yubikey clear` and re-enroll to apply the new setting."
+                    );
+                }
+            }
+        }
+        "passkey_login" => {
+            let enabled: bool = value
+                .parse()
+                .context("failed to parse value for passkey_login")?;
+            config.passkey_login = enabled;
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1325,6 +1355,16 @@ pub fn config_unset(key: &str) -> anyhow::Result<()> {
                 ));
             }
         }
+        "yubikey" => {
+            config.yubikey = false;
+            delete_yubikey_keys(&config);
+        }
+        "yubikey_uv" => {
+            config.yubikey_uv = false;
+        }
+        "passkey_login" => {
+            config.passkey_login = false;
+        }
         _ => return Err(anyhow::anyhow!("invalid config key: {key}")),
     }
     config.save()?;
@@ -1353,16 +1393,95 @@ pub fn register() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn login() -> anyhow::Result<()> {
+pub fn login(passkey: bool, password: bool) -> anyhow::Result<()> {
     ensure_agent()?;
-    crate::actions::login()?;
+    if passkey {
+        crate::actions::login_passkey()?;
+    } else if password {
+        crate::actions::login()?;
+    } else {
+        login_default()?;
+    }
 
+    Ok(())
+}
+
+fn login_default() -> anyhow::Result<()> {
+    let use_passkey =
+        rbw::config::Config::load().is_ok_and(|c| c.passkey_login);
+    if use_passkey {
+        crate::actions::login_passkey()?;
+    } else {
+        crate::actions::login()?;
+    }
+    Ok(())
+}
+
+pub fn yubikey_enroll(label: Option<&str>) -> anyhow::Result<()> {
+    ensure_agent()?;
+    login_default()?;
+    crate::actions::yubikey_enroll(label)?;
+    if let Ok(config) = rbw::config::Config::load()
+        && !config.yubikey
+    {
+        eprintln!(
+            "Hint: enable local YubiKey unlock with `rbw config set yubikey true`"
+        );
+    }
+
+    Ok(())
+}
+
+pub fn yubikey_list() -> anyhow::Result<()> {
+    check_config()?;
+    let config = rbw::config::Config::load()?;
+    let Some(email) = &config.email else {
+        anyhow::bail!("email address not set");
+    };
+    let Some(store) = rbw::yubikey::load_store(&config.server_name(), email)?
+    else {
+        println!("No security keys enrolled.");
+        return Ok(());
+    };
+    if store.keys.is_empty() {
+        println!("No security keys enrolled.");
+        return Ok(());
+    }
+    for key in &store.keys {
+        let id_prefix: String = key.credential_id.chars().take(12).collect();
+        println!(
+            "{}\t{}...\tuv={}\taaguid={}",
+            key.label, id_prefix, key.uv, key.aaguid
+        );
+    }
+    Ok(())
+}
+
+pub fn yubikey_remove(selector: &str) -> anyhow::Result<()> {
+    check_config()?;
+    let config = rbw::config::Config::load()?;
+    let Some(email) = &config.email else {
+        anyhow::bail!("email address not set");
+    };
+    if !rbw::yubikey::remove_key(&config.server_name(), email, selector)? {
+        anyhow::bail!("no enrolled security key matching '{selector}'");
+    }
+    Ok(())
+}
+
+pub fn yubikey_clear() -> anyhow::Result<()> {
+    check_config()?;
+    let config = rbw::config::Config::load()?;
+    let Some(email) = &config.email else {
+        anyhow::bail!("email address not set");
+    };
+    rbw::yubikey::delete_keys(&config.server_name(), email)?;
     Ok(())
 }
 
 pub fn unlock() -> anyhow::Result<()> {
     ensure_agent()?;
-    crate::actions::login()?;
+    login_default()?;
     crate::actions::unlock()?;
 
     Ok(())
@@ -1379,7 +1498,7 @@ pub fn unlocked() -> anyhow::Result<()> {
 
 pub fn sync() -> anyhow::Result<()> {
     ensure_agent()?;
-    crate::actions::login()?;
+    login_default()?;
     crate::actions::sync()?;
 
     Ok(())
@@ -1971,6 +2090,7 @@ pub fn purge() -> anyhow::Result<()> {
 
     if let Ok(config) = rbw::config::Config::load() {
         delete_touchid_key(&config);
+        delete_yubikey_keys(&config);
     }
     remove_db()?;
 
@@ -1986,6 +2106,15 @@ fn delete_touchid_key(config: &rbw::config::Config) {
         )
     {
         log::warn!("failed to delete touch id key from keychain: {e}");
+    }
+}
+
+fn delete_yubikey_keys(config: &rbw::config::Config) {
+    if let Some(email) = &config.email
+        && let Err(e) =
+            rbw::yubikey::delete_keys(&config.server_name(), email)
+    {
+        log::warn!("failed to delete local YubiKey keys: {e}");
     }
 }
 

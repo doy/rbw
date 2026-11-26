@@ -236,6 +236,7 @@ pub enum Error {
     #[error("two factor required")]
     TwoFactorRequired {
         providers: Vec<crate::api::TwoFactorProviderType>,
+        providers_data: std::collections::HashMap<String, serde_json::Value>,
         sso_email_2fa_session_token: Option<String>,
     },
 
@@ -253,6 +254,35 @@ pub enum Error {
 
     #[error("failed to access keychain: {message}")]
     Keychain { message: String },
+
+    #[error("FIDO2 security key error: {message}")]
+    Fido2 { message: String },
+
+    #[error("no FIDO2 security key found")]
+    Fido2NoDevice,
+
+    #[error("FIDO2 support is unavailable: {message}")]
+    Fido2Unsupported { message: String },
+
+    #[error("FIDO2 security key requires a PIN or user verification")]
+    Fido2PinRequired,
+
+    #[error("invalid FIDO2 PIN{}", .retries.map_or_else(String::new, |r| format!(" ({r} attempts remaining)")))]
+    Fido2PinInvalid { retries: Option<i32> },
+
+    #[error("FIDO2 security key PIN is blocked")]
+    Fido2PinBlocked,
+
+    #[error("FIDO2 security key operation cancelled")]
+    Fido2Cancelled,
+
+    #[error(
+        "server does not support passkey login (GET /accounts/webauthn/assertion-options returned {status}); Vaultwarden currently supports WebAuthn 2FA via regular `rbw login` only"
+    )]
+    PasskeyLoginUnsupported { status: u16 },
+
+    #[error("failed to access local YubiKey store: {message}")]
+    YubikeyStorage { message: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

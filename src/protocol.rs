@@ -169,11 +169,15 @@ impl Environment {
 #[serde(tag = "type")]
 pub enum Action {
     Login,
+    LoginPasskey,
     Register,
     Unlock,
     CheckLock,
     Lock,
     Sync,
+    YubikeyEnroll {
+        label: Option<String>,
+    },
     Decrypt {
         cipherstring: String,
         entry_key: Option<String>,
@@ -194,6 +198,7 @@ pub enum Action {
 #[serde(tag = "type")]
 pub enum Response {
     Ack,
+    Status { message: String },
     Error { error: String },
     Decrypt { plaintext: String },
     Encrypt { cipherstring: String },
