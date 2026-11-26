@@ -244,6 +244,7 @@ mod platform {
         false
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     pub fn store_key(
         _profile: &str,
         _server: &str,
@@ -253,6 +254,7 @@ mod platform {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     pub fn delete_key(
         _profile: &str,
         _server: &str,

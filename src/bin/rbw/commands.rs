@@ -2388,6 +2388,7 @@ pub fn config_unset(
             )?;
         }
 
+        #[cfg(target_os = "macos")]
         let global_touchid = cf.touchid;
         let global_yubikey = cf.yubikey;
         let acct = cf.accounts.get_mut(&target_name).unwrap();
@@ -2433,7 +2434,6 @@ pub fn config_unset(
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
-                    let _ = global_touchid;
                     return Err(anyhow::anyhow!(
                         "touchid is only supported on macOS"
                     ));
