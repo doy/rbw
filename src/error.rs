@@ -184,6 +184,15 @@ pub enum Error {
     #[error("api request unauthorized")]
     RequestUnauthorized,
 
+    #[error("refresh token rejected; authentication is required")]
+    RefreshTokenInvalid,
+
+    #[error("automatic re-login unavailable; run rbw login")]
+    RecoveryUnavailable,
+
+    #[error("unattended pinentry timed out")]
+    PinentryTimeout,
+
     #[error("error making api request")]
     Reqwest { source: reqwest::Error },
 

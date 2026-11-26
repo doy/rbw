@@ -340,10 +340,10 @@ fn main() {
         Opt::Login => commands::login(),
         Opt::Unlock => commands::unlock(),
         Opt::Unlocked => commands::unlocked(),
-        Opt::Status => {
-            println!("{}", serde_json::to_string(&actions::status()?)?);
+        Opt::Status => actions::status().and_then(|status| {
+            println!("{}", serde_json::to_string(&status)?);
             Ok(())
-        }
+        }),
         Opt::Sync => commands::sync(),
         Opt::List { fields, raw } => commands::list(&fields, raw),
         Opt::Get {

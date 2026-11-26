@@ -219,3 +219,7 @@ pub fn status() -> anyhow::Result<rbw::db::Status> {
         _ => anyhow::bail!("failed to read agent status"),
     }
 }
+
+pub fn reauthenticate() -> anyhow::Result<()> {
+    simple_action(rbw::protocol::Action::Reauthenticate)
+}

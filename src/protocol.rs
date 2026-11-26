@@ -169,6 +169,7 @@ impl Environment {
 #[serde(tag = "type")]
 pub enum Action {
     Login,
+    Reauthenticate,
     Register,
     Unlock,
     CheckLock,

@@ -2,6 +2,18 @@
 
 ## Unreleased (jieniu)
 
+* Keep offline test configuration, cache and runtime sockets inside the fixture
+  on both Linux and macOS, including macOS's TMPDIR-based socket directory.
+
+* Recover rejected refresh tokens through the configured pinentry, without a
+  terminal or browser/2FA flow. Persist the hourly attempt reservation and
+  permanent stops in the existing private database; never purge the vault.
+  Invalid passwords, two-factor/challenge requirements, and explicit pinentry
+  cancellation stop automatic recovery until a complete explicit `rbw login`
+  succeeds. Transient helper/network failures retry at most once per hour,
+  including across agent restarts. Sync and mutation refreshes share this
+  policy; status reports fixed error codes instead of server/helper messages.
+
 * Add JSON-only `rbw status`: locked state, last successful sync, token expiry
   hints, and a fixed nonsecret error code. It never starts the agent, contacts
   the server, or unlocks the vault. Opaque/malformed token expiries are null.

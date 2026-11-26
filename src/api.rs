@@ -1053,8 +1053,8 @@ impl Client {
             match res.text().await {
                 Ok(body) => match body.clone().json_with_path() {
                     Ok(json) => Err(classify_login_error(&json, code)),
-                    Err(e) => {
-                        log::warn!("{e}: {body}");
+                    Err(_) => {
+                        log::warn!("invalid login response (status {code})");
                         Err(Error::RequestFailed { status: code })
                     }
                 },
@@ -1563,6 +1563,9 @@ impl Client {
             .form(&connect_req)
             .send()
             .map_err(|source| Error::Reqwest { source })?;
+        if !res.status().is_success() {
+            return Err(classify_refresh_error(res.status().as_u16(), &res.text().unwrap_or_default()));
+        }
         let connect_res: ConnectRefreshTokenRes = res.json_with_path()?;
         Ok((connect_res.access_token, connect_res.refresh_token))
     }
@@ -1583,6 +1586,10 @@ impl Client {
             .send()
             .await
             .map_err(|source| Error::Reqwest { source })?;
+        if !res.status().is_success() {
+            let status = res.status().as_u16();
+            return Err(classify_refresh_error(status, &res.text().await.unwrap_or_default()));
+        }
         let connect_res: ConnectRefreshTokenRes =
             res.json_with_path().await?;
         Ok((connect_res.access_token, connect_res.refresh_token))
@@ -1769,7 +1776,7 @@ fn classify_login_error(error_res: &ConnectErrorRes, code: u16) -> Error {
         _ => {}
     }
 
-    log::warn!("unexpected error received during login: {error_res:?}");
+    log::warn!("unexpected login response (status {code})");
     Error::RequestFailed { status: code }
 }
 
@@ -1787,5 +1794,17 @@ mod refresh_tests {
             r#"{"access_token":"new-access"}"#,
         ).unwrap();
         assert!(stable.refresh_token.is_none());
+    }
+}
+
+// Adapted from 11cb990e: classify rejection without recording a response body.
+fn classify_refresh_error(status: u16, body: &str) -> Error {
+    #[derive(serde::Deserialize)]
+    struct Failure { error: String }
+    if matches!(status, 400 | 401) && serde_json::from_str::<Failure>(body)
+        .is_ok_and(|failure| failure.error == "invalid_grant") {
+        Error::RefreshTokenInvalid
+    } else {
+        Error::RequestFailed { status }
     }
 }

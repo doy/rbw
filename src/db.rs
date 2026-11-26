@@ -183,7 +183,8 @@ pub struct Db {
     pub last_sync: Option<u64>,
     #[serde(default)]
     pub last_error: Option<StatusError>,
-
+    #[serde(default)]
+    pub recovery: Recovery,
     pub kdf: Option<crate::api::KdfType>,
     pub iterations: Option<u32>,
     pub memory: Option<u32>,
@@ -336,7 +337,16 @@ mod persistence_tests {
 /// Closed vocabulary: never persist or print server/pinentry text.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum StatusError { SyncFailed }
+pub enum StatusError {
+    SyncFailed,
+    TokenRejected,
+    InvalidPassword,
+    TwoFactorRequired,
+    ChallengeRequired,
+    PinentryCancelled,
+    PinentryUnavailable,
+    NetworkUnavailable,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Status {
@@ -406,4 +416,63 @@ mod status_tests {
         }
         assert_eq!(token_expiry(Some(&"x".repeat(16385))), None);
     }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Debug)]
+pub struct Recovery {
+    pub pending: bool,
+    pub last_attempt: Option<u64>,
+    pub stopped: bool,
+    #[serde(default)]
+    pub pending_kdf: Option<LoginKdf>,
+}
+
+impl Recovery {
+    // Persist this reservation before contacting pinentry/the server. A clock
+    // moving backwards must not grant extra attempts after a restart.
+    pub fn reserve(&mut self, now: u64) -> bool {
+        if !self.pending || self.stopped || self.last_attempt
+            .is_some_and(|last| now.saturating_sub(last) < 3600) {
+            return false;
+        }
+        self.last_attempt = Some(now);
+        true
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+    #[test]
+    fn persisted_budget_obeys_hour_boundary_and_clock_rollback() {
+        let mut db = Db::new();
+        db.recovery.pending = true;
+        assert!(db.recovery.reserve(10000));
+        let mut restored: Db = serde_json::from_slice(&serde_json::to_vec(&db).unwrap()).unwrap();
+        assert!(!restored.recovery.reserve(10000));
+        assert!(!restored.recovery.reserve(9000));
+        assert!(!restored.recovery.reserve(13599));
+        assert!(restored.recovery.reserve(13600));
+        restored.recovery.stopped = true;
+        let mut stopped: Db = serde_json::from_slice(&serde_json::to_vec(&restored).unwrap()).unwrap();
+        assert!(!stopped.recovery.reserve(1000000));
+        // Existing caches without metadata retain the original login predicate.
+        let old: Db = serde_json::from_value(serde_json::json!({
+            "access_token":"access", "refresh_token":"refresh", "kdf":0,
+            "iterations":1, "protected_key":"key", "protected_org_keys":{}, "entries":[]
+        })).unwrap();
+        assert!(!old.recovery.pending);
+        assert!(!old.needs_login());
+    }
+}
+
+// Stage new login KDF parameters until the corresponding vault snapshot is
+// saved. A successful login followed by a failed sync must not break the old
+// cached vault's offline decryption, including after an agent restart.
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct LoginKdf {
+    pub kdf: crate::api::KdfType,
+    pub iterations: u32,
+    pub memory: Option<u32>,
+    pub parallelism: Option<u32>,
 }

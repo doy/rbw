@@ -1328,7 +1328,7 @@ pub fn register() -> anyhow::Result<()> {
 
 pub fn login() -> anyhow::Result<()> {
     ensure_agent()?;
-    crate::actions::login()?;
+    crate::actions::reauthenticate()?;
 
     Ok(())
 }
@@ -1599,6 +1599,7 @@ pub fn add(
         let (tokens, folders) =
             rbw::actions::list_folders(&access_token, &refresh_token)?;
         if let Some(tokens) = tokens {
+            if tokens.recovered { db = load_db()?; }
             access_token = tokens.access_token;
             db.access_token = Some(access_token.clone());
             if let Some(new_refresh_token) = tokens.refresh_token {
@@ -1628,6 +1629,7 @@ pub fn add(
                 &crate::actions::encrypt(folder_name, None)?,
             )?;
             if let Some(tokens) = tokens {
+                if tokens.recovered { db = load_db()?; }
                 access_token = tokens.access_token;
                 db.access_token = Some(access_token.clone());
                 if let Some(new_refresh_token) = tokens.refresh_token {
@@ -1654,6 +1656,7 @@ pub fn add(
         folder_id.as_deref(),
     )?;
     if let Some(tokens) = tokens {
+        if tokens.recovered { db = load_db()?; }
         db.access_token = Some(tokens.access_token);
         if let Some(refresh_token) = tokens.refresh_token {
             db.refresh_token = Some(refresh_token);
@@ -1707,6 +1710,7 @@ pub fn generate(
             let (tokens, folders) =
                 rbw::actions::list_folders(&access_token, &refresh_token)?;
             if let Some(tokens) = tokens {
+                if tokens.recovered { db = load_db()?; }
                 access_token = tokens.access_token;
                 db.access_token = Some(access_token.clone());
                 if let Some(new_refresh_token) = tokens.refresh_token {
@@ -1736,6 +1740,7 @@ pub fn generate(
                     &crate::actions::encrypt(folder_name, None)?,
                 )?;
                 if let Some(tokens) = tokens {
+                    if tokens.recovered { db = load_db()?; }
                     access_token = tokens.access_token;
                     db.access_token = Some(access_token.clone());
                     if let Some(new_refresh_token) = tokens.refresh_token {
@@ -1762,6 +1767,7 @@ pub fn generate(
             folder_id.as_deref(),
         )?;
         if let Some(tokens) = tokens {
+            if tokens.recovered { db = load_db()?; }
             db.access_token = Some(tokens.access_token);
             if let Some(refresh_token) = tokens.refresh_token {
                 db.refresh_token = Some(refresh_token);
@@ -1894,6 +1900,7 @@ pub fn edit(
         &history,
     )?;
     if let Some(tokens) = tokens {
+        if tokens.recovered { db = load_db()?; }
         db.access_token = Some(tokens.access_token);
         if let Some(refresh_token) = tokens.refresh_token {
             db.refresh_token = Some(refresh_token);
@@ -1930,6 +1937,7 @@ pub fn remove(
     let (tokens, result) =
         rbw::actions::remove(access_token, refresh_token, &entry.id)?;
     if let Some(tokens) = tokens {
+        if tokens.recovered { db = load_db()?; }
         db.access_token = Some(tokens.access_token);
         if let Some(refresh_token) = tokens.refresh_token {
             db.refresh_token = Some(refresh_token);

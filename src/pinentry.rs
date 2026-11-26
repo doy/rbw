@@ -12,10 +12,32 @@ pub async fn getpin(
     environment: &crate::protocol::Environment,
     grab: bool,
 ) -> Result<crate::locked::Password> {
+    getpin_inner(pinentry, prompt, desc, err, environment, grab, false).await
+}
+
+/// No terminal environment, bounded lifetime, and no inherited stderr.
+pub async fn getpin_unattended(pinentry: &str) -> Result<crate::locked::Password> {
+    tokio::time::timeout(std::time::Duration::from_secs(60), getpin_inner(
+        pinentry, "Master Password", "Automatic vault re-login", None,
+        &crate::protocol::Environment::default(), true, true,
+    )).await.map_err(|_| Error::PinentryTimeout)?
+}
+
+async fn getpin_inner(
+    pinentry: &str,
+    prompt: &str,
+    desc: &str,
+    err: Option<&str>,
+    environment: &crate::protocol::Environment,
+    grab: bool,
+    unattended: bool,
+) -> Result<crate::locked::Password> {
     let mut opts = tokio::process::Command::new(pinentry);
     opts.stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped());
-    let mut args = vec!["--timeout".into(), "0".into()];
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    if unattended { opts.stderr(std::process::Stdio::null()); }
+    let mut args = vec!["--timeout".into(), if unattended { "60" } else { "0" }.into()];
     if let Some(tty) = environment.tty() {
         args.extend(["--ttyname".into(), tty.into()]);
     }

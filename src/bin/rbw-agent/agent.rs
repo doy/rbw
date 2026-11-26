@@ -124,7 +124,11 @@ async fn handle_request(
             true
         }
         rbw::protocol::Action::Login => {
-            crate::actions::login(sock, state.clone(), &environment).await?;
+            crate::actions::login(sock, state.clone(), &environment, false).await?;
+            true
+        }
+        rbw::protocol::Action::Reauthenticate => {
+            crate::actions::login(sock, state.clone(), &environment, true).await?;
             true
         }
         rbw::protocol::Action::Unlock => {

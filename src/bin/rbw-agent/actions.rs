@@ -79,10 +79,11 @@ pub async fn login(
     sock: &mut crate::sock::Sock,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
     environment: &rbw::protocol::Environment,
+    explicit: bool,
 ) -> anyhow::Result<()> {
     let db = load_db().await.unwrap_or_else(|_| rbw::db::Db::new());
 
-    if db.needs_login() {
+    if db.needs_login() || (explicit && (db.recovery.pending || db.recovery.stopped)) {
         let url_str = config_base_url().await?;
         let url = reqwest::Url::parse(&url_str)
             .context("failed to parse base url")?;
@@ -331,11 +332,13 @@ async fn login_success(
 ) -> anyhow::Result<()> {
     db.access_token = Some(access_token.clone());
     db.refresh_token = Some(refresh_token.clone());
-    db.kdf = Some(kdf);
-    db.iterations = Some(iterations);
-    db.memory = memory;
-    db.parallelism = parallelism;
-    db.protected_key = Some(protected_key.clone());
+    db.recovery.pending_kdf = Some(rbw::db::LoginKdf {
+        kdf, iterations, memory, parallelism,
+    });
+    // Authentication succeeded, but keep a permanent stop until the explicit
+    // login also completes sync/unlock. Never retry automatically in between.
+    db.recovery.pending = false;
+    db.last_error = None;
     save_db(&db).await?;
 
     sync(None, state.clone()).await?;
@@ -367,6 +370,10 @@ async fn login_success(
         }
         Err(e) => return Err(e).context("failed to unlock database"),
     }
+    let mut db = load_db().await?;
+    db.recovery = rbw::db::Recovery::default();
+    db.last_error = None;
+    save_db(&db).await?;
 
     Ok(())
 }
@@ -509,10 +516,14 @@ pub async fn sync(
     sock: Option<&mut crate::sock::Sock>,
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
+    static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = SYNC.lock().await;
     let result = sync_inner(sock, state).await;
     if result.is_err() {
         if let Ok(mut db) = load_db().await {
-            db.last_error = Some(rbw::db::StatusError::SyncFailed);
+            if !db.recovery.pending {
+                db.last_error = Some(rbw::db::StatusError::SyncFailed);
+            }
             save_db(&db).await?;
         }
     }
@@ -524,6 +535,9 @@ async fn sync_inner(
     state: std::sync::Arc<tokio::sync::Mutex<crate::state::State>>,
 ) -> anyhow::Result<()> {
     let mut db = load_db().await?;
+    if db.recovery.pending {
+        recover_login(&mut db).await?;
+    }
 
     let access_token = if let Some(access_token) = &db.access_token {
         access_token.clone()
@@ -535,9 +549,26 @@ async fn sync_inner(
     } else {
         return Err(anyhow::anyhow!("failed to find refresh token in db"));
     };
-    let (tokens, result) = rbw::actions::sync(&access_token, &refresh_token)
-        .await
-        .context("failed to sync database from server")?;
+    let response = rbw::actions::sync(&access_token, &refresh_token).await;
+    let (tokens, result) = match response {
+        Err(rbw::error::Error::RefreshTokenInvalid) => {
+            db.recovery.pending = true;
+            db.last_error = Some(rbw::db::StatusError::TokenRejected);
+            save_db(&db).await?;
+            recover_login(&mut db).await?;
+            // One retry of the original operation, never a recovery loop.
+            match rbw::actions::sync(db.access_token.as_deref().unwrap(), db.refresh_token.as_deref().unwrap()).await {
+                Err(rbw::error::Error::RefreshTokenInvalid) => {
+                    db.recovery.pending = true;
+                    db.last_error = Some(rbw::db::StatusError::TokenRejected);
+                    save_db(&db).await?;
+                    return Err(rbw::error::Error::RecoveryUnavailable.into());
+                }
+                other => other?,
+            }
+        }
+        other => other.context("failed to sync database from server")?,
+    };
     if let Some(tokens) = tokens {
         db.access_token = Some(tokens.access_token);
         if let Some(refresh_token) = tokens.refresh_token {
@@ -553,6 +584,12 @@ async fn sync_inner(
     db.protected_private_key = Some(protected_private_key);
     db.protected_org_keys = protected_org_keys;
     db.entries = entries;
+    if let Some(kdf) = db.recovery.pending_kdf.take() {
+        db.kdf = Some(kdf.kdf);
+        db.iterations = Some(kdf.iterations);
+        db.memory = kdf.memory;
+        db.parallelism = kdf.parallelism;
+    }
     db.last_sync = Some(rbw::db::unix_now());
     db.last_error = None;
     save_db(&db).await?;
@@ -979,4 +1016,61 @@ pub async fn status(
     let locked = state.lock().await.needs_unlock();
     sock.send(&rbw::protocol::Response::Status { status: db.status(locked) }).await?;
     Ok(())
+}
+
+async fn recover_login(db: &mut rbw::db::Db) -> anyhow::Result<()> {
+    if !db.recovery.reserve(rbw::db::unix_now()) {
+        return Err(rbw::error::Error::RecoveryUnavailable.into());
+    }
+    // Reserve before any external operation, including pinentry. Restarting the
+    // agent, or a helper failing, must not reset the account's attempt budget.
+    save_db(db).await?;
+    let result = unattended_login().await;
+    match result {
+        Ok((access, refresh, kdf, iterations, memory, parallelism, _key)) => {
+            db.access_token = Some(access);
+            db.refresh_token = Some(refresh);
+            db.recovery.pending_kdf = Some(rbw::db::LoginKdf {
+                kdf, iterations, memory, parallelism,
+            });
+            db.recovery.pending = false;
+            db.last_error = None;
+            // Do not clear last_attempt: even success spends the hourly budget.
+            save_db(db).await?;
+            Ok(())
+        }
+        Err(code) => {
+            db.recovery.stopped = matches!(code,
+                rbw::db::StatusError::InvalidPassword | rbw::db::StatusError::TwoFactorRequired |
+                rbw::db::StatusError::ChallengeRequired | rbw::db::StatusError::PinentryCancelled);
+            db.last_error = Some(code);
+            save_db(db).await?;
+            // Deliberately discard the underlying server/pinentry text.
+            Err(rbw::error::Error::RecoveryUnavailable.into())
+        }
+    }
+}
+
+type LoginTokens = (String, String, rbw::api::KdfType, u32, Option<u32>, Option<u32>, String);
+
+async fn unattended_login() -> Result<LoginTokens, rbw::db::StatusError> {
+    use rbw::db::StatusError as Code;
+    let config = rbw::config::Config::load_async().await.map_err(|_| Code::PinentryUnavailable)?;
+    // Never launch the browser-based SSO flow or a two-factor prompt.
+    if config.sso_id.is_some() { return Err(Code::ChallengeRequired); }
+    let email = config.email.as_deref().ok_or(Code::ChallengeRequired)?;
+    let password = rbw::pinentry::getpin_unattended(&config.pinentry).await.map_err(|error| {
+        if matches!(error, rbw::error::Error::PinentryCancelled) {
+            Code::PinentryCancelled
+        } else { Code::PinentryUnavailable }
+    })?;
+    tokio::time::timeout(std::time::Duration::from_secs(30), rbw::actions::login(email, password, None, None))
+        .await.map_err(|_| Code::NetworkUnavailable)?
+        .map_err(|error| match error {
+            rbw::error::Error::IncorrectPassword { .. } => Code::InvalidPassword,
+            rbw::error::Error::TwoFactorRequired { .. } => Code::TwoFactorRequired,
+            rbw::error::Error::Reqwest { .. } | rbw::error::Error::CreateReqwestClient { .. } => Code::NetworkUnavailable,
+            rbw::error::Error::RequestFailed { status: 500..=599 } => Code::NetworkUnavailable,
+            _ => Code::ChallengeRequired,
+        })
 }

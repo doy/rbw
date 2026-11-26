@@ -299,6 +299,7 @@ fn create_folder_once(access_token: &str, name: &str) -> Result<String> {
 pub struct RefreshedTokens {
     pub access_token: String,
     pub refresh_token: Option<String>,
+    pub recovered: bool,
 }
 
 fn with_exchange_refresh_token<F, T>(
@@ -346,12 +347,19 @@ where
 }
 
 fn exchange_refresh_token(refresh_token: &str) -> Result<RefreshedTokens> {
-    let (client, _) = api_client()?;
-    let (access_token, refresh_token) =
-        client.exchange_refresh_token(refresh_token)?;
+    let (client, config) = api_client()?;
+    let email = config.email.as_deref().ok_or(Error::ConfigMissingEmail)?;
+    if crate::db::Db::load(&config.server_name(), email)?.recovery.pending {
+        return recover_tokens_from_agent();
+    }
+    let (access_token, refresh_token) = match client.exchange_refresh_token(refresh_token) {
+        Err(Error::RefreshTokenInvalid) => return recover_tokens_from_agent(),
+        other => other?,
+    };
     Ok(RefreshedTokens {
         access_token,
         refresh_token,
+        recovered: false,
     })
 }
 
@@ -364,6 +372,7 @@ async fn exchange_refresh_token_async(
     Ok(RefreshedTokens {
         access_token,
         refresh_token,
+        recovered: false,
     })
 }
 
@@ -388,4 +397,38 @@ async fn api_client_async(
         config.client_cert_path(),
     );
     Ok((client, config))
+}
+
+// Synchronous mutation callers delegate rejected-token recovery to the agent,
+// which owns the persisted attempt budget. Never run pinentry in the CLI.
+fn recover_tokens_from_agent() -> Result<RefreshedTokens> {
+    use std::io::{BufRead as _, Read as _, Write as _};
+    let config = crate::config::Config::load()?;
+    let email = config.email.as_deref().ok_or(Error::ConfigMissingEmail)?;
+    let mut db = crate::db::Db::load(&config.server_name(), email)?;
+    if !db.recovery.pending {
+        db.recovery.pending = true;
+        db.last_error = Some(crate::db::StatusError::TokenRejected);
+    }
+    db.save(&config.server_name(), email)?;
+    let communicate = || -> std::io::Result<bool> {
+        let mut socket = std::os::unix::net::UnixStream::connect(crate::dirs::socket_file())?;
+        socket.set_read_timeout(Some(std::time::Duration::from_secs(120)))?;
+        socket.set_write_timeout(Some(std::time::Duration::from_secs(5)))?;
+        let request = crate::protocol::Request::new(
+            crate::protocol::Environment::default(), crate::protocol::Action::Sync,
+        );
+        serde_json::to_writer(&mut socket, &request)?;
+        socket.write_all(b"\n")?;
+        let mut response = String::new();
+        std::io::BufReader::new(socket.take(4096)).read_line(&mut response)?;
+        Ok(matches!(serde_json::from_str::<crate::protocol::Response>(&response), Ok(crate::protocol::Response::Ack)))
+    };
+    if !communicate().unwrap_or(false) { return Err(Error::RecoveryUnavailable); }
+    let db = crate::db::Db::load(&config.server_name(), email)?;
+    Ok(RefreshedTokens {
+        access_token: db.access_token.ok_or(Error::RecoveryUnavailable)?,
+        refresh_token: db.refresh_token,
+        recovered: true,
+    })
 }
