@@ -6,8 +6,11 @@ static REGION_LOCK_WORKS: std::sync::OnceLock<bool> =
     std::sync::OnceLock::new();
 
 pub struct Vec {
-    data: Box<arrayvec::ArrayVec<u8, LEN>>,
+    // `_lock` MUST be declared before `data` so `munlock` runs while `data`'s
+    // backing allocation is still mapped (musl's mallocng `munmap`s freed 4KiB
+    // allocations immediately, causing `munlock` to fail with ENOMEM).
     _lock: Option<region::LockGuard>,
+    data: Box<arrayvec::ArrayVec<u8, LEN>>,
 }
 
 impl Default for Vec {
@@ -31,7 +34,7 @@ impl Default for Vec {
                 }
             },
         };
-        Self { data, _lock: lock }
+        Self { _lock: lock, data }
     }
 }
 
